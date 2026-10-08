@@ -6,6 +6,8 @@ This repository is licensed under the Apache License, Version 2.0. That license 
 
 `node test-all.js` runs every `test.js` that exists and lists the applications that do not have one yet.
 
+`listing.json` may set `gifUrl` to an `https` URL of a pinned GitHub Release instead of a GIF built in this tree. It then also sets `gifSha256` and `gifBytes`. The catalog pins that hash. A `gifUrl` of `gifos.app/apps/` is refused: that address is hosting, not a pin.
+
 ## Reviews
 
 Anyone with a GitHub account can rate a listed app by pull request. A review is one file, named after your GitHub username, at the root of this repository:
