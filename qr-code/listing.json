@@ -1,0 +1,34 @@
+{
+  "tagline": "Type a link or any text. A QR code appears.",
+  "description": "Type a link, a phone number, a message, or a contact, and a code appears on this screen.\n\nThe last code you made comes back the next time you open the app. A shared link can open the app already filled in. Press Invite in the GifOS bar to put the same code on everyone else's screen in a meeting.\n\nUnofficial port of qrcodejs by davidshimjs. A general maker — not only Wi-Fi. For a fridge card with the network name and password, use WiFi Card instead.",
+  "author": {
+    "name": "davidshimjs",
+    "url": "https://github.com/davidshimjs/qrcodejs"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "qrcodejs",
+    "url": "https://github.com/davidshimjs/qrcodejs",
+    "blessed": false
+  },
+  "releaseDate": "2026-08-24",
+  "categories": [
+    "Utilities"
+  ],
+  "tags": [
+    "qr",
+    "code",
+    "url",
+    "text",
+    "offline",
+    "print",
+    "contact"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/qr-code",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

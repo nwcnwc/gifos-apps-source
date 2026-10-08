@@ -1,0 +1,220 @@
+/* The picture is the page. Code sits on the video, hydra.ojack.xyz-style. */
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: #fff;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+body { position: relative; }
+
+#view {
+  position: fixed;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  touch-action: none;
+  z-index: 0;
+}
+
+#ui {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  pointer-events: none;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+
+#hud {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px 6px;
+  flex: 0 0 auto;
+}
+#brand {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: lowercase;
+  text-shadow: 0 1px 2px #000, 0 0 8px #000;
+}
+#which {
+  font-size: 13px;
+  color: #ffd36a;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px #000;
+}
+.actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.actions button, #leaveBtn, #runBtn, #welcomeClose {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 7px 12px;
+  min-height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(8, 4, 12, 0.55);
+  color: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  text-shadow: none;
+}
+#shareBtn { background: rgba(196, 61, 122, 0.92); border-color: #e05a96; }
+#runBtn { background: rgba(57, 208, 197, 0.92); color: #082018; border-color: #2bb8ae; }
+body.friend #shareBtn { display: none; }
+body.hide-code #patchBtn { background: rgba(196, 61, 122, 0.92); border-color: #e05a96; }
+
+#friend-bar {
+  pointer-events: auto;
+  flex: 0 0 auto;
+  margin: 0 12px 6px;
+  background: rgba(8, 4, 12, 0.86);
+  border: 1px solid rgba(74, 36, 88, 0.9);
+  border-radius: 8px;
+  padding: 10px 12px 8px;
+  max-height: 34%;
+  overflow: auto;
+}
+#friend-bar[hidden] { display: none; }
+#friend-hint, #friend-status { margin: 0 0 8px; font-size: 14px; line-height: 1.45; }
+#friend-hint b { color: #ffd36a; }
+#friend-status { font-weight: 700; min-height: 1.2em; }
+#friend-scores { list-style: none; margin: 0 0 8px; padding: 0; }
+#friend-scores li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+  border-top: 1px solid #2a1634;
+}
+#friend-scores li:first-child { border-top: none; }
+#friend-scores .name { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#friend-scores .me .name { color: #ffd36a; }
+#friend-scores .meta { color: #c9a0c4; font-size: 13px; white-space: nowrap; }
+.friend-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+#err {
+  pointer-events: none;
+  flex: 0 0 auto;
+  margin: 0 14px 4px;
+  color: #ff6b6b;
+  font-size: 13px;
+  white-space: pre-wrap;
+  text-shadow: 0 1px 2px #000;
+}
+#err[hidden] { display: none; }
+
+#recipe {
+  pointer-events: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: auto;
+  height: 0;
+  max-height: none;
+  resize: none;
+  border: 0;
+  border-radius: 0;
+  margin: 0 4px;
+  padding: 8px 10px;
+  background: transparent;
+  background-color: transparent;
+  color: #fff;
+  caret-color: #39d0c5;
+  font: 16px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-shadow: 1px 1px 0 #000, -1px 0 0 #000, 0 1px 0 #000, 0 -1px 0 #000, 0 0 6px #000;
+  outline: none;
+  color-scheme: dark;
+  user-select: text;
+  -webkit-user-select: text;
+  overflow: auto;
+}
+#recipe::selection { background: rgba(57, 208, 197, 0.45); }
+body.hide-code #recipe { visibility: hidden; pointer-events: none; }
+
+#chips {
+  pointer-events: auto;
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 8px 8px;
+}
+#chips button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 12px;
+  min-height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(8, 4, 12, 0.5);
+  color: #fff;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+#chips button.on {
+  background: rgba(196, 61, 122, 0.92);
+  border-color: #e05a96;
+}
+body.hide-code #chips { visibility: hidden; pointer-events: none; }
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+#welcome {
+  position: fixed;
+  z-index: 4;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100% - 32px));
+  padding: 22px 22px 18px;
+  background: rgba(8, 4, 12, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  color: #fff;
+  text-align: left;
+}
+#welcome[hidden] { display: none; }
+.welcome-kicker {
+  margin: 0 0 4px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #39d0c5;
+}
+#welcome h1 {
+  margin: 0 0 12px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.welcome-copy { margin: 0 0 16px; font-size: 15px; line-height: 1.45; color: #f4eef6; }
+.welcome-copy b { color: #ffd36a; }
+#welcomeClose { display: block; width: 100%; }
+
+@media (max-width: 720px) {
+  #recipe { font-size: 14px; }
+  #which { max-width: 28%; }
+}

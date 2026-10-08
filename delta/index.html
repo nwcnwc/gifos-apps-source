@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Delta</title>
+<link href="vendor/normalize.css" rel="stylesheet">
+<link href="vendor/delta.css" rel="stylesheet">
+<link href="style.css" rel="stylesheet">
+</head>
+<body>
+<div id="delta">
+  <div id="scoreboard">
+    <span class="lives"><span class="label">LIVES:</span><img class="one" alt=""><img class="two" alt=""><img class="three" alt=""></span>
+    <span class="score"><span class="label">SCORE:</span><span class="value">00000</span></span>
+    <span id="best"></span>
+  </div>
+  <img id="booting" alt="">
+  <h1 id="title" style="display:none;">Delta</h1>
+  <h2 id="start" style="display:none;">press space / tap to start</h2>
+  <h1 id="prepare" style="display:none;">Fasten Your Seatbelt</h1>
+  <canvas id="canvas">This game needs a canvas.</canvas>
+  <div id="instructions">arrows or WASD move · space shoot</div>
+  <div id="sound" class="on" title="mute"></div>
+</div>
+<div id="touch" hidden>
+  <div id="dpad" aria-label="Move">
+    <button class="d-up" data-dir="up" type="button" aria-label="Up" tabindex="-1">▲</button>
+    <button class="d-left" data-dir="left" type="button" aria-label="Left" tabindex="-1">◀</button>
+    <button class="d-right" data-dir="right" type="button" aria-label="Right" tabindex="-1">▶</button>
+    <button class="d-down" data-dir="down" type="button" aria-label="Down" tabindex="-1">▼</button>
+    <i id="d-knob"></i>
+  </div>
+  <button id="t-fire" data-dir="fire" type="button" aria-label="Fire">FIRE</button>
+</div>
+<script src="vendor/vendor.js"></script>
+<script src="vendor/assets.js"></script>
+<script src="vendor/game.js"></script>
+<script src="vendor/delta.js"></script>
+<script src="sfx.js"></script>
+<script src="boot.js"></script>
+<script src="touch.js"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+{
+  "gifos": "1.0",
+  "appId": "offline-tts",
+  "name": "Offline Text to Speech",
+  "shortName": "Offline TTS",
+  "version": "1.0",
+  "minBuild": 1177,
+  "description": "Offline text-to-speech for your whole computer. A Provider app: put it in your Providers folder, assign it to Text → speech in Settings → AI models, and every app that speaks uses it — no account, no key, nothing leaves your device.",
+  "entry": "index.html",
+  "accent": [
+    123,
+    92,
+    255
+  ],
+  "capabilities": {},
+  "launch": {
+    "say": {
+      "label": "Say something out loud on this device",
+      "detail": "The voice is synthesised here, offline — nothing is sent anywhere, and nothing is saved."
+    },
+    "voice": {
+      "label": "…in a particular voice",
+      "detail": "One of the app's voice names (nova, echo, onyx, fable, alloy, shimmer, whisper)."
+    }
+  },
+  "provides": {
+    "ai": [
+      "tts"
+    ]
+  }
+}

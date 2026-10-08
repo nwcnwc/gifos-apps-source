@@ -1,0 +1,35 @@
+{
+  "tagline": "Click the ducks. The dog laughs.",
+  "description": "Open the file, tap a duck, and the dog will tell you how you did. Close it, come back — your best run is saved.\n\nDucks fly left and right. You have three shots a wave. Miss too many and the dog laughs. Hit enough and the next round is faster. On a phone the tap is the zapper; a thumb does not have to be pixel-perfect.\n\nSend the invite and a friend sits their own pond on their device. Two zappers, two dogs, one board of bests.\n\nAn unofficial remake based on DuckHunt JS by MattSurabian, MIT-licensed. Pictures and sounds are from that port. This copy adds the save and the pond.",
+  "author": {
+    "name": "MattSurabian",
+    "url": "https://github.com/MattSurabian/DuckHunt-JS"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "DuckHunt JS",
+    "url": "https://github.com/MattSurabian/DuckHunt-JS",
+    "blessed": false
+  },
+  "releaseDate": "2026-08-24",
+  "categories": [
+    "Games"
+  ],
+  "tags": [
+    "arcade",
+    "shooter",
+    "tap",
+    "offline",
+    "multiplayer"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/duck-hunt",
+  "cover": "screenshot.png",
+  "coverCrop": {
+    "top": 88
+  },
+  "screenshots": []
+}

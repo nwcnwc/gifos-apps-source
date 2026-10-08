@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Anyroad</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d1424'/%3E%3Cpath d='M14 54 L28 12 h8 l14 42 z' fill='%232b3550'/%3E%3Crect x='30' y='18' width='4' height='8' fill='%23e8e2c4'/%3E%3Crect x='30' y='32' width='4' height='8' fill='%23e8e2c4'/%3E%3Crect x='30' y='46' width='4' height='6' fill='%23e8e2c4'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<!-- The wheel you see from the driver's seat. Only the top arc is above the
+     dash, which is what you actually see out of a real car. -->
+<div id="cockpit" hidden aria-hidden="true">
+  <!-- The dash. Its top edge curves down at the sides the way a moulded
+       dashboard does, so it reads as part of the car rather than as a black
+       bar laid over the picture. -->
+  <div id="dash">
+    <div id="dash-cluster">
+      <div id="dash-speed">0</div>
+      <div id="dash-unit">km/h</div>
+      <div id="dash-cond"><i id="dash-cond-fill"></i></div>
+    </div>
+    <!-- The altimeter. Its own instrument, in the dead stretch of dash left
+         of the wheel — NOT a second meaning for the speedometer. Swapping the
+         speed readout to metres mid-flight meant that the one moment you are
+         managing both height AND speed was the moment you could only see one
+         of them. -->
+    <div id="dash-alt" hidden>
+      <div id="dash-alt-m">0</div>
+      <div class="dash-alt-label">m altitude</div>
+    </div>
+  </div>
+  <!-- ON THE DASH, where Nathan asked for it — but on the RIGHT, not dead
+       centre. The first version sat on the steering wheel and was invisible;
+       the second went up to the top bar with the view toggles, which is not
+       where a driver's control belongs. This is the dash, clear of the wheel,
+       clear of the pedals. -->
+  <button id="btn-fly" type="button" aria-label="Take off">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+        <path id="fly-plane" d="M2 13.5 22 5l-4.5 8.5L22 22l-8-4-6 3 1.5-5.5z"
+              fill="currentColor" opacity=".95"/>
+        <path id="fly-car" d="M3 15.5h18v-3l-2.2-4H7.4L4 12.5v3zm2.5 3.5a1.6 1.6 0 100-3.2 1.6 1.6 0 000 3.2zm13 0a1.6 1.6 0 100-3.2 1.6 1.6 0 000 3.2z"
+              fill="currentColor" opacity=".95" hidden/>
+      </svg>
+    </button>
+  <div id="cockpit-wheel">
+    <svg viewBox="0 0 200 200" width="100%" height="100%" aria-hidden="true">
+      <circle cx="100" cy="100" r="86" fill="none" stroke="rgba(18,20,26,.92)" stroke-width="17"/>
+      <circle cx="100" cy="100" r="86" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="2"/>
+      <rect x="92" y="14" width="16" height="26" rx="6" fill="rgba(120,190,255,.85)"/>
+      <path d="M100 100 L28 62 M100 100 L172 62 M100 100 L100 186" stroke="rgba(18,20,26,.92)" stroke-width="15" stroke-linecap="round"/>
+      <circle cx="100" cy="100" r="27" fill="rgba(24,27,34,.95)"/>
+    </svg>
+  </div>
+</div>
+<!-- The windscreen: damage is drawn on the glass you are looking through, not
+     only counted in a bar. Never takes a pointer event — it sits over the
+     steering area. -->
+<canvas id="cracks"></canvas>
+<div class="glass" aria-hidden="true"></div>
+
+<!-- ── the drive HUD ─────────────────────────────────────────────────────── -->
+<div id="hud" hidden>
+  <div class="topbar">
+    <button class="chip" id="btn-menu" aria-label="Menu">☰</button>
+    <div class="where">
+      <div class="place" id="place">—</div>
+      <!-- The road you are ON. It has always been in the map data. -->
+      <div class="street" id="street" hidden></div>
+    </div>
+    <div class="spacer"></div>
+    <!-- Bird's eye flies the game camera itself — no inset, no second map. -->
+    <button class="chip" id="btn-map" aria-label="Change point of view">
+      <svg id="pov-eye" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+        <rect x="2.5" y="2.5" width="19" height="19" rx="4" fill="none"
+              stroke="currentColor" stroke-width="1.6" opacity=".75"/>
+        <g id="pov-pupil">
+          <ellipse id="pov-white" cx="12" cy="12" rx="6.4" ry="4.2" fill="none"
+                   stroke="currentColor" stroke-width="1.7"/>
+          <circle id="pov-iris" cx="12" cy="12" r="2.1" fill="currentColor"/>
+        </g>
+      </svg>
+    </button>
+    <button class="chip" id="btn-race" aria-label="Races">🏁<span class="badge" id="race-badge" hidden></span></button>
+    <!-- Send up a flare. Only worth a slot in the top bar when there is
+         somebody to see it, so it appears with the second player. -->
+    <button class="chip" id="btn-flare" aria-label="Send up a flare" hidden>🔆</button>
+    <button class="chip" id="btn-hop" aria-label="Go somewhere else">🌍</button>
+    <!-- The loading map. Tiny, north-up, and only on screen while something is
+         still coming in — a permanent one would be clutter. -->
+    <canvas id="tilemap" width="72" height="72" aria-label="Map tiles loading around you" hidden></canvas>
+  </div>
+
+  <div class="speedo" id="speedo">
+    <span id="speed">0</span><small>km/h</small>
+    <!-- Reverse is a GEAR and the read-out says so. |speed| alone made 36 km/h
+         backwards and 36 km/h forwards the same picture. -->
+    <b class="gear" id="gear" hidden>R</b>
+  </div>
+
+  <!-- Appears only while the car is genuinely wedged: full power, no movement.
+       Puts you back on the nearest carriageway, facing along it. -->
+  <button class="stuck" id="stuck" hidden>Stuck? Back to the road</button>
+
+  <!-- Condition. Sits with the speed read-out because both answer "how is the
+       car doing" and a bar hunting for attention elsewhere would be noise. -->
+  <div class="health" id="health">
+    <div class="health-bar"><div class="health-fill" id="health-fill"></div></div>
+    <span class="health-label">CONDITION</span>
+  </div>
+
+  <div class="damage-flash" id="damage-flash"></div>
+
+  <div class="wrecked" id="wrecked" hidden>
+    <div class="wrecked-card">
+      <strong>Wrecked</strong>
+      <p id="wrecked-why">That building won.</p>
+      <button id="btn-repair">Repair and carry on</button>
+    </div>
+  </div>
+
+  <div class="status" id="status" hidden></div>
+
+  <!-- Data credits, visible WHILE the data is on screen. The landing and
+       settings sheets carry the full text too, but attribution that hides the
+       moment the map appears is not attribution — ODbL for the roads, and
+       MapTiler's terms for the satellite drape, both want it near the map. -->
+  <p class="drive-attrib" id="attribution3"></p>
+
+  <!-- Streets you pass, called out as they go by, on the side they went by. -->
+  <div class="passing" id="passing" aria-live="polite"></div>
+
+  <div class="racehud" id="racehud" hidden>
+    <div class="rh-time" id="rh-time">0.0</div>
+    <div class="rh-dist" id="rh-dist"></div>
+    <svg class="rh-arrow" id="rh-arrow" viewBox="-12 -12 24 24" aria-hidden="true">
+      <path d="M0 -10 L7 8 L0 4 L-7 8 Z" fill="currentColor"/>
+    </svg>
+  </div>
+
+  <!-- Touch controls.
+       The old version put ◀ and ▶ where the pedals go, which every hand reads
+       as "left" and "right" — and hid the actual steering behind an invisible
+       drag on the left half of the screen. So: steering is now a VISIBLE pad
+       with a knob that moves, and the pedals say what they are in words. -->
+  <div class="controls" id="controls">
+    <!-- A wheel that TURNS. A slider was legible but it is not what a hand
+         expects a car to have, and it gave no sense of which way is straight. -->
+    <div class="steerpad" id="steerpad" aria-label="Steering wheel">
+      <svg class="wheel" id="wheel" viewBox="-50 -50 100 100" aria-hidden="true">
+        <circle class="w-rim" cx="0" cy="0" r="42"/>
+        <circle class="w-hub" cx="0" cy="0" r="11"/>
+        <path class="w-spoke" d="M-42 0 H-11 M11 0 H42 M0 11 V40"/>
+        <path class="w-top" d="M0 -42 v9"/>
+      </svg>
+      <div class="steer-hint">TURN TO STEER</div>
+    </div>
+    <!-- The throttle is HIDDEN by default: the car cruises on its own and the
+         only pedal you need is the brake. It comes back if you choose manual
+         throttle in Settings. -->
+    <div class="pedals">
+      <button class="pedal brake" id="pedal-brake" aria-label="Brake and reverse">BRAKE</button>
+      <button class="pedal gas" id="pedal-gas" aria-label="Accelerate" hidden>GO</button>
+    </div>
+  </div>
+
+  <!-- Rubber-band stick: invisible until a thumb lands, then drawn where it
+       landed. Up/down trims the speed you hold; sideways steers. -->
+  <div class="stick" id="stick" hidden>
+    <div class="stick-base" id="stick-base"></div>
+    <div class="stick-knob" id="stick-knob"></div>
+    <div class="stick-axis" id="stick-axis"></div>
+  </div>
+
+  <!-- Control-scheme picker, on the main screen as asked: change it while
+       driving and feel the difference immediately, no menu round trip. -->
+  <div class="schemes" id="schemes" role="radiogroup" aria-label="Control scheme">
+    <button role="radio" data-scheme="wheel" aria-checked="true">Wheel</button>
+    <button role="radio" data-scheme="stick" aria-checked="false">Stick</button>
+    <button role="radio" data-scheme="tilt" aria-checked="false">Tilt</button>
+  </div>
+
+  <!-- First-drive coach marks: shown once, dismissed by the first touch. -->
+  <div class="coach" id="coach" hidden>
+    <div class="coach-steer">Slide anywhere on this side to steer<br><b>Tap</b> to fire the blaster</div>
+    <div class="coach-gas" id="coach-gas" hidden>Hold to<br>accelerate</div>
+    <div class="coach-brake">Drives itself —<br>hold to slow down</div>
+  </div>
+</div>
+
+<!-- ── the world status sheet ────────────────────────────────────────────
+     What every tile around you is doing, and why it is not here yet. Opened
+     by tapping the tile map: the map shows the shape of the problem, this
+     shows the reason. -->
+<div id="worldstat" class="overlay" hidden>
+  <div class="sheet">
+    <div class="sheet-head"><h2>Building the world</h2><button class="close" id="close-worldstat" aria-label="Close">✕</button></div>
+    <p class="add-help" id="ws-summary"></p>
+    <div id="ws-mirrors"></div>
+    <div id="ws-tiles"></div>
+    <button class="sheet-close" id="close-worldstat-bottom">Close<small>or press Esc</small></button>
+  </div>
+</div>
+
+<!-- ── landing / hop ─────────────────────────────────────────────────────── -->
+<div id="landing" class="overlay">
+  <div class="sheet">
+    <h1>Anyroad</h1>
+    <p class="sub">Drive any road on Earth. Search a place, drop in, go.</p>
+    <p class="inspired">Inspired by <a href="https://hop.earth" rel="noopener" target="_blank">Hop.Earth</a>
+      (Pawel Misiurski / DVLP). Our own engine, not a port of theirs.</p>
+
+    <form id="searchform" autocomplete="off">
+      <input id="q" type="search" placeholder="Somewhere on Earth…" aria-label="Search for a place">
+      <button type="submit" id="go">Search</button>
+    </form>
+    <p class="hint" id="searchhint">Street addresses work. Search runs once when you press Search, and the text you
+      type is sent to OpenStreetMap's geocoder to be turned into coordinates —
+      their policy allows one request a second, which is also why there is no
+      type-ahead.</p>
+
+    <ul id="results" class="results"></ul>
+
+    <p class="recent-label" id="recent-label" hidden>PLACES YOU HAVE BEEN</p>
+    <div class="recent" id="recent" hidden></div>
+
+    <div class="presets" id="presets"></div>
+
+    <p class="attribution" id="attribution"></p>
+  </div>
+</div>
+
+<!-- ── settings ──────────────────────────────────────────────────────────── -->
+<div id="settings" class="overlay" hidden>
+  <div class="sheet">
+    <div class="sheet-head"><h2>Settings</h2><button class="close" id="close-settings" aria-label="Close">✕</button></div>
+
+    <!-- SHARE WHERE YOU ARE. The link carries the app AND the place: whoever
+         opens it arrives at this spot, in the aeroplane if you are flying,
+         with nothing installed and nothing to find in a store. The box under
+         the button always holds the link too — a sandboxed app cannot count on
+         reaching the clipboard, and "copied!" that silently did not is worse
+         than no button at all. -->
+    <div class="field" id="share-field">
+      <span>Share where you are</span>
+      <div class="row"><button type="button" id="btn-share">🔗 Copy a link to here</button></div>
+      <input id="share-url" type="text" readonly spellcheck="false" autocomplete="off" aria-label="A link to this place">
+      <small id="share-note">Whoever opens it lands right here — even if they have never used GifOS.</small>
+    </div>
+
+    <label class="field">
+      <span>Elevation</span>
+      <select id="src-terrain"></select>
+      <small id="note-terrain"></small>
+    </label>
+
+    <label class="field">
+      <span>Roads</span>
+      <select id="src-roads"></select>
+      <small>Several public Overpass mirrors. Switch if one is busy or has blocked us.</small>
+    </label>
+
+    <label class="field">
+      <span>Imagery</span>
+      <select id="src-imagery"></select>
+      <small id="note-imagery"></small>
+    </label>
+
+    <label class="field">
+      <span>Steering</span>
+      <select id="ctl-steering">
+        <option value="touch">Slide to steer</option>
+        <option value="tilt">Tilt the phone</option>
+      </select>
+      <small id="note-steering"></small>
+    </label>
+
+    <label class="field">
+      <span>Speed</span>
+      <select id="ctl-throttle">
+        <option value="auto">Drives itself — you steer and brake</option>
+        <option value="manual">Manual — hold GO to accelerate</option>
+      </select>
+      <small>On a phone the throttle is the thumb that should be steering, so by
+        default the car cruises at whatever the road it is on is built for and
+        you only brake.</small>
+    </label>
+
+    <label class="field">
+      <span>Traffic</span>
+      <select id="ctl-traffic">
+        <option value="none">Empty roads</option>
+        <option value="light">Light</option>
+        <option value="normal">Normal</option>
+        <option value="heavy">Heavy</option>
+      </select>
+      <small>Other cars, driving the same roads you are at whatever that class
+        of road is for. They keep to their side, slow for what is in front of
+        them, and hitting one costs you both.</small>
+    </label>
+
+    <label class="field">
+      <span>Sound</span>
+      <select id="ctl-sound">
+        <option value="on">Engine, tyres, traffic and animals</option>
+        <option value="off">Silent</option>
+      </select>
+      <small>Everything you hear is generated as you drive — there is no audio
+        in the file. The engine has a gearbox, the tyres change with the
+        surface, and animals call from where they actually are.</small>
+    </label>
+
+    <label class="field">
+      <span>Blaster</span>
+      <select id="ctl-blaster">
+        <option value="on">Fitted — space, or tap the screen</option>
+        <option value="off">No blaster</option>
+      </select>
+      <small>A gun on the roof, firing straight ahead. An animal you hit with it
+        is off the road before you get there — so it is a way of dealing with
+        the hazard, not a way of ignoring it. Traffic takes a few.</small>
+    </label>
+
+    <label class="field">
+      <span>Wildlife</span>
+      <select id="ctl-wildlife">
+        <option value="on">Animals on the roads</option>
+        <option value="off">None</option>
+      </select>
+      <small>Deer, sheep, geese and the occasional cow wander the verges and
+        cross in front of you. Hitting one costs condition and cracks the
+        windscreen — brake, or go round.</small>
+    </label>
+
+    <label class="field">
+      <span>Detail</span>
+      <select id="src-quality">
+        <option value="normal">Everything — buildings and scenery</option>
+        <option value="medium">No scenery — buildings only</option>
+        <option value="low">Roads only — lightest</option>
+      </select>
+      <small>Scenery is trees, generated along the roads rather than downloaded,
+        and it is the most expensive thing on screen. Step down one if an older
+        phone struggles; roads-only also stops asking for building footprints,
+        which makes busy cities load faster.</small>
+    </label>
+
+    <!-- Two dials, two questions. KEEP is your own trail — the map you have
+         actually driven and searched through. FILL is extra map fetched ahead
+         while the network is idle. They were one dropdown, which forced the
+         two decisions to travel together. -->
+    <label class="field">
+      <span>Street names in the world</span>
+      <select id="ctl-labels">
+        <option value="on">Float them over the roads</option>
+        <option value="off">Off — just the HUD</option>
+      </select>
+      <small>Names sit over the carriageway they belong to, nearest few only.</small>
+    </label>
+
+    <label class="field">
+      <span>Remember where I&rsquo;ve driven</span>
+      <select id="ctl-keep"></select>
+    </label>
+    <label class="field">
+      <span>Build out the map around me</span>
+      <select id="ctl-fill"></select>
+      <small id="note-offline"></small>
+    </label>
+
+    <div class="field">
+      <span>Cached map data</span>
+      <div class="row">
+        <span class="muted" id="cache-size">—</span>
+        <button id="clear-cache" class="ghost">Clear</button>
+      </div>
+      <small>Road geometry is kept on this device so re-driving an area needs no
+        network. This is DISK, not memory: how much you keep has no effect on
+        how smoothly the game runs, because only the tiles right around you are
+        ever drawn.</small>
+    </div>
+
+    <p class="attribution" id="attribution2"></p>
+
+    <button class="sheet-close" id="close-settings-bottom">Close<small>or press Esc</small></button>
+  </div>
+</div>
+
+<!-- ── races ─────────────────────────────────────────────────────────────── -->
+<div id="race" class="overlay" hidden>
+  <div class="sheet">
+    <div class="sheet-head"><h2>Race</h2><button class="close" id="close-race" aria-label="Close">✕</button></div>
+    <p class="sub" id="mp-status">Driving alone.</p>
+    <p class="hint">Everyone who opens this app's invite link lands in the same
+      place and drives the same world. Use <b>Invite</b> in the GifOS menu to
+      send the link.</p>
+
+    <label class="field">
+      <span>How far away should the flag be?</span>
+      <select id="race-dist">
+        <option value="800">Just up the road — 800 m</option>
+        <option value="2500" selected>A proper drive — 2.5 km</option>
+        <option value="6000">A long one — 6 km</option>
+        <option value="15000">An expedition — 15 km</option>
+      </select>
+    </label>
+    <div class="racebuttons">
+      <button id="start-race">Drop a flag and race</button>
+      <button id="clear-race" class="ghost">Clear</button>
+    </div>
+    <p class="hint" id="race-hint">A flag is dropped somewhere random at that distance. Everyone starts from where they are — first to reach it wins.</p>
+
+    <ol class="board" id="board"></ol>
+
+    <button class="sheet-close" id="close-race-bottom">Close<small>or press Esc</small></button>
+  </div>
+</div>
+
+<div id="note" class="note" hidden></div>
+
+<div id="fatal" class="overlay" hidden>
+  <div class="sheet">
+    <h2>Anyroad can't run here</h2>
+    <p class="sub" id="fatal-msg"></p>
+  </div>
+</div>
+
+<script src="host.js"></script>
+<script src="geo.js"></script>
+<script src="sources.js"></script>
+<script src="net.js"></script>
+<script src="terrain.js"></script>
+<script src="roads.js"></script>
+<script src="render.js"></script>
+<script src="car.js"></script>
+<script src="animals.js"></script>
+<script src="traffic.js"></script>
+<script src="blaster.js"></script>
+<script src="sound.js"></script>
+<script src="mp.js"></script>
+<script src="ui.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

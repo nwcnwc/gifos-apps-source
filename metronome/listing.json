@@ -1,0 +1,33 @@
+{
+  "tagline": "A metronome. Set the tempo, it keeps the click.",
+  "description": "Set a tempo, press Start, and the click holds — the same lookahead Web Audio scheduling as Chris Wilson's metronome, with a pendulum and a wood click so it feels like the box on the piano.\n\nThe last tempo, signature and subdivision come back the next time you open the app. Hand someone the GIF and they open it already at your rehearsal speed.\n\nPress Invite in the bar above the app to show the same numbers in a meeting. Each device plays its own click; there is no shared speaker.\n\nUnofficial port of the Web Audio metronome by Chris Wilson (cwilso). Bugs go to GifOS, not upstream.",
+  "author": {
+    "name": "cwilso",
+    "url": "https://github.com/cwilso/metronome"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "metronome",
+    "url": "https://github.com/cwilso/metronome",
+    "blessed": false
+  },
+  "releaseDate": "2026-08-24",
+  "categories": [
+    "Creativity",
+    "Media"
+  ],
+  "tags": [
+    "metronome",
+    "tempo",
+    "click",
+    "audio",
+    "offline"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/metronome",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

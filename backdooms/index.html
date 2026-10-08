@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Backdooms</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="c" width="320" height="240"></canvas>
+
+<div id="hud" hidden>
+  <div id="cross"><i></i><i></i><i></i><i></i></div>
+  <div class="pod pod-l">
+    <div class="pod-k">HEALTH</div>
+    <div class="pod-v" id="hp-val">100</div>
+    <div class="pod-bar"><i id="hp-bar"></i></div>
+  </div>
+  <div class="pod pod-r">
+    <div class="pod-k">SHELLS</div>
+    <div class="pod-v" id="ammo-val">25</div>
+    <div class="shells" id="shells"></div>
+  </div>
+  <div id="score-pod">
+    <span class="pod-k">DOWNED</span>
+    <span class="pod-v" id="score-val">0</span>
+    <span id="best-val"></span>
+  </div>
+  <div id="tally" hidden></div>
+  <div id="lowammo" hidden>OUT OF SHELLS — KEEP MOVING</div>
+</div>
+<div id="vig"></div>
+<div id="pain"></div>
+<div id="painarc"><i></i></div>
+
+<div id="gate">
+  <div class="gate-box">
+    <div class="mark" aria-hidden="true"><span></span><span></span><span></span></div>
+    <h1>Backdooms</h1>
+    <p class="sub">DOOM in the Backrooms, in a GIF.</p>
+    <div id="gate-actions">
+      <button id="gate-go" type="button">Enter the halls</button>
+    </div>
+    <div id="gate-keys">
+      <b>WASD</b> walk · <b>mouse</b> look · <b>click</b> fire
+    </div>
+    <div id="gate-keys-phone">
+      Left side is the stick · drag to look · hold <b>FIRE</b>
+      <b class="turn">Turn the phone sideways</b>
+    </div>
+    <p class="opts">
+      <label id="speed-label" for="m">Look speed</label>
+      <input id="m" type="range" value="10" min="1" max="40">
+    </p>
+    <p class="best" id="gate-best"></p>
+    <div id="gate-room"></div>
+  </div>
+</div>
+
+<div id="over" hidden>
+  <div class="gate-box">
+    <!-- Upstream's own word. The port had invented its own, which described
+         something this game does not have: there is nothing to fall off, and
+         every death is something clawing you. -->
+    <h1 class="dead">GAME OVER</h1>
+    <p id="over-score"></p>
+    <p id="over-note"></p>
+    <button id="over-go" type="button">Again</button>
+  </div>
+</div>
+
+<div id="resume" hidden>
+  <div class="gate-box small">
+    <p>Click to look</p>
+  </div>
+</div>
+
+<!-- ORDER IS THE HIT TEST: the look surface is the whole screen and must sit
+     UNDER the stick and FIRE. It routes a touch by where it started. -->
+<div id="touch" hidden>
+  <div id="t-look"></div>
+  <div id="t-move" class="t-stick"><div class="t-knob"></div></div>
+  <button class="t-btn" id="t-fire" type="button">FIRE</button>
+</div>
+
+<script src="art.js"></script>
+<script src="render.js"></script>
+<script src="game.js"></script>
+<script src="net.js"></script>
+<script src="touch.js"></script>
+<script src="boot.js"></script>
+</body>
+</html>

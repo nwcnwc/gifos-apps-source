@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bible</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-theme="paper" data-size="3" data-face="serif">
+
+<header id="bar">
+  <div id="hist" class="hist">
+    <button id="b-back" class="bar-btn icon hist-btn" type="button" aria-label="Back" disabled>
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M9 4 3 10l6 6"/><path d="M3 10h14"/></svg>
+    </button>
+    <button id="b-fwd" class="bar-btn icon hist-btn" type="button" aria-label="Forward" disabled>
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M11 4l6 6-6 6"/><path d="M3 10h14"/></svg>
+    </button>
+  </div>
+  <button id="b-place" class="bar-btn wide" type="button" aria-label="Choose a book and chapter">
+    <span id="place-ref">Loading</span><span class="caret">&#9662;</span>
+  </button>
+  <button id="b-trans" class="bar-btn chip" type="button" aria-label="Choose a translation">
+    <span id="trans-name">&nbsp;</span><span class="caret">&#9662;</span>
+  </button>
+  <button id="b-search" class="bar-btn icon" type="button" aria-label="Search">
+    <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="6"/><path d="M13.5 13.5 18 18"/></svg>
+  </button>
+  <button id="b-more" class="bar-btn icon" type="button" aria-label="More">
+    <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="4" r="1.6" class="fill"/><circle cx="10" cy="10" r="1.6" class="fill"/><circle cx="10" cy="16" r="1.6" class="fill"/></svg>
+  </button>
+</header>
+
+<div id="follow" hidden>
+  <span id="follow-who">Following the leader</span>
+  <button id="follow-off" class="link" type="button">Read on my own</button>
+</div>
+
+<main id="page">
+  <div id="cols"></div>
+  <div id="empty" class="empty" hidden></div>
+</main>
+
+<footer id="foot">
+  <button id="b-prev" class="foot-btn" type="button" aria-label="Previous chapter">&#8249;</button>
+  <button id="b-plan" class="foot-btn plan" type="button">
+    <span id="plan-label">Reading plan</span>
+  </button>
+  <button id="b-next" class="foot-btn" type="button" aria-label="Next chapter">&#8250;</button>
+</footer>
+
+<!-- ---------- sheets ---------- -->
+<div id="scrim" hidden></div>
+
+<section class="sheet" id="sheet-place" hidden aria-label="Books">
+  <div class="sheet-head">
+    <h2>Books</h2>
+    <button class="sheet-x" type="button" data-close aria-label="Close">&#10005;</button>
+  </div>
+  <div class="tabs" id="place-tabs"></div>
+  <div class="sheet-body">
+    <div id="book-grid" class="grid-books"></div>
+    <div id="chap-grid" class="grid-chaps" hidden></div>
+  </div>
+</section>
+
+<section class="sheet" id="sheet-trans" hidden aria-label="Translations">
+  <div class="sheet-head">
+    <h2>Translations</h2>
+    <button class="sheet-x" type="button" data-close aria-label="Close">&#10005;</button>
+  </div>
+  <div class="sheet-tools">
+    <input id="trans-filter" type="search" placeholder="Language or name" autocomplete="off">
+    <div class="seg" id="trans-slot"></div>
+  </div>
+  <div class="sheet-body" id="trans-list"></div>
+  <p class="sheet-foot" id="trans-foot"></p>
+</section>
+
+<section class="sheet" id="sheet-search" hidden aria-label="Search">
+  <div class="sheet-head">
+    <h2>Search</h2>
+    <button class="sheet-x" type="button" data-close aria-label="Close">&#10005;</button>
+  </div>
+  <div class="sheet-tools">
+    <input id="q" type="search" placeholder="A word, a phrase, or a reference" autocomplete="off">
+    <div class="seg" id="search-scope"></div>
+  </div>
+  <div class="sheet-body" id="search-results"></div>
+</section>
+
+<section class="sheet" id="sheet-verse" hidden aria-label="Verse">
+  <div class="sheet-head">
+    <h2 id="verse-ref">&nbsp;</h2>
+    <button class="sheet-x" type="button" data-close aria-label="Close">&#10005;</button>
+  </div>
+  <div class="swatches" id="swatches"></div>
+  <div class="row-acts" id="verse-acts"></div>
+  <div class="sheet-body" id="verse-body"></div>
+</section>
+
+<section class="sheet" id="sheet-note" hidden aria-label="Note">
+  <div class="sheet-head">
+    <h2 id="note-ref">Note</h2>
+    <button class="sheet-x" type="button" data-close aria-label="Close">&#10005;</button>
+  </div>
+  <div class="sheet-body">
+    <p class="quote" id="note-quote" hidden></p>
+    <textarea id="note-text" rows="8" maxlength="8000" placeholder="Write in the margin of this verse…"></textarea>
+    <label class="note-scope">
+      <input type="checkbox" id="note-all-trans" checked>
+      <span>Every translation of this verse</span>
+    </label>
+  </div>
+  <div class="sheet-foot note-actions">
+    <button type="button" class="ghost" id="note-remove">Remove</button>
+    <button type="button" class="done" id="note-save">Save</button>
+  </div>
+</section>
+
+<section class="sheet" id="sheet-colours" hidden aria-label="Highlight names">
+  <div class="sheet-head">
+    <h2>Highlight names</h2>
+    <button class="sheet-x" type="button" data-close aria-label="Close">&#10005;</button>
+  </div>
+  <div class="sheet-body">
+    <p class="sheet-lead">Name the colours after what they mean to you — promises, commands, questions.</p>
+    <label class="colour-row"><span class="swatch s-amber" aria-hidden="true"></span><input id="cn-amber" type="text" maxlength="24" autocomplete="off" aria-label="Amber"></label>
+    <label class="colour-row"><span class="swatch s-rose" aria-hidden="true"></span><input id="cn-rose" type="text" maxlength="24" autocomplete="off" aria-label="Rose"></label>
+    <label class="colour-row"><span class="swatch s-sky" aria-hidden="true"></span><input id="cn-sky" type="text" maxlength="24" autocomplete="off" aria-label="Sky"></label>
+    <label class="colour-row"><span class="swatch s-leaf" aria-hidden="true"></span><input id="cn-leaf" type="text" maxlength="24" autocomplete="off" aria-label="Leaf"></label>
+    <label class="colour-row"><span class="swatch s-violet" aria-hidden="true"></span><input id="cn-violet" type="text" maxlength="24" autocomplete="off" aria-label="Violet"></label>
+    <label class="colour-row"><span class="swatch s-under" aria-hidden="true"></span><input id="cn-under" type="text" maxlength="24" autocomplete="off" aria-label="Underline"></label>
+  </div>
+  <div class="sheet-foot note-actions">
+    <button type="button" class="done" id="colour-save">Save</button>
+  </div>
+</section>
+
+<section class="sheet" id="sheet-more" hidden aria-label="Settings">
+  <div class="sheet-head">
+    <h2>Reading</h2>
+    <button class="sheet-x" type="button" data-close aria-label="Close">&#10005;</button>
+  </div>
+  <div class="sheet-body" id="more-body"></div>
+</section>
+
+<div id="hl-bar" hidden role="toolbar" aria-label="Highlight">
+  <button type="button" class="s-amber" data-hl="amber" title="Amber"></button>
+  <button type="button" class="s-rose" data-hl="rose" title="Rose"></button>
+  <button type="button" class="s-sky" data-hl="sky" title="Sky"></button>
+  <button type="button" class="s-leaf" data-hl="leaf" title="Leaf"></button>
+  <button type="button" class="s-violet" data-hl="violet" title="Violet"></button>
+  <button type="button" class="s-under" data-hl="under" title="Underline"></button>
+  <button type="button" class="s-none" data-hl="" title="Remove">∅</button>
+  <button type="button" class="hl-copy" data-act="copy">Copy</button>
+</div>
+
+<div id="toast" hidden></div>
+
+<script src="js/container.js"></script>
+<script src="js/pack.js"></script>
+<script src="js/render.js"></script>
+<script src="js/library.js"></script>
+<script src="js/refs.js"></script>
+<script src="js/versify.js"></script>
+<script src="js/store.js"></script>
+<script src="js/catalog.js"></script>
+<script src="js/packs-builtin.js"></script>
+<script src="js/packs-sealed.js"></script>
+<script src="js/helps.js"></script>
+<script src="js/lexicon.js"></script>
+<script src="js/apparatus.js"></script>
+<script src="js/reader.js"></script>
+<script src="js/reader2.js"></script>
+<script src="js/reader3.js"></script>
+<script src="js/backup.js"></script>
+<script src="js/boot.js"></script>
+</body>
+</html>

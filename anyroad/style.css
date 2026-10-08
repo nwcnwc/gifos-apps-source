@@ -1,0 +1,703 @@
+/* Anyroad — the chrome around the world.
+   Dark, out of the way, and thumb-sized: the game is the picture, so every
+   control here earns its pixels or goes. */
+
+:root {
+  --ink: #e9edf5;
+  --dim: #93a0b8;
+  --bg: #0a0d16;
+  --panel: rgba(12, 17, 28, 0.94);
+  --line: rgba(255, 255, 255, 0.11);
+  --accent: #5cb2ff;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; }
+
+/* Every panel here sets its own display, which silently defeats the `hidden`
+   attribute (an author display always beats the UA's display:none). One rule,
+   or half the HUD is permanently visible. */
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%; overflow: hidden;
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  -webkit-user-select: none; user-select: none;
+  overscroll-behavior: none;
+}
+
+#view {
+  position: fixed; inset: 0; width: 100%; height: 100%;
+  display: block; touch-action: none;   /* the left half is the steering wheel */
+}
+
+/* The windscreen. Both layers are pointer-transparent — they sit directly over
+   the steering area, and a glass effect that ate the steering would be a very
+   expensive piece of decoration. */
+#cracks {
+  position: fixed; inset: 0; width: 100%; height: 100%;
+  display: block; pointer-events: none; z-index: 1;
+}
+/* A little glass in front of the camera: darker at the corners, a faint band of
+   sky reflection across the top. Free — one gradient, composited once — and it
+   does more for "you are behind a windscreen" than any amount of geometry. */
+.glass {
+  position: fixed; inset: 0; pointer-events: none; z-index: 1;
+  background:
+    linear-gradient(to bottom, rgba(150, 190, 235, 0.10) 0%, rgba(150, 190, 235, 0) 22%),
+    radial-gradient(120% 90% at 50% 45%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.38) 100%);
+}
+
+/* ── HUD ─────────────────────────────────────────────────────────────────── */
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
+#hud button { pointer-events: auto; }
+
+.topbar {
+  position: absolute; top: calc(8px + var(--safe-t)); left: 8px; right: 8px;
+  display: flex; align-items: center; gap: 8px;
+}
+.spacer { flex: 1; }
+
+.chip {
+  position: relative;
+  min-width: 38px; height: 38px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 11px;
+  background: rgba(10, 14, 24, 0.62); color: var(--ink);
+  font-size: 16px; cursor: pointer;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.chip:active { background: rgba(30, 40, 60, 0.8); }
+.badge {
+  position: absolute; top: -3px; right: -3px;
+  width: 9px; height: 9px; border-radius: 50%; background: var(--accent);
+}
+
+.place {
+  max-width: 46vw; padding: 7px 11px;
+  border: 1px solid var(--line); border-radius: 11px;
+  background: rgba(10, 14, 24, 0.62);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  font-size: 12.5px; color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.speedo {
+  /* Above the controls, not behind them: the driving controls now occupy the
+     bottom strip and were covering the speed read-out entirely. */
+  position: absolute; left: 16px; bottom: calc(176px + var(--safe-b));
+  display: flex; align-items: baseline; gap: 5px;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.85);
+}
+.speedo span { font-size: 46px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.speedo small { font-size: 12px; color: var(--dim); }
+
+/* Reverse. The R is the label, but the COLOUR is what you actually notice —
+   the number alone can never tell you which way the car is going. */
+.gear {
+  margin-left: 6px; padding: 2px 7px; border-radius: 7px;
+  background: #e8a33a; color: #16100a;
+  font-size: 15px; font-weight: 800; letter-spacing: 0.06em;
+}
+.speedo.reversing span { color: #f0b555; }
+
+/* The rescue. Middle of the screen, because by the time it appears the player
+   has been fighting a wall for three seconds and should not have to hunt. */
+.stuck {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  padding: 13px 20px; border-radius: 13px;
+  border: 1px solid rgba(140, 200, 255, 0.4);
+  background: rgba(14, 22, 38, 0.9); color: var(--ink);
+  font-size: 15px; font-weight: 600; cursor: pointer;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  animation: coachpulse 1.9s ease-in-out infinite;
+}
+.stuck:active { background: rgba(40, 60, 92, 0.95); }
+
+.status {
+  position: absolute; left: 50%; top: calc(104px + var(--safe-t)); transform: translateX(-50%);
+  padding: 6px 12px; border-radius: 999px;
+  background: rgba(10, 14, 24, 0.72); border: 1px solid var(--line);
+  font-size: 12px; color: var(--dim); white-space: nowrap;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+
+/* Race read-out: time, distance, and an arrow that points at the finish. */
+.racehud {
+  position: absolute; right: 14px; top: calc(60px + var(--safe-t));
+  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.75);
+}
+.rh-time { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rh-dist { font-size: 12px; color: var(--dim); }
+.rh-arrow { width: 44px; height: 44px; color: var(--accent); margin-top: 4px; }
+
+/* Condition bar. Green through amber to red, so the state is readable at a
+   glance without reading a number. */
+.health {
+  position: absolute; left: 16px; bottom: calc(156px + var(--safe-b));
+  width: 128px;
+}
+.health-bar {
+  height: 7px; border-radius: 4px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+}
+.health-fill {
+  height: 100%; width: 100%; border-radius: 4px;
+  background: #48d17a;
+  transition: width 240ms ease-out, background 240ms;
+}
+.health-label {
+  display: block; margin-top: 4px;
+  font-size: 9px; letter-spacing: 0.12em; font-weight: 700; color: var(--dim);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+
+/* A red edge pulse on impact: peripheral, so it reads without stealing the
+   road from you the way a full-screen flash would. */
+.damage-flash {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  box-shadow: inset 0 0 90px 20px rgba(220, 40, 40, 0.85);
+}
+.damage-flash.hit { animation: dmg 420ms ease-out; }
+@keyframes dmg { 0% { opacity: 0.95; } 100% { opacity: 0; } }
+
+.wrecked {
+  position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center; pointer-events: auto;
+  background: rgba(6, 8, 14, 0.55);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+}
+.wrecked-card {
+  text-align: center; padding: 22px 24px; border-radius: 16px;
+  background: var(--panel); border: 1px solid var(--line);
+}
+.wrecked-card strong { display: block; font-size: 22px; margin-bottom: 4px; }
+.wrecked-card p { margin: 0 0 14px; color: var(--dim); font-size: 13px; }
+
+/* ── driving controls ─────────────────────────────────────────────────────
+   Two rules learned the hard way from a phone: an affordance you cannot SEE
+   does not exist, and an arrow glyph on a pedal means "go that way", not
+   "accelerate". So the steering shows a knob that actually moves, and the
+   pedals are labelled in words. */
+.controls {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 0 12px calc(12px + var(--safe-b));
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 12px; pointer-events: none;
+}
+
+.steerpad {
+  pointer-events: auto;
+  /* Percentage-only made this 690 px wide on a desktop window — a steering
+     slider half a metre long. Cap it in pixels; thumbs are the same size on
+     every screen. */
+  flex: 1; max-width: min(54%, 340px);
+  padding: 12px 12px 10px;
+  border-radius: 16px;
+  background: rgba(10, 14, 24, 0.5);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  touch-action: none;
+}
+.wheel { display: block; width: 100%; height: auto; max-height: 82px; }
+.wheel .w-rim { fill: none; stroke: rgba(226,233,245,0.92); stroke-width: 9; }
+.wheel .w-hub { fill: rgba(226,233,245,0.92); }
+.wheel .w-spoke { stroke: rgba(226,233,245,0.92); stroke-width: 7; stroke-linecap: round; }
+.wheel .w-top { stroke: var(--accent); stroke-width: 7; stroke-linecap: round; }
+.steerpad.active .wheel .w-rim { stroke: #8fd0ff; }
+.steerpad.active .wheel .w-top { stroke: #ffffff; }
+
+.steer-track {
+  position: relative; height: 38px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+}
+.steer-tick {
+  position: absolute; left: 50%; top: 6px; bottom: 6px; width: 2px;
+  margin-left: -1px; background: rgba(255, 255, 255, 0.22); border-radius: 2px;
+}
+.steer-knob {
+  position: absolute; top: 3px; bottom: 3px; width: 54px;
+  left: 50%; margin-left: -27px;
+  border-radius: 8px; background: var(--accent);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  transition: background 120ms;
+}
+.steerpad.active .steer-knob { background: #8fd0ff; }
+.steer-hint {
+  text-align: center;
+  margin-top: 6px; font-size: 10px; letter-spacing: 0.09em;
+  color: var(--dim); font-weight: 700;
+}
+.steer-hint span { font-size: 13px; opacity: 0.75; }
+
+/* margin-left:auto keeps the pedal on the RIGHT even when the wheel is hidden
+   (stick mode) — without it the flex row collapses and the brake jumps across
+   the screen, which is the last control you want moving. */
+.pedals { display: flex; gap: 10px; pointer-events: auto; margin-left: auto; }
+.pedal {
+  width: 84px; height: 84px; border-radius: 20px;
+  border: 1px solid var(--line);
+  color: var(--ink); font-size: 12px; font-weight: 800; letter-spacing: 0.06em;
+  cursor: pointer; touch-action: none;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.pedal.gas { background: rgba(38, 122, 78, 0.62); border-color: rgba(120, 230, 170, 0.35); }
+.pedal.brake { background: rgba(126, 44, 44, 0.55); border-color: rgba(240, 140, 140, 0.3); }
+.pedal.gas:active, .pedal.gas.on { background: rgba(52, 190, 118, 0.92); color: #04140c; }
+.pedal.brake:active, .pedal.brake.on { background: rgba(214, 74, 74, 0.92); color: #1a0505; }
+
+/* Rubber-band stick. Drawn only where the thumb actually is. */
+.stick { position: absolute; inset: 0; pointer-events: none; }
+.stick-base, .stick-knob, .stick-axis { position: absolute; transform: translate(-50%, -50%); }
+.stick-base {
+  width: 156px; height: 156px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.18);
+  background: radial-gradient(circle, rgba(10,14,24,0.42) 0%, rgba(10,14,24,0.06) 70%, transparent 72%);
+}
+.stick-knob {
+  width: 62px; height: 62px; border-radius: 50%;
+  background: rgba(92,178,255,0.92);
+  box-shadow: 0 3px 16px rgba(0,0,0,0.5);
+}
+/* A faint vertical guide, because up/down is the half nobody expects. */
+.stick-axis {
+  width: 2px; height: 150px; background: linear-gradient(to bottom,
+    rgba(80,220,140,0.55), rgba(255,255,255,0.10), rgba(230,90,90,0.55));
+  border-radius: 2px;
+}
+
+/* Scheme picker: small, always reachable, never in the way of the road. */
+.schemes {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  top: calc(58px + var(--safe-t));
+  display: flex; gap: 3px; padding: 3px;
+  border-radius: 11px; pointer-events: auto;
+  background: rgba(10,14,24,0.58); border: 1px solid var(--line);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.schemes button {
+  padding: 6px 12px; border-radius: 8px; border: none;
+  background: transparent; color: var(--dim);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+}
+.schemes button[aria-checked="true"] { background: rgba(92,178,255,0.92); color: #06101d; }
+
+/* Coach marks: once, on the first drive. */
+.coach { position: absolute; inset: 0; pointer-events: none; }
+.coach div {
+  position: absolute; padding: 8px 11px; border-radius: 10px;
+  background: rgba(8, 12, 20, 0.86); border: 1px solid rgba(255, 255, 255, 0.16);
+  font-size: 12px; line-height: 1.35; font-weight: 600; text-align: center;
+  animation: coachpulse 2.2s ease-in-out infinite;
+}
+.coach-steer { left: 14px; bottom: calc(232px + var(--safe-b)); max-width: 60%; }
+.coach-gas { right: 14px; bottom: calc(112px + var(--safe-b)); }
+.coach-brake { right: 104px; bottom: calc(112px + var(--safe-b)); }
+@keyframes coachpulse { 0%, 100% { opacity: 0.95; } 50% { opacity: 0.55; } }
+
+@media (max-width: 380px) {
+  .pedal { width: 72px; height: 72px; }
+}
+
+/* ── overlays ────────────────────────────────────────────────────────────── */
+/* CENTRED WITH margin:auto, NOT align-items:center. A flex container that
+   centres its child and then scrolls CLIPS the overflowing top — the child is
+   pushed above the scrollable area and cannot be reached at any scroll
+   position. Settings grew past a laptop's viewport and the ✕ in its header went
+   off the top of the screen with no way back short of zooming the browser out.
+   `margin: auto` centres when there is room and leaves the top reachable when
+   there is not. */
+.overlay {
+  position: fixed; inset: 0; z-index: 20;
+  display: flex; justify-content: center;
+  padding: 16px; overflow-y: auto;
+  background: rgba(5, 7, 13, 0.72);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+}
+.overlay[hidden] { display: none; }
+
+.sheet {
+  width: 100%; max-width: 460px;
+  margin: auto;                /* see .overlay — this is the centring */
+  padding: 20px; border-radius: 18px;
+  background: var(--panel); border: 1px solid var(--line);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+}
+.sheet-head { display: flex; align-items: center; justify-content: space-between; }
+
+h1 { margin: 0 0 4px; font-size: 30px; letter-spacing: -0.02em; }
+h2 { margin: 0; font-size: 19px; }
+.sub { margin: 0 0 16px; color: var(--dim); font-size: 13.5px; }
+.hint { margin: 8px 0 0; color: var(--dim); font-size: 11.5px; line-height: 1.5; }
+.muted { color: var(--dim); font-size: 12.5px; }
+
+.close {
+  width: 32px; height: 32px; border-radius: 9px;
+  border: 1px solid var(--line); background: transparent; color: var(--dim);
+  font-size: 14px; cursor: pointer;
+}
+
+form { display: flex; gap: 8px; margin-top: 14px; }
+input[type="search"] {
+  flex: 1; min-width: 0; padding: 11px 13px;
+  border: 1px solid var(--line); border-radius: 11px;
+  background: rgba(255, 255, 255, 0.05); color: var(--ink);
+  font-size: 15px; -webkit-user-select: text; user-select: text;
+}
+input[type="search"]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* The share link's own box. Read-only, but SELECTABLE on purpose: it is the
+   fallback for every browser that will not let a sandboxed app touch the
+   clipboard, so it has to be something you can tap and copy by hand. */
+#share-url {
+  width: 100%; margin-top: 8px; padding: 9px 11px;
+  border: 1px solid var(--line); border-radius: 11px;
+  background: rgba(255, 255, 255, 0.05); color: var(--dim);
+  font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  -webkit-user-select: text; user-select: text;
+}
+#share-field .row { justify-content: flex-start; }
+#share-field button { flex: 1; }
+
+button {
+  padding: 11px 15px; border-radius: 11px; border: 1px solid transparent;
+  background: var(--accent); color: #06101d; font-size: 14px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+}
+button:active { filter: brightness(0.9); }
+button.ghost { background: rgba(255, 255, 255, 0.07); color: var(--ink); border-color: var(--line); font-weight: 500; }
+button[disabled] { opacity: 0.45; cursor: default; }
+
+.results { list-style: none; margin: 12px 0 0; padding: 0; max-height: 34vh; overflow-y: auto; }
+.results li { margin-bottom: 6px; }
+.results button {
+  width: 100%; text-align: left; background: rgba(255, 255, 255, 0.05);
+  color: var(--ink); border-color: var(--line); font-weight: 500; font-size: 13px;
+  line-height: 1.4; padding: 10px 12px;
+}
+
+.presets { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+.presets button {
+  background: rgba(255, 255, 255, 0.05); color: var(--ink);
+  border-color: var(--line); font-weight: 500; font-size: 12.5px; padding: 8px 11px;
+}
+
+.field { display: block; margin-top: 16px; }
+.field > span { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.field small { display: block; margin-top: 5px; color: var(--dim); font-size: 11.5px; line-height: 1.5; }
+.field .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+select {
+  width: 100%; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 11px;
+  background: rgba(255, 255, 255, 0.05); color: var(--ink);
+  font-size: 14px; font-family: inherit;
+}
+
+.racebuttons { display: flex; gap: 8px; margin-top: 10px; }
+.racebuttons button { flex: 1; }
+
+.board { margin: 14px 0 0; padding-left: 22px; font-size: 13.5px; }
+.board li { margin-bottom: 4px; }
+.board .t { color: var(--dim); font-variant-numeric: tabular-nums; }
+
+.inspired { margin: 8px 0 14px; color: var(--dim); font-size: 12px; line-height: 1.45; }
+.inspired a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.attribution { margin: 18px 0 0; color: var(--dim); font-size: 10.5px; line-height: 1.6; }
+/* The in-drive credit line: pinned to the bottom edge, small and dim — present
+   because the licences want it next to the map, quiet because it is not what
+   anyone is here to read. Pointer-events none so it can never eat a steer. */
+.drive-attrib { position: absolute; left: 50%; transform: translateX(-50%); bottom: 2px;
+  margin: 0; color: rgba(226, 233, 245, 0.5); font-size: 9px; white-space: nowrap;
+  pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,0.5); z-index: 5; }
+
+.note {
+  /* Top, not bottom: at the bottom it sat directly across the speedometer. */
+  position: fixed; left: 50%; top: calc(148px + var(--safe-t)); transform: translateX(-50%);
+  z-index: 30; max-width: 84vw;
+  padding: 9px 14px; border-radius: 11px;
+  background: rgba(10, 14, 24, 0.94); border: 1px solid var(--line);
+  font-size: 12.5px; color: var(--ink);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.note[hidden] { display: none; }
+
+@media (max-width: 420px) {
+  .speedo span { font-size: 38px; }
+  .pedal { width: 66px; height: 66px; }
+}
+
+/* ── the bird's-eye inset ──────────────────────────────────────────────────
+   A round window, top-right under the chips, sized so it never reaches the
+   middle of the screen — this is an instrument you glance at, not a second
+   thing to look at instead of the road. */
+.minimap {
+  position: absolute; right: 12px; top: calc(58px + var(--safe-t));
+  width: 148px; height: 148px;
+  border-radius: 50%; overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+.minimap canvas { width: 100%; height: 100%; display: block; }
+.map-scale {
+  position: absolute; left: 0; right: 0; bottom: 5px;
+  text-align: center; font-size: 9px; letter-spacing: 0.08em;
+  color: rgba(233, 237, 245, 0.75);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+}
+/* The race read-out sits where the map now is, so move it under. */
+.minimap:not([hidden]) ~ .racehud { top: calc(216px + var(--safe-t)); }
+
+/* Stopped, and staying stopped until you press GO. */
+.speedo.halted span { color: #8fd0ff; }
+
+/* ── where you are ─────────────────────────────────────────────────────────
+   Two lines, because they answer different questions: the PLACE is where you
+   hopped to and rarely changes; the STREET is what is under the wheels right
+   now. */
+.where { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.street {
+  align-self: flex-start; max-width: 52vw;
+  padding: 3px 9px; border-radius: 9px;
+  background: rgba(10, 14, 24, 0.62); border: 1px solid var(--line);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  font-size: 12px; font-weight: 600; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Streets you pass. They arrive on the side they went by and fade on their
+   own — a junction should register the way a road sign does, not stop you. */
+.passing {
+  position: absolute; left: 0; right: 0; top: calc(150px + var(--safe-t));
+  pointer-events: none;
+}
+.pass {
+  position: absolute; white-space: nowrap;
+  padding: 4px 10px; border-radius: 9px;
+  background: rgba(10, 14, 24, 0.6); border: 1px solid var(--line);
+  font-size: 12px; color: var(--ink);
+  animation: passby 3.4s ease-out forwards;
+}
+.pass.left { left: 14px; }
+.pass.right { right: 14px; }
+@keyframes passby {
+  0% { opacity: 0; transform: translateY(-6px); }
+  12% { opacity: 1; transform: translateY(0); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(16px); }
+}
+
+/* Places you have been. The landing sheet's shortcut back. */
+.recent { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.recent button {
+  padding: 7px 12px; border-radius: 999px;
+  border: 1px solid rgba(140, 200, 255, 0.32);
+  background: rgba(30, 52, 82, 0.5); color: var(--ink);
+  font-size: 12.5px; cursor: pointer;
+}
+.recent-label {
+  margin: 14px 0 0; font-size: 10px; letter-spacing: 0.12em;
+  font-weight: 700; color: var(--dim);
+}
+
+/* A close that is always reachable: the header ✕ is the quick one, this is the
+   one you arrive at having scrolled to the bottom of a long sheet. */
+.sheet-close {
+  display: block; width: 100%; margin-top: 22px;
+  padding: 13px; border-radius: 12px;
+  border: 1px solid rgba(140, 200, 255, 0.34);
+  background: rgba(30, 52, 82, 0.5); color: var(--ink);
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.sheet-close:active { background: rgba(50, 76, 112, 0.7); }
+.sheet-close small { display: block; margin-top: 3px; font-weight: 400; font-size: 11px; color: var(--dim); }
+
+/* ---- the loading map ------------------------------------------------------
+   Sits in the top bar with the other chips, same size as one, and disappears
+   the moment everything nearby has landed. It answers one question — "which
+   way has roads in it yet?" — and answering it badly (a permanent minimap) is
+   how you end up with a driving game people watch instead of drive. */
+#tilemap {
+  width: 2.6rem; height: 2.6rem;
+  border-radius: .5rem;
+  background: rgba(10, 14, 20, .55);
+  border: 1px solid rgba(255, 255, 255, .16);
+  image-rendering: auto;
+  flex: 0 0 auto;
+}
+
+/* ---- the cockpit ----------------------------------------------------------
+   Only the TOP of the wheel clears the dash, which is what you see out of a
+   real car — a whole wheel floating in the middle of the screen reads as a
+   sticker. Pointer-events off throughout: this is scenery, and the actual
+   steering control is still the one in the corner. */
+#cockpit {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 2;
+}
+#cockpit-wheel {
+  position: absolute;
+  left: 50%;
+  bottom: -30vh;                 /* the dash line: two thirds of it is hidden */
+  width: 62vh; height: 62vh;
+  max-width: 128vw; max-height: 128vw;
+  transform: translateX(-50%) rotate(0deg);
+  transform-origin: 50% 50%;
+  will-change: transform;
+  filter: drop-shadow(0 -6px 14px rgba(0, 0, 0, .45));
+}
+/* ---- the point-of-view eye ------------------------------------------------
+   One eye in a frame, at three sizes. How much of the frame the eye fills IS
+   the state: a slit of a thing for the bird high above, ordinary for the chase
+   camera, filling the frame from the driver's seat. No words needed, and it
+   scales to a phone where a word would not. */
+#pov-eye { display: block; }
+#pov-pupil { transform-origin: 12px 12px; transition: transform .22s ease; }
+.pov-bird #pov-pupil    { transform: scale(.48); }
+.pov-chase #pov-pupil   { transform: scale(.78); }
+.pov-cockpit #pov-pupil { transform: scale(1.28); }
+
+/* ---- the dashboard --------------------------------------------------------
+   A moulded shape rather than a black bar: the top edge falls away at the
+   sides, which is what makes it read as the inside of a car instead of a
+   letterbox mask over the render. The instrument cluster sits BEHIND the
+   wheel, where a car puts it, and is legible through the top of the rim. */
+#dash {
+  position: absolute;
+  left: -6%; right: -6%; bottom: 0;
+  height: 27%;
+  background:
+    radial-gradient(120% 150% at 50% 0%, rgba(38, 42, 52, .0) 38%, rgba(20, 23, 30, .97) 62%),
+    linear-gradient(180deg, rgba(26, 30, 38, .96), rgba(12, 14, 19, .99));
+  border-top-left-radius: 46% 88%;
+  border-top-right-radius: 46% 88%;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, .07);
+  pointer-events: none;
+}
+/* WHERE THERE IS ACTUALLY ROOM. Dead centre is the wheel; the left third is
+   the steering pad; the bottom right is BRAKE and GO. What is left is the
+   dash above the pedals, so that is where the cluster goes. Two wrong
+   placements before this one, both of which put a speedometer somewhere you
+   could not read it — which is worse than leaving it in the corner. */
+#dash-cluster {
+  position: absolute;
+  left: 76%; top: 8%;
+  transform: translateX(-50%);
+  text-align: center;
+  color: #e9eef6;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .8);
+  font-variant-numeric: tabular-nums;
+  /* ABOVE THE WHEEL RIM. The wheel is sized in vh and capped in vw, so on a
+     tall phone it is nearly as wide as the screen and its rim sweeps right
+     across the cluster's spot — the speed was legible on every desktop and
+     hidden behind the dash on every phone. The cluster is an instrument;
+     instruments read THROUGH the wheel. (#dash creates no stacking context,
+     so this z-index competes directly with the wheel inside #cockpit.) */
+  z-index: 3;
+}
+/* The dash is MOSTLY EMPTY SPACE and instruments were sized like afterthoughts
+   in the corner of it. A dashboard's job is to be read at a glance from a
+   moving car: the numbers get the space the moulding was wasting. */
+#dash-speed { font-size: clamp(2.2rem, 6.4vh, 3.6rem); font-weight: 275; line-height: .95; }
+#dash-unit {
+  font-size: .72rem; letter-spacing: .16em; text-transform: uppercase;
+  opacity: .6; margin-top: .15rem;
+}
+#dash-cond {
+  width: 5.6rem; height: 4px; margin: .42rem auto 0;
+  background: rgba(255, 255, 255, .16); border-radius: 2px; overflow: hidden;
+}
+/* The altimeter, on the stretch of dash left of the wheel that held nothing.
+   Amber like the rest of the flying trim, and only present in the air — on
+   the ground it is a number about nothing. */
+#dash-alt {
+  position: absolute;
+  left: 27%; top: 8%;
+  transform: translateX(-50%);
+  text-align: center;
+  color: #ffd9a0;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .8);
+  font-variant-numeric: tabular-nums;
+  z-index: 3;                    /* through the wheel, same as the cluster */
+}
+#dash-alt-m { font-size: clamp(2.2rem, 6.4vh, 3.6rem); font-weight: 275; line-height: .95; }
+.dash-alt-label {
+  font-size: .72rem; letter-spacing: .16em; text-transform: uppercase;
+  opacity: .65; margin-top: .15rem;
+}
+#dash-cond-fill {
+  display: block; height: 100%; width: 100%;
+  background: linear-gradient(90deg, #78d68e, #cfe06a);
+  transition: width .25s ease;
+}
+
+/* ---- the wings button -----------------------------------------------------
+   Lives on the dash, thumb-reachable, and swaps its own glyph: an aeroplane
+   while you are driving, a car while you are flying. It says what pressing it
+   will DO rather than what you currently are, which is the only labelling that
+   works on a control you press without looking. */
+/* It is a top-bar chip like the others, so it inherits their size, hit area
+   and phone behaviour. Only its colour says anything extra: amber while the
+   wings are on. */
+/* FOURTH placement. On the wheel it was invisible; in the top bar it was not a
+   driver's control; bottom-right put it under the GO pedal. The dash's top-LEFT
+   strip is the one region nothing else claims — the steering pad starts lower,
+   the wheel is centre, the pedals are right. */
+#btn-fly {
+  position: absolute;
+  left: 4%; bottom: 21%; right: auto;
+  /* The one control on the dash, and it was the smallest thing there — a
+     3rem chip beside acres of empty moulding. Take off is a decision you
+     make at speed; the button is sized for a thumb that cannot aim. */
+  width: 4.6rem; height: 4.6rem;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, .30);
+  background: rgba(38, 44, 56, .96);
+  color: #cfe0f5;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .5);
+  pointer-events: auto;        /* the only clickable thing inside #cockpit */
+  cursor: pointer;
+  z-index: 4;
+}
+#btn-fly svg { width: 58%; height: 58%; }
+#btn-fly:active { background: rgba(58, 68, 84, .98); }
+#btn-fly.flying { color: #ffd08a; border-color: rgba(255, 208, 138, .55); }
+
+/* ---- the world status sheet ------------------------------------------------
+   A table, not a dashboard. Every row is one tile and one sentence about why
+   it is or is not here; the colours only ever repeat what the words say, so
+   the panel still works for anyone who cannot tell red from green. */
+.ws-tab {
+  width: 100%; border-collapse: collapse; margin: .5rem 0 1rem;
+  font-size: .82rem; line-height: 1.35;
+}
+.ws-tab th {
+  text-align: left; font-weight: 600; opacity: .55; font-size: .72rem;
+  text-transform: uppercase; letter-spacing: .06em;
+  padding: .2rem .5rem .2rem 0; border-bottom: 1px solid rgba(255,255,255,.12);
+}
+.ws-tab td {
+  padding: .28rem .5rem .28rem 0; vertical-align: top;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+}
+.ws-tab .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; opacity: .75; white-space: nowrap; }
+.ws-tab .ok   { color: #86e08f; }
+.ws-tab .warn { color: #ffd08a; }
+.ws-tab .bad  { color: #ff9d8a; }
+#ws-tiles { max-height: 46vh; overflow-y: auto; }
+
+/* The HUD is pointer-transparent so the whole screen can steer, and only
+   BUTTONS opt back in (#hud button). These two are not buttons — a div and a
+   canvas — so wiring click handlers to them did nothing at all until they
+   asked for pointer events by name. */
+.place { pointer-events: auto; cursor: pointer; }
+#tilemap { pointer-events: auto; cursor: pointer; }

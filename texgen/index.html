@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>TexGen</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="stage">
+    <canvas id="tex" width="256" height="256" aria-label="Texture"></canvas>
+    <div class="stage-bar">
+      <span id="meta">256 × 256</span>
+      <button type="button" id="tileBtn" class="ghost">Tile</button>
+      <button type="button" id="saveBtn">PNG</button>
+    </div>
+  </div>
+  <div class="toolbar">
+    <label class="grow">Recipe
+      <input id="name" type="text" maxlength="40" placeholder="Untitled" autocomplete="off">
+    </label>
+    <label>Size
+      <select id="size">
+        <option value="128">128</option>
+        <option value="256" selected>256</option>
+        <option value="512">512</option>
+      </select>
+    </label>
+  </div>
+  <div class="presets" id="presets" aria-label="Presets"></div>
+  <section class="add">
+    <label class="grow">Add layer
+      <select id="addType">
+        <option>XOR</option>
+        <option>OR</option>
+        <option>SinX</option>
+        <option>SinY</option>
+        <option>Noise</option>
+        <option>FractalNoise</option>
+        <option>CheckerBoard</option>
+        <option>Rect</option>
+        <option>Circle</option>
+        <option>SineDistort</option>
+        <option>Twirl</option>
+        <option>Transform</option>
+        <option>Pixelate</option>
+        <option>Posterize</option>
+        <option>Number</option>
+      </select>
+    </label>
+    <button type="button" id="addBtn">Add</button>
+  </section>
+  <p id="empty" class="empty" hidden>No layers. Add a generator, or pick a preset above. The stack is the recipe — it lives in this file.</p>
+  <div id="layers"></div>
+  <div class="row">
+    <button type="button" id="keepBtn" class="ghost">Keep recipe</button>
+    <button type="button" id="resetBtn" class="ghost">Reset sample</button>
+  </div>
+  <p id="status" role="status"></p>
+  <p class="foot">Unofficial port of texgen.js by mrdoob. The texture never leaves this device.</p>
+</div>
+<script src="vendor/texgen.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

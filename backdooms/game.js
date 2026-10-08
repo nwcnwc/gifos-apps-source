@@ -1,0 +1,634 @@
+/*
+ * Backdooms — the simulation, as a classic script.
+ * Logic descends from Kuber Mehta's THE-BACKDOOMS.html (MIT). The view is
+ * render.js, the pictures are art.js, the GifOS shell is boot.js.
+ *
+ * One original frame is one step() at 16 ms, and draw() is optional, so a unit
+ * test can play the whole loop with no canvas and no browser.
+ *
+ * Three things changed from upstream, and each one is here because the new
+ * renderer made the old behaviour visible:
+ *
+ *   THE LEVEL. Upstream's world is `noise < 0.05 ? wall : floor` over a grid
+ *   with two forced corridor lines — which is not a maze, it is an open plain
+ *   with about fifteen pillars scattered across it. That is invisible when
+ *   every surface is one flat colour, and glaring the moment walls have a
+ *   baseboard: you almost never SEE a wall, so the texture never pays. It is
+ *   now a lattice of one-wide halls with rooms, pillar halls, partitioned
+ *   rooms and solid mass between them — the Backrooms' own floor plan, still
+ *   infinite, still a pure function of (i, j, seed), and connected by
+ *   construction because the lattice is never blocked.
+ *
+ *   COLLISION. `f(~~nx, ~~ny)` truncates toward zero, so at negative
+ *   coordinates it tests the wrong cell and you walk through the wall — and
+ *   it tested the player as a POINT, so you could push your eye inside a wall
+ *   and see the level from within. Math.floor, a radius, and per-axis
+ *   resolution so you slide along a wall instead of sticking to it.
+ *
+ *   THE GUN. It was a hitscan cone that fired through walls. It is a shotgun
+ *   now: one true pellet down the crosshair and six spread, damage falling off
+ *   with range, and every pellet checked against the level first. Shooting a
+ *   thing through two rooms of solid mass was funny exactly once.
+ */
+(function (root) {
+  'use strict';
+
+  var M = Math.cos, N = Math.sin, P = Math.hypot, T = Math.atan2;
+  var x, y, a, hp, ammo, score, seed, seedI;
+  var enemies, keys, running, paused, raf, ready;
+  var mflash, flashId, kick, pain, painFrom, pumpT, bob, graceT, bump, clockBump;
+  var lookGain = 0.0022;
+  var remotes = [], remoteAt = {};
+  var lastT = 0, STEP = 16, clock = 0;
+  var HALL = 12, R = 0.26;
+  /* You wake up, and for two seconds nothing can touch you. Without it the
+     opening is not a game: a phone review of the previous build died at 7.4
+     seconds on six runs out of six, to the tick, having pressed nothing —
+     both starting things were 2.5 metres away and simply walked in. */
+  var GRACE = 2500;
+
+  /* ---- the level ------------------------------------------------------- */
+
+  function mod(n, m) { return ((n % m) + m) % m; }
+
+  /* An integer hash, not sin(x)*43758 — cell() is called tens of thousands of
+     times a frame by the raycaster now, and a transcendental per call is a
+     frame budget spent on nothing. */
+  function h2(i, j) {
+    var n = (Math.imul(i | 0, 374761393) ^ Math.imul(j | 0, 668265263) ^ seedI) >>> 0;
+    n = Math.imul(n ^ (n >>> 13), 1274126177) >>> 0;
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+  }
+
+  /*
+   * TWO-WIDE HALLS, AND ENOUGH SOLID MASS TO HAVE SIDES.
+   *
+   * The first cut of this generator ran one-wide halls between blocks that
+   * were open rooms 40% of the time. A critic scanned 70x70 tiles of it and
+   * found that the longest run of open floor with a wall on BOTH sides,
+   * anywhere on the map, in either axis, was six tiles — so the defining
+   * Backrooms image, a hall receding past the point you can resolve it, was
+   * structurally impossible. It read as a warehouse of shipping crates.
+   *
+   * Solid mass is now the commonest block by a distance, and the lattice
+   * period is TWELVE rather than seven. That second number is the one that
+   * mattered: with crossings every eight cells no corridor can be walled for
+   * more than six, because the perpendicular hall cuts the wall open at every
+   * junction — the measurement came out as exactly six on every seed, which
+   * is the block width, not a coincidence. A twelve-cell period gives ten,
+   * which at this fog range is a hall you cannot see the end of.
+   *
+   * Two-wide halls, because one-wide at a ninety-degree field of view is a
+   * wall in each eye and no vanishing point between them.
+   */
+  function cell(i, j) {
+    i = i | 0; j = j | 0;
+    /* the room you wake in is always clear */
+    if (i > -1 && i < 9 && j > -1 && j < 9) return '0';
+    var hi = mod(i, HALL), hj = mod(j, HALL);
+    if (hi < 2 || hj < 2) return '0';                 /* the hallway lattice */
+    var bi = Math.floor(i / HALL), bj = Math.floor(j / HALL);
+    var r = h2(bi, bj);
+    if (r < 0.26) return '0';                         /* an open room */
+    if (r < 0.45) return (hi % 3 === 0 && hj % 3 === 0) ? '1' : '0';  /* pillars */
+    /*
+     * Solid mass, sometimes with ONE doorway so it is a place and not just a
+     * block. The doorway's edge is chosen by its own hash, and only about
+     * half of these blocks get one at all. Both details are load-bearing: the
+     * first cut always punched it on the hj === 2 edge, which is the edge that
+     * faces a HORIZONTAL hall — so every horizontal corridor in the world had
+     * its wall opened once per block and the longest one measured five tiles,
+     * while vertical corridors ran to ten. A level should not be better in one
+     * compass direction than the other.
+     */
+    var r2 = h2(bi + 7919, bj + 104729);
+    if (r2 < 0.45) {
+      var side = (r2 * 8) | 0;
+      if (side === 0 && hj === 2 && hi > 4 && hi < 7) return '0';
+      if (side === 1 && hj === HALL - 1 && hi > 4 && hi < 7) return '0';
+      if (side === 2 && hi === 2 && hj > 4 && hj < 7) return '0';
+      if (side === 3 && hi === HALL - 1 && hj > 4 && hj < 7) return '0';
+    }
+    return '1';
+  }
+
+  /* Where the fluorescents are. Halls always get a line of them — a corridor
+     with no lights is a corridor you cannot read the length of. */
+  function light(i, j) {
+    i = i | 0; j = j | 0;
+    if (i > -1 && i < 9 && j > -1 && j < 9) return mod(i, 3) === 1 && mod(j, 3) === 1;
+    var hi = mod(i, HALL), hj = mod(j, HALL);
+    var inH = hj < 2, inV = hi < 2;
+    if (inH && inV) return true;             /* every crossing is lit */
+    /* a line of troffers down each lane of the hall — the receding line is
+       the strongest depth cue the game has */
+    if (inH) return mod(i, 3) === 1;
+    if (inV) return mod(j, 3) === 1;
+    return mod(i, 3) === 1 && mod(j, 3) === 1;
+  }
+
+  function solid(px, py) { return cell(Math.floor(px), Math.floor(py)) === '1'; }
+
+  /* ---- run state -------------------------------------------------------- */
+
+  function reset(opts) {
+    opts = opts || {};
+    seed = opts.seed != null ? opts.seed : Math.random() * 100;
+    seedI = (seed * 4096) | 0;
+    x = 4; y = 4; a = 0; hp = 100; ammo = 25; score = 0;
+    mflash = 0; flashId = 0; kick = 0; pain = 0; painFrom = 0; pumpT = -1; bob = 0;
+    bump = 0; clockBump = 0;
+    graceT = GRACE;
+    enemies = [
+      /* ACROSS THE ROOM, and the room is 0..8 — you wake at (4,4), so these
+         coordinates are 4.5 metres out, not 7.2. Getting that wrong is what
+         left the opening at nine seconds when the arithmetic said fourteen. */
+      { x: 8.5, y: 4, h: 100, phase: 0, hurt: 0, dying: null, cool: 0, size: 1.06 },
+      { x: 4, y: 8.5, h: 100, phase: 3, hurt: 0, dying: null, cool: 0, size: 0.94 }
+    ];
+    keys = keys || {};
+    keys._jx = 0; keys._jy = 0;
+    running = true; paused = false; lastT = 0; clock = 0;
+  }
+
+  function angDiff(from, to) {
+    var r = to - from;
+    if (r > Math.PI) r -= 2 * Math.PI;
+    if (r < -Math.PI) r += 2 * Math.PI;
+    return r;
+  }
+
+  /* ---- the shotgun ------------------------------------------------------ */
+
+  /* March the level between here and there. Cheap, and it is the difference
+     between a gun and a wish. */
+  function losClear(ox, oy) {
+    var dx = ox - x, dy = oy - y, d = P(dx, dy);
+    if (d < 0.35) return true;
+    var n = Math.ceil(d / 0.22), i;
+    dx /= n; dy /= n;
+    var cx = x, cy = y;
+    for (i = 0; i < n; i++) {
+      cx += dx; cy += dy;
+      if (solid(cx, cy)) return false;
+    }
+    return true;
+  }
+
+  /* Everything shootable, with its bearing and how wide it looks from here. */
+  function targets() {
+    var out = [], i, o, d;
+    for (i = 0; i < enemies.length; i++) {
+      o = enemies[i];
+      if (o.dying != null) continue;
+      d = P(o.x - x, o.y - y);
+      if (d > 11 || !losClear(o.x, o.y)) continue;
+      out.push({ o: o, d: d, rel: angDiff(a, T(o.y - y, o.x - x)), id: null });
+    }
+    for (i = 0; i < remotes.length; i++) {
+      o = remotes[i];
+      if (!o || !o.id) continue;
+      d = P(o.x - x, o.y - y);
+      if (d > 11 || !losClear(o.x, o.y)) continue;
+      out.push({ o: o, d: d, rel: angDiff(a, T(o.y - y, o.x - x)), id: o.id });
+    }
+    return out;
+  }
+
+  function shoot() {
+    if (!running || paused || ammo <= 0) return { hits: [] };
+    ammo--;
+    mflash = 1;
+    flashId = (flashId + 1) % 3;
+    kick = 1;
+    pumpT = 0;
+    var tg = targets(), hits = [], k, i, best, bestD, off, dmg;
+    var PELLETS = 7;
+    for (k = 0; k < PELLETS; k++) {
+      /* pellet 0 goes exactly where the crosshair is — a shotgun that can
+         miss a thing you are standing on top of is not a shotgun */
+      off = k === 0 ? 0 : (Math.random() - 0.5) * 0.30;
+      best = null; bestD = 1e9;
+      for (i = 0; i < tg.length; i++) {
+        var t = tg[i];
+        /* something already on its way down does not stop the rest of the
+           volley — the pellets behind it carry on into whatever was standing
+           in its shadow */
+        if (t.spent) continue;
+        /* how wide a body looks at that range */
+        var half = Math.atan2(0.44, Math.max(0.30, t.d));
+        if (Math.abs(t.rel - off) < half && t.d < bestD) { best = t; bestD = t.d; }
+      }
+      if (!best) continue;
+      dmg = (k === 0 ? 21 : 16) * (best.d > 8 ? Math.max(0.32, 1 - (best.d - 8) / 8) : 1);
+      var o = best.o;
+      o.h = Math.max(0, (o.h == null ? 100 : o.h) - dmg);
+      o.hurt = 1;
+      /* a solid hit staggers it: the shotgun has to BUY you space, or a crowd
+         is unfightable no matter how much damage it does */
+      if (!best.id) o.cool = Math.max(o.cool, 260);
+      if (best.id) {
+        if (hits.indexOf(best.id) < 0) hits.push(best.id);
+        if (o.h <= 0) best.spent = 1;
+      } else if (o.h <= 0 && o.dying == null) {
+        o.dying = 0;
+        best.spent = 1;
+        score++;
+      }
+    }
+    if (root.Net && root.Net.onShot) root.Net.onShot(hits);
+    return { hits: hits };
+  }
+
+  function hurt(n, from) {
+    if (!running || paused) return;
+    hp -= n | 0;
+    pain = 1;
+    if (from != null) painFrom = from;
+  }
+
+  function look(dx) {
+    if (!running || paused) return;
+    a += dx * lookGain;
+    if (a > Math.PI) a -= 2 * Math.PI;
+    if (a < -Math.PI) a += 2 * Math.PI;
+  }
+
+  function setLookSpeed(v) { lookGain = 0.0004 + (v | 0) * 0.00022; }
+
+  /*
+   * Other people arrive as SNAPSHOTS, not as a stream — a row lands whenever
+   * its author's state changed enough to be worth a write (net.js). Dropping
+   * them straight into the world makes a friend teleport between the places
+   * they were, so what lands is a TARGET and the drawn figure eases toward it.
+   * The smoothed position is the one you see AND the one you shoot, because a
+   * friend you cannot hit where they appear to be is worse than a slightly
+   * stale friend.
+   */
+  function setRemotes(list) {
+    var incoming = list || [];
+    var seen = {}, i, r, prev;
+    for (i = 0; i < incoming.length; i++) {
+      r = incoming[i];
+      if (!r || !r.id) continue;
+      seen[r.id] = 1;
+      prev = remoteAt[r.id];
+      r.tx = r.x; r.ty = r.y;
+      if (prev) {
+        /* keep where they are being DRAWN; only the target moved */
+        r.x = prev.x; r.y = prev.y;
+        r.phase = prev.phase;
+      } else {
+        r.phase = 0;                       /* first sighting: no easing */
+      }
+      remoteAt[r.id] = r;
+    }
+    for (var id in remoteAt) if (!seen[id]) delete remoteAt[id];
+    remotes = incoming;
+  }
+
+  function easeRemotes(frames) {
+    var i, r, dx, dy, d, k;
+    for (i = 0; i < remotes.length; i++) {
+      r = remotes[i];
+      if (!r || r.tx == null) continue;
+      dx = r.tx - r.x; dy = r.ty - r.y;
+      d = P(dx, dy);
+      if (d < 0.0005) continue;
+      /* a long way behind means the row was lost, not that they sprinted —
+         snap rather than glide across the room */
+      if (d > 3) { r.x = r.tx; r.y = r.ty; continue; }
+      k = Math.min(1, 0.22 * frames);
+      r.x += dx * k; r.y += dy * k;
+      r.phase += d * k * 2.6;
+    }
+  }
+
+  /* ---- movement --------------------------------------------------------- */
+
+  /* Per axis, with a body radius, so a wall stops you at arm's length and you
+     slide along it instead of catching on the corner. */
+  function tryMove(nx, ny) {
+    var dx = nx - x, dy = ny - y, moved = 0;
+    if (dx !== 0) { if (!solid(nx + (dx > 0 ? R : -R), y)) { x = nx; moved = 1; } else bump = 1; }
+    if (dy !== 0) { if (!solid(x, ny + (dy > 0 ? R : -R))) { y = ny; moved = 1; } else bump = 1; }
+    if (moved) return;
+    /* pressed flat against it, going nowhere */
+    bump = 1;
+  }
+
+  function applyInput(frames) {
+    var k = keys || {};
+    var moving = false, m = 0.1 * frames, nx, ny, mx = 0, my = 0;
+    if (k.ArrowLeft) a -= 0.06 * frames;
+    if (k.ArrowRight) a += 0.06 * frames;
+    if (k.ArrowUp || k.w) { mx += M(a); my += N(a); }
+    if (k.ArrowDown || k.s) { mx -= M(a); my -= N(a); }
+    if (k.a) { mx += M(a - Math.PI / 2); my += N(a - Math.PI / 2); }
+    if (k.d) { mx += M(a + Math.PI / 2); my += N(a + Math.PI / 2); }
+    if (k._jx || k._jy) {
+      mx += M(a) * -k._jy + M(a + Math.PI / 2) * k._jx;
+      my += N(a) * -k._jy + N(a + Math.PI / 2) * k._jx;
+    }
+    var mag = P(mx, my);
+    if (mag > 0.001) {
+      if (mag > 1) { mx /= mag; my /= mag; }   /* diagonals are not faster */
+      nx = x + mx * m; ny = y + my * m;
+      tryMove(nx, ny);
+      moving = true;
+      bob += 0.26 * frames * Math.min(1, mag);
+    }
+    return moving;
+  }
+
+  /* ---- the things ------------------------------------------------------- */
+
+  function livingCount() {
+    var n = 0, i;
+    for (i = 0; i < enemies.length; i++) if (enemies[i].dying == null) n++;
+    return n;
+  }
+
+  function spawnNear(frames) {
+    /* Prefer to put them BEHIND you or out to the side. A thing that blinks
+       into existence in the middle of the corridor you are looking at reads as
+       a bug; one you turn around and find reads as the Backrooms. */
+    var t, dist, X, Y, tries;
+    for (tries = 0; tries < 8; tries++) {
+      t = a + Math.PI + (Math.random() - 0.5) * 3.4;
+      dist = 3.2 + Math.random() * 4.5;
+      X = x + M(t) * dist; Y = y + N(t) * dist;
+      if (cell(Math.floor(X), Math.floor(Y)) === '0') {
+        enemies.push({
+          x: X, y: Y, h: 100, phase: Math.random() * 8, hurt: 0, dying: null, cool: 0,
+          /* not one of them is the same height. A dozen identical silhouettes
+             in a room reads as clip art, not as a crowd. */
+          size: 0.86 + Math.random() * 0.36
+        });
+        return;
+      }
+    }
+  }
+
+  function tickEnemies(moving, frames, dt) {
+    var i, o, dx, dy, di, nx, ny, local, n, f;
+    for (f = 0; f < frames; f++) {
+      if (moving) {
+        local = 0;
+        for (i = 0; i < enemies.length; i++) {
+          if (enemies[i].dying == null && P(enemies[i].x - x, enemies[i].y - y) < 6) local++;
+        }
+        /* A hard ceiling as well as a local one: without it a long run turns
+           into a mob and the halls stop being lonely, which is the only thing
+           the Backrooms has going for it. */
+        if (local < 5 && livingCount() < 22 && Math.random() < 0.02) {
+          n = 1 + (Math.random() * 3 | 0);
+          for (i = 0; i < n; i++) spawnNear();
+        }
+      }
+      /* Shells come back, and they come back FASTER WHILE YOU MOVE. Upstream
+         trickled at a flat 0.005 a frame — about one shell every three
+         seconds no matter what you did — and playing a full run through it
+         ends the same way every time: empty gun, nothing to do, walk. help.md
+         already promised the ammo was tied to moving; now it is. */
+      if (ammo < 25 && Math.random() < (moving ? 0.011 : 0.0028)) ammo++;
+    }
+    for (i = 0; i < enemies.length; i++) {
+      o = enemies[i];
+      o.hurt = Math.max(0, o.hurt - 0.09 * frames);
+      if (o.dying != null) { o.dying += dt / 420; continue; }   /* and it STAYS: see the filter */
+      dx = x - o.x; dy = y - o.y; di = P(dx, dy);
+      /*
+       * STANDOFF. They used to close to 0.2 units — that is inside your head:
+       * the sprite fills the entire screen, you cannot see the room, you
+       * cannot see the other one, and you cannot tell what is happening to
+       * you. Measured on a passive run they sat at 0.25 for seven seconds
+       * while the health bar drained. They stop at arm's length now, which is
+       * also where their reach ends.
+       */
+      if (di > 0.62) {
+        /* Upstream's closing speed is 0.0015 + 0.003/di per 16 ms frame — at
+           five metres that is THIRTEEN CENTIMETRES A SECOND against a player
+           who moves at six metres a second. They can never reach you, so
+           nothing in the halls is a threat and there is no reason to shoot
+           anything. About a third of the player's pace, quickening as it
+           closes, is a monster. */
+        var sp = (0.020 + 0.012 / Math.max(1.2, di)) * frames;
+        var ux = dx / di, uy = dy / di;
+        nx = o.x + ux * sp;
+        ny = o.y + uy * sp;
+        var moved = 0;
+        if (!solid(nx, o.y)) { o.x = nx; moved = 1; }
+        if (!solid(o.x, ny)) { o.y = ny; moved = 1; }
+        /*
+         * WALL-FOLLOW. Walking straight at the player is fine on an open
+         * plain and useless in a building: at an inside corner both axes are
+         * blocked and the thing stands there forever. That is how a level made
+         * mostly of solid mass quietly re-created the bug this whole run
+         * started with — things that cannot reach you — with a competent bot
+         * surviving the full three-minute cap on 100 health, untouched,
+         * because everything hunting it was pressed against a wall four metres
+         * away. Blocked, it picks a side (once, and keeps it) and slides along
+         * the wall until the way ahead opens again.
+         */
+        if (!moved) {
+          if (!o.side) o.side = (o.x * 7 + o.y * 13) % 2 < 1 ? 1 : -1;
+          var px = -uy * o.side, py = ux * o.side;
+          if (!solid(o.x + px * sp, o.y)) o.x += px * sp;
+          if (!solid(o.x, o.y + py * sp)) o.y += py * sp;
+        } else if (o.side) {
+          o.side = 0;
+        }
+        o.phase += sp * 5.2;
+      }
+      o.cool -= dt;
+      if (di < 0.80 && o.cool <= 0 && graceT <= 0) {
+        o.cool = 950;
+        hp -= 6;
+        pain = 1;
+        /* WHERE it came from. A non-directional red vignette tells you that
+           you are being eaten and nothing about by what — you spend the rest
+           of your short life spinning. */
+        painFrom = angDiff(a, T(o.y - y, o.x - x));
+      }
+    }
+    /* Keep them out of each other. Without this they converge on the player's
+       exact position and stack into ONE point, which is invisible (you see one
+       sprite) and lethal (you take every one of their hits at once) — the run
+       that found this went 93 to 1 in under three seconds against what looked
+       like a single thing. */
+    for (i = 0; i < enemies.length; i++) {
+      o = enemies[i];
+      if (o.dying != null) continue;
+      for (var j = i + 1; j < enemies.length; j++) {
+        var q = enemies[j];
+        if (q.dying != null) continue;
+        var sx = o.x - q.x, sy = o.y - q.y, sd = P(sx, sy);
+        if (sd > 0.62 || sd < 1e-4) continue;
+        var push = (0.62 - sd) * 0.22 * frames / sd;
+        if (!solid(o.x + sx * push, o.y + sy * push)) { o.x += sx * push; o.y += sy * push; }
+        if (!solid(q.x - sx * push, q.y - sy * push)) { q.x -= sx * push; q.y -= sy * push; }
+      }
+    }
+
+    /* Let go of the ones you walked away from. Upstream never did, so a long
+       run accumulated a mob it was still stepping every frame — invisible when
+       nothing is drawn per enemy, expensive now that each one is a sprite. */
+    /* A body stays on the carpet. Kill twenty things under the old filter and
+       the room was spotless thirty seconds later, which is the opposite of
+       what a shooter wants you to feel walking back through a hall you
+       cleared. The death animation is over at dying=1; everything after that
+       is the last frame lying there. */
+    enemies = enemies.filter(function (e) {
+      if (e.dying != null) return e.dying < 58;
+      return P(e.x - x, e.y - y) < 26;
+    });
+  }
+
+  /* ---- the loop --------------------------------------------------------- */
+
+  function step(dt) {
+    if (!running || paused) return;
+    if (dt == null) dt = STEP;
+    if (dt > 50) dt = 50;
+    var frames = dt / STEP;
+    kick = Math.max(0, kick - 0.09 * frames);
+    mflash = Math.max(0, mflash - 0.30 * frames);
+    pain = Math.max(0, pain - 0.10 * frames);
+    bump = Math.max(0, bump - 0.16 * frames);
+    clockBump += dt;
+    if (pumpT >= 0) { pumpT += dt; if (pumpT > 460) pumpT = -1; }
+    if (graceT > 0) graceT -= dt;
+    clock += dt;
+    var moving = applyInput(frames);
+    easeRemotes(frames);
+    tickEnemies(moving, frames, dt);
+    if (hp <= 0) {
+      hp = 0;
+      running = false;
+      if (root.Backdooms.onDead) root.Backdooms.onDead(score);
+    }
+  }
+
+  /* What the renderer needs, and nothing it does not. */
+  function view() {
+    var list = [], i, o;
+    for (i = 0; i < enemies.length; i++) {
+      o = enemies[i];
+      list.push({ x: o.x, y: o.y, phase: o.phase, hurt: o.hurt, dying: o.dying, pale: false, size: o.size || 1 });
+    }
+    for (i = 0; i < remotes.length; i++) {
+      o = remotes[i];
+      if (!o) continue;
+      list.push({ x: o.x, y: o.y, phase: o.phase || 0, hurt: 0, dying: null, pale: true, size: 1 });
+    }
+    /* The pump kicks the muzzle up and drops it back — the recoil you SEE is
+       most of what a shotgun feels like. */
+    var pump = 0;
+    if (pumpT >= 0) {
+      var pt = pumpT / 460;
+      pump = pt < 0.45 ? pt / 0.45 : (1 - pt) / 0.55;
+      if (pump < 0) pump = 0;
+    }
+    return {
+      x: x, y: y, a: a,
+      /* a quick judder when you shoulder a wall — the only cue there was
+         that you are stuck is that nothing happens, which is not a cue */
+      pitch: -kick * 0.055 + N(bob * 2) * 0.006 + bump * N(clockBump * 0.055) * 0.011,
+      bob: bob, kick: kick, pump: pump, t: clock,
+      flash: mflash, flashId: flashId, pain: pain, painFrom: painFrom, bump: bump,
+      grace: graceT > 0,
+      sprites: list, cell: cell, light: light
+    };
+  }
+
+  function draw() {
+    if (!ready) return;
+    root.Render.frame(view());
+  }
+
+  /*
+   * ONE LOOP, EVER.
+   *
+   * Each run gets a generation, and a scheduled callback that finds itself
+   * stale stops rather than rescheduling. `cancelAnimationFrame(raf)` alone is
+   * not enough: it can only cancel the ONE handle it kept, so if a second loop
+   * were ever started its handle would be lost and it would run for the life
+   * of the page — stepping the sim, fighting the live loop over the same
+   * state, and repainting the same buffer twice a frame.
+   *
+   * A fresh-eyes player reported exactly one hang whose symptoms only that can
+   * explain: the view frozen and the DOM HUD frozen WHILE state() kept ticking
+   * down. Fourteen scripted deaths through the same input pattern could not
+   * reproduce it, so this is not a confirmed fix for that report — it is
+   * closing the only door that leads to those symptoms.
+   */
+  var gen = 0;
+
+  function makeLoop() {
+    var myGen = ++gen;
+    return function tick(now) {
+      if (!running || myGen !== gen) return;
+      if (!paused) {
+        if (!lastT) lastT = now || 0;
+        var dt = (now && lastT) ? (now - lastT) : STEP;
+        lastT = now || (lastT + STEP);
+        step(dt);
+      } else {
+        lastT = now || lastT;
+      }
+      draw();
+      if (!running || myGen !== gen) { draw(); return; }
+      raf = requestAnimationFrame(tick);
+      if (root.Net && root.Net.tick) root.Net.tick();
+    };
+  }
+
+  function start(opts) {
+    opts = opts || {};
+    reset(opts);
+    if (!opts.headless && root.Render && !ready) ready = root.Render.init();
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+    lastT = 0;
+    if (opts.headless) { gen++; return; }
+    makeLoop()(0);
+  }
+
+  function stop() {
+    running = false;
+    gen++;
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+  }
+
+  function setPaused(v) { paused = !!v; lastT = 0; }
+
+  function state() {
+    var live = 0, i;
+    for (i = 0; i < (enemies || []).length; i++) if (enemies[i].dying == null) live++;
+    return {
+      x: x, y: y, a: a, hp: hp, ammo: ammo, score: score, seed: seed,
+      alive: !!running, paused: !!paused, enemies: live
+    };
+  }
+
+  root.Backdooms = {
+    start: start,
+    stop: stop,
+    step: step,
+    draw: draw,
+    view: view,
+    shoot: shoot,
+    look: look,
+    hurt: hurt,
+    setLookSpeed: setLookSpeed,
+    setRemotes: setRemotes,
+    setPaused: setPaused,
+    cell: cell,
+    light: light,
+    keys: function () { if (!keys) keys = {}; return keys; },
+    state: state,
+    onDead: null
+  };
+})(window);

@@ -1,0 +1,29 @@
+{
+  "tagline": "Send one link and every phone in the room becomes a buzzer.",
+  "description": "No accounts and no class codes — one link, and everyone is in.\n\nPut a question on the big screen. Everyone else gets four huge coloured answers filling their phone. First correct answer scores. Wrong and late are recorded honestly. When everyone is in, the answer lights up. Next. At the end, the board.\n\nOn your own, drill the bundled pack against the clock — forty original questions in science, geography, words and numbers.\n\nWant a question that is not in the pack? Type it, pick four answers, tap which is right. It is saved with the app, so the quiz you made travels with the GIF.",
+  "author": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "inspiredBy": {
+    "name": "Kahoot!",
+    "url": "https://kahoot.com/",
+    "by": "Kahoot!"
+  },
+  "releaseDate": "2026-08-23",
+  "categories": [
+    "Games",
+    "Learning"
+  ],
+  "tags": [
+    "quiz",
+    "buzzer",
+    "party",
+    "multiplayer",
+    "offline"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/quiz-buzzer",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

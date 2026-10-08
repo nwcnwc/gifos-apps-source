@@ -1,0 +1,1676 @@
+/*
+ * Worldview — the instrument.
+ *
+ * One rule decides most of this file: THE IMAGERY IS THE INTERFACE. Every
+ * panel floats over a full-bleed map, is translucent enough that the Earth
+ * keeps going underneath it, and gets out of the way the moment you are not
+ * using it. Nothing is chrome for its own sake.
+ *
+ * The layout is one grid at three sizes — phone (sheet from the bottom),
+ * tablet (a panel that overlays), desktop (a panel that docks). The map canvas
+ * NEVER reflows: it is fixed to the viewport and the panels sit on top, so
+ * opening the layer list does not re-project the world.
+ */
+
+:root {
+  --bg: #05070c;
+  --ink: #eef3fa;
+  --ink-2: #9fb0c6;
+  --ink-3: #6b7f98;
+  --accent: #4cc2ff;
+  --accent-ink: #04121c;
+  --warn: #ffb454;
+  --bad: #ff6b6b;
+  --good: #57d9a3;
+
+  --glass: rgba(10, 15, 24, 0.78);
+  --glass-2: rgba(16, 22, 33, 0.86);
+  --hair: rgba(255, 255, 255, 0.10);
+  --hair-2: rgba(255, 255, 255, 0.06);
+  --shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+
+  --r: 12px;
+  --r-sm: 9px;
+  --pad: 12px;
+  --panel-w: 322px;
+  --time-h: 142px;
+  --top-h: 52px;
+
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+
+  /* Native controls — date pickers, selects, scrollbars — follow this. Without
+     it a date input is a white slab in the middle of a dark instrument. */
+  color-scheme: dark;
+
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+* { box-sizing: border-box; }
+
+/* Several elements below are display:flex/grid, which beats the browser's own
+   [hidden] rule — a sheet marked hidden would sit on the map for ever. This is
+   the one place that decides what hidden means. */
+[hidden] { display: none !important; }
+
+/* KEYBOARD IS A DEVICE TOO. Every control in here is a dark shape on a dark
+   panel over imagery, and the browser's default ring is invisible against it —
+   so a Tab press moved a cursor nobody could see and the whole instrument was
+   pointer-only. One ring, drawn in the accent, on :focus-visible ONLY so a
+   mouse click never paints one. outline follows each element's own radius. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* .field:focus kills the outline below (a text box gets a border instead);
+   that must not also kill it for the keyboard. */
+.field:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* These sit flush against their neighbours (a segmented control, the day
+   stepper, the tool rail, a layer row's grip), so a ring drawn OUTSIDE them is
+   clipped by the next control. Draw it inside instead. */
+.seg button:focus-visible, .stepper .step:focus-visible,
+#tools .tool:focus-visible, .lyr-grip:focus-visible,
+.tl-scale button:focus-visible { outline-offset: -2px; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; border: 0; background: none; }
+h1, h2, h3 { margin: 0; font-weight: 620; letter-spacing: -0.01em; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+#app { position: fixed; inset: 0; }
+
+/* ---------------------------------------------------------------- the map -- */
+#map {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+  touch-action: none;               /* the map owns its gestures */
+  background: #04060a;
+}
+#map.dragging { cursor: grabbing; }
+#map.measuring { cursor: crosshair; }
+
+/* A vignette + a hairline horizon glow: the difference between "a canvas" and
+   "an instrument looking at a planet". Pointer-events off, always. */
+#mapfx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.42) 100%);
+}
+
+/* ------------------------------------------------------------------- top -- */
+#top {
+  position: absolute;
+  top: calc(var(--safe-t) + 10px);
+  left: calc(var(--safe-l) + 10px);
+  right: calc(var(--safe-r) + 10px);
+  height: var(--top-h);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 30;
+}
+#top > * { pointer-events: auto; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 13px;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--hair);
+  backdrop-filter: blur(14px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  color: var(--ink);
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+.chip:hover { background: var(--glass-2); border-color: rgba(255, 255, 255, 0.18); }
+.chip:active { transform: scale(0.98); }
+.chip b { font-weight: 640; letter-spacing: 0.01em; }
+.chip svg { color: var(--accent); flex: none; }
+
+.brand .count {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(76, 194, 255, 0.16);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  width: min(360px, 42vw);
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--hair);
+  backdrop-filter: blur(14px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  transition: width 180ms ease, border-color 140ms ease;
+}
+.search svg { color: var(--ink-3); flex: none; }
+.search:focus-within { border-color: rgba(76, 194, 255, 0.55); width: min(440px, 52vw); }
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 13.5px;
+}
+.search input::placeholder { color: var(--ink-3); }
+.search input::-webkit-search-cancel-button { display: none; }
+.search .x {
+  width: 22px; height: 22px; border-radius: 50%;
+  color: var(--ink-3); font-size: 12px; line-height: 1;
+}
+.search .x:hover { color: var(--ink); background: rgba(255, 255, 255, 0.08); }
+
+.results {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: var(--r);
+  background: rgba(14, 20, 30, 0.96);
+  border: 1px solid var(--hair);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  box-shadow: var(--shadow);
+  z-index: 40;
+}
+.results button {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  color: var(--ink);
+}
+.results button:hover, .results button.on { background: rgba(76, 194, 255, 0.14); }
+.results .nm { font-weight: 560; }
+.results .cn { color: var(--ink-3); font-size: 12px; margin-left: auto; }
+
+.top-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.net .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 3px rgba(87, 217, 163, 0.16);
+}
+.net.off .dot { background: var(--warn); box-shadow: 0 0 0 3px rgba(255, 180, 84, 0.16); }
+.net.off .lbl::after { content: ''; }
+.net .lbl { font-size: 12.5px; color: var(--ink-2); }
+
+/* ----------------------------------------------------------- left panel --- */
+.panel {
+  position: absolute;
+  top: calc(var(--safe-t) + var(--top-h) + 16px);
+  left: calc(var(--safe-l) + 10px);
+  /* Shrink-wrapped, not stretched: a panel that reaches the timeline with 350px
+     of black inside it reads as an unfinished shell. It grows with its content
+     and stops. */
+  max-height: calc(100% - var(--safe-t) - var(--top-h) - var(--time-h) - 32px);
+  width: var(--panel-w);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r);
+  background: var(--glass);
+  border: 1px solid var(--hair);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  box-shadow: var(--shadow);
+  z-index: 25;
+  transition: transform 200ms cubic-bezier(.2, .7, .3, 1), opacity 160ms ease;
+}
+.panel.closed {
+  display: flex;
+  transform: translateX(calc(-100% - 24px));
+  opacity: 0;
+  pointer-events: none;
+}
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 10px 10px 14px;
+  border-bottom: 1px solid var(--hair-2);
+}
+.panel-head h2 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.panel-head .icon-btn { margin-left: auto; }
+/* The day, in the layers header. It only exists on a phone: everywhere else
+   the bottom bar is on screen at the same time and this would be the date
+   twice. */
+.panel-day { display: none; }
+
+.icon-btn {
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 8px;
+  color: var(--ink-2);
+}
+.icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--ink); }
+
+.panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 10px 18px;
+  -webkit-overflow-scrolling: touch;
+  -webkit-mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 20px), transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 20px), transparent 100%);
+}
+
+/* --- a layer row --- */
+.stack { display: flex; flex-direction: column; gap: 7px; }
+.lyr {
+  border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--hair-2);
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+.lyr:hover { background: rgba(255, 255, 255, 0.06); }
+.lyr.dragging { opacity: 0.5; }
+.lyr.drop-before { box-shadow: 0 -2px 0 0 var(--accent); }
+.lyr.drop-after { box-shadow: 0 2px 0 0 var(--accent); }
+.lyr.off .lyr-title { color: var(--ink-3); }
+.lyr.off .lyr-sub { opacity: 0.6; }
+
+.lyr-main { display: flex; align-items: center; gap: 9px; padding: 8px 8px 8px 6px; }
+.lyr-grip {
+  width: 22px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(255, 255, 255, 0.34);
+  cursor: grab;
+  flex: none;
+  touch-action: none;
+}
+.lyr-grip:hover { color: var(--ink); }
+.lyr-grip:active { cursor: grabbing; }
+.lyr-eye {
+  width: 30px; height: 30px; flex: none;
+  border-radius: 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--accent);
+}
+.lyr.off .lyr-eye { color: var(--ink-3); }
+.lyr-eye:hover { background: rgba(255, 255, 255, 0.08); }
+.lyr-text { flex: 1; min-width: 0; text-align: left; }
+.lyr-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 560;
+  line-height: 1.28;
+  /* Two lines, then ellipsis. A truncated layer name ("Corrected Reflectance
+     (…") is the one thing in this panel a person cannot guess. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.lyr-sub {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  line-height: 1.35;
+  margin-top: 1px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.lyr-sub.warn { color: var(--warn); }
+.lyr-actions { display: flex; gap: 2px; flex: none; }
+.row-del {
+  width: 30px; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 7px;
+  color: var(--ink-3);
+}
+.row-del:hover { background: rgba(255, 107, 107, 0.16); color: var(--bad); }
+
+.lyr-more { padding: 0 10px 10px 36px; display: none; }
+.lyr.open .lyr-more { display: block; }
+.lyr-opacity { display: flex; align-items: center; gap: 9px; }
+.lyr-opacity span { font-size: 11px; color: var(--ink-3); width: 34px; text-align: right; }
+
+input[type=range] {
+  -webkit-appearance: none; appearance: none;
+  flex: 1; height: 22px; background: none; outline: none;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent) var(--fill, 60%), rgba(255, 255, 255, 0.16) var(--fill, 60%));
+}
+input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.16); }
+input[type=range]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 15px; height: 15px; margin-top: -5.5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+input[type=range]::-moz-range-thumb {
+  width: 15px; height: 15px; border: 0; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+.lyr-note {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+.lyr-note b { color: var(--ink-2); font-weight: 560; }
+.lyr-legend { margin-top: 9px; }
+.legend-bar { height: 9px; border-radius: 3px; border: 1px solid var(--hair-2); }
+.legend-ticks {
+  display: flex; justify-content: space-between;
+  font-size: 10.5px; color: var(--ink-3); margin-top: 3px;
+  font-family: var(--mono);
+}
+.legend-class { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.legend-class i {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--ink-2); font-style: normal;
+}
+.legend-class i::before {
+  content: ''; width: 10px; height: 10px; border-radius: 2px;
+  background: var(--c); border: 1px solid rgba(0, 0, 0, 0.4);
+}
+
+.add-layer {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  width: 100%;
+  margin-top: 10px;
+  height: 42px;
+  border-radius: var(--r-sm);
+  border: 1px dashed rgba(76, 194, 255, 0.4);
+  color: var(--accent);
+  font-weight: 560;
+  font-size: 13px;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.add-layer:hover { background: rgba(76, 194, 255, 0.1); border-color: var(--accent); }
+
+/* Pulled out by the .mini's own padding so the words start on the same
+   gutter as the layer cards above them, not 8px inside it. */
+.panel-foot { margin: 14px -8px 0; display: flex; flex-direction: column; gap: 2px; }
+.mini {
+  font-size: 12px;
+  color: var(--ink-3);
+  padding: 7px 8px;
+  border-radius: 7px;
+  text-align: left;
+}
+.mini:hover { color: var(--ink); background: rgba(255, 255, 255, 0.06); }
+.mini.ghost {
+  color: var(--ink-2);
+  white-space: nowrap;
+  border: 1px solid var(--hair);
+  text-align: center;
+  padding: 7px 12px;
+}
+.mini.ghost:hover { color: var(--ink); border-color: rgba(255, 255, 255, 0.22); }
+
+/* ----------------------------------------------------------- right tools -- */
+#tools {
+  position: absolute;
+  right: calc(var(--safe-r) + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 14px;
+  background: var(--glass);
+  border: 1px solid var(--hair);
+  backdrop-filter: blur(14px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  box-shadow: var(--shadow);
+  z-index: 25;
+}
+.tool {
+  width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 9px;
+  color: var(--ink-2);
+  transition: background 130ms ease, color 130ms ease;
+}
+/* The rail is navigation only — zoom and Whole Earth — and it is icons with
+   tooltips. The LABELLED actions (compare, measure, picture, views, explore)
+   live in the inspector on a wide screen and in the Tools sheet on a phone,
+   because a column of unlabelled glyphs is a quiz and a labelled button in a
+   40px rail is a clipped word ("Whole Eart"). */
+.tool-lbl { display: none; }
+
+#phonebar { display: none; }
+.tool:hover { background: rgba(255, 255, 255, 0.09); color: var(--ink); }
+.tool.on { background: rgba(76, 194, 255, 0.18); color: var(--accent); }
+.tool-gap { height: 1px; background: var(--hair-2); margin: 3px 4px; }
+
+/* -------------------------------------------------------------- readout --- */
+#readout {
+  position: absolute;
+  left: calc(var(--safe-l) + 10px);
+  bottom: calc(var(--time-h) + 8px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: rgba(6, 10, 16, 0.62);
+  border: 1px solid var(--hair-2);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  z-index: 20;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+#app.panel-open #readout { left: calc(var(--safe-l) + var(--panel-w) + 20px); }
+.scalebar { display: flex; align-items: center; gap: 6px; }
+.scalebar i {
+  display: block;
+  height: 6px;
+  width: 60px;
+  border: 1px solid var(--ink-3);
+  border-top: 0;
+}
+.scalebar b { font-weight: 500; font-family: var(--mono); }
+.credit { color: rgba(159, 176, 198, 0.5); }
+
+/* ----------------------------------------------------------------- time --- *
+ * The date is the product, so the bottom of the screen is ONE bar with ONE
+ * baseline: the day you are looking at, the ways to change it, and the ruler.
+ * It used to be four objects floating at four heights over the imagery, and
+ * three separate critics called it a decoration before an instrument.
+ */
+#time {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: 0;
+  padding: 9px calc(var(--safe-r) + 14px) calc(var(--safe-b) + 16px) calc(var(--safe-l) + 14px);
+  background: linear-gradient(180deg, rgba(5, 7, 12, 0.5) 0%, rgba(6, 9, 15, 0.93) 32%, rgba(6, 9, 15, 0.97) 100%);
+  border-top: 1px solid var(--hair-2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  z-index: 24;
+}
+/* min-width:0 so a long date cannot push the controls past the viewport edge;
+   the children that must never shrink say so themselves. */
+.time-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+
+.date-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 2px 12px 3px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  min-width: 0;
+}
+.date-chip:hover { background: rgba(255, 255, 255, 0.07); border-color: var(--hair); }
+.date-chip #dateText {
+  font-size: 21px;
+  font-weight: 640;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+.date-chip .sub {
+  font-size: 10.5px;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.stepper {
+  display: flex;
+  border-radius: 9px;
+  overflow: hidden;
+  border: 1px solid var(--hair);
+}
+.step {
+  width: 34px; height: 34px; flex: none;
+  color: var(--ink-2);
+  display: flex; align-items: center; justify-content: center;
+}
+.step + .step { border-left: 1px solid var(--hair); }
+.step:hover { background: rgba(255, 255, 255, 0.09); color: var(--ink); }
+.step:disabled { opacity: 0.3; pointer-events: none; }
+
+.tl-scale {
+  display: flex;
+  border-radius: 9px;
+  border: 1px solid var(--hair);
+  overflow: hidden;
+}
+.tl-scale button {
+  padding: 7px 11px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.tl-scale button + button { border-left: 1px solid var(--hair); }
+.tl-scale button:hover { color: var(--ink); background: rgba(255, 255, 255, 0.07); }
+.tl-scale button.on { color: var(--accent); background: rgba(76, 194, 255, 0.15); }
+
+.play {
+  display: flex; align-items: center; gap: 7px;
+  height: 34px;
+  padding: 0 14px 0 11px;
+  border-radius: 9px;
+  border: 1px solid rgba(76, 194, 255, 0.45);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 560;
+  transition: background 130ms ease;
+}
+.play:hover { background: rgba(76, 194, 255, 0.14); }
+.play.on { background: rgba(76, 194, 255, 0.2); }
+.spacer { flex: 1; }
+
+.timeline {
+  position: relative;
+  height: 66px;
+  margin-top: 8px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--hair-2);
+  overflow: hidden;
+  touch-action: none;
+  cursor: ew-resize;
+}
+.timeline canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+/* The playhead is a real handle you can see and grab, with the day written on
+   it — the number and the thing you drag used to be 1,200 px apart. */
+.tl-cursor {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(76, 194, 255, 0.8);
+  pointer-events: none;
+}
+.tl-cursor i {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 13px; height: 15px;
+  background: var(--accent);
+  clip-path: polygon(0 0, 100% 0, 100% 62%, 50% 100%, 0 62%);
+}
+.tl-range {
+  position: absolute;
+  top: 0; bottom: 0;
+  background: rgba(76, 194, 255, 0.13);
+  border-left: 1px solid rgba(76, 194, 255, 0.55);
+  border-right: 1px solid rgba(76, 194, 255, 0.55);
+  pointer-events: none;
+}
+
+.subtime {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 7px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.subtime input { flex: 1; }
+
+/* ---------------------------------------------------------------- sheets -- */
+#scrim {
+  position: absolute; inset: 0;
+  background: rgba(3, 5, 9, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  z-index: 45;
+  animation: fade 160ms ease;
+}
+@keyframes fade { from { opacity: 0; } }
+
+.sheet {
+  position: absolute;
+  z-index: 50;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(78vh, 720px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  background: var(--glass-2);
+  border: 1px solid var(--hair);
+  backdrop-filter: blur(22px) saturate(1.35);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35);
+  box-shadow: var(--shadow);
+  animation: pop 180ms cubic-bezier(.2, .8, .3, 1);
+  overflow: hidden;
+}
+.sheet.big { width: min(880px, calc(100vw - 32px)); max-height: min(82vh, 820px); }
+@keyframes pop { from { opacity: 0; transform: translate(-50%, calc(-50% + 10px)) scale(0.98); } }
+
+.sheet-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 12px 12px 18px;
+  border-bottom: 1px solid var(--hair-2);
+  flex: none;
+}
+.sheet-head h2 { font-size: 16px; }
+.sheet-head .close { margin-left: auto; }
+.sheet-body { padding: 16px 18px 34px; overflow-y: auto; }
+.sheet-body p { margin: 0 0 12px; color: var(--ink-2); line-height: 1.6; }
+.sheet-body p:last-child { margin-bottom: 0; }
+.sheet-body h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-3); margin: 18px 0 8px; }
+.sheet-body a { color: var(--accent); }
+
+.browse-search {
+  display: flex; align-items: center; gap: 9px;
+  margin: 12px 16px 0;
+  padding: 0 12px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--hair-2);
+  flex: none;
+}
+.browse-search:focus-within { border-color: rgba(76, 194, 255, 0.5); }
+.browse-search svg { color: var(--ink-3); }
+.browse-search input { flex: 1; min-width: 0; border: 0; background: none; outline: 0; font-size: 13.5px; }
+.browse-search input::-webkit-search-cancel-button { display: none; }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 12px 16px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button {
+  padding: 7px 13px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--ink-3);
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.tabs button:hover { color: var(--ink); background: rgba(255, 255, 255, 0.06); }
+.tabs button.on { color: var(--accent); background: rgba(76, 194, 255, 0.14); border-color: rgba(76, 194, 255, 0.3); }
+
+.browse-body { flex: 1; overflow-y: auto; padding: 12px 16px 34px; }
+.meas { margin-bottom: 20px; }
+.meas > h3 { font-size: 13.5px; color: var(--ink); text-transform: none; letter-spacing: 0; margin: 0 0 2px; }
+.meas > p { margin: 0 0 9px; font-size: 12px; color: var(--ink-3); }
+.meas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 8px; }
+
+.lcard {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--hair-2);
+  background: rgba(255, 255, 255, 0.035);
+  text-align: left;
+  transition: background 130ms ease, border-color 130ms ease, transform 130ms ease;
+}
+.lcard:hover { background: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.18); }
+.lcard:active { transform: scale(0.99); }
+.lcard.on { border-color: rgba(76, 194, 255, 0.5); background: rgba(76, 194, 255, 0.1); }
+.lcard .tick {
+  width: 20px; height: 20px; flex: none; margin-top: 1px;
+  border-radius: 6px;
+  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent-ink);
+}
+.lcard.on .tick { background: var(--accent); border-color: var(--accent); }
+.lcard .t { display: block; font-size: 13px; font-weight: 560; }
+/* The instrument, not a footnote: three cards under "Corrected Reflectance"
+   are all called True Color and this line is the only thing between them. */
+.lcard .s { display: block; font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+.lcard .meta { display: block; font-size: 10.5px; color: var(--ink-3); margin-top: 4px; font-family: var(--mono); opacity: 0.8; }
+
+/* Offline: what this file can actually draw. Nothing is disabled — a layer
+   you tick now works the moment the connection is back — the card just stops
+   implying it will appear. */
+.lcard-tag {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+  border: 1px solid var(--hair);
+}
+.lcard-tag.ok { color: var(--good); border-color: rgba(87, 217, 163, 0.4); }
+.lcard.unreachable { opacity: 0.62; }
+.lcard.unreachable:hover { opacity: 1; }
+
+.browse-offline {
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(255, 180, 84, 0.34);
+  background: rgba(255, 180, 84, 0.09);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* ------------------------------------------------------------- tour cards - */
+.tour-list { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.tour {
+  text-align: left;
+  border-radius: 12px;
+  border: 1px solid var(--hair-2);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 13px 14px;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+.tour:hover { border-color: rgba(76, 194, 255, 0.45); background: rgba(76, 194, 255, 0.08); transform: translateY(-1px); }
+.tour b { display: block; font-size: 13.5px; font-weight: 600; }
+.tour span { display: block; font-size: 12px; color: var(--ink-3); margin-top: 3px; line-height: 1.45; }
+.tour .when { display: block; margin-top: 7px; font-family: var(--mono); font-size: 10.5px; color: var(--accent); }
+
+/* ------------------------------------------------------------- welcome ---- */
+#welcome {
+  position: absolute; inset: 0;
+  z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  padding: 22px;
+  background: radial-gradient(90% 70% at 50% 40%, rgba(6, 12, 22, 0.6), rgba(3, 5, 9, 0.92));
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: fade 220ms ease;
+}
+.w-card {
+  width: min(430px, 100%);
+  text-align: center;
+  padding: 26px 24px 22px;
+  border-radius: 18px;
+  background: var(--glass-2);
+  border: 1px solid var(--hair);
+  box-shadow: var(--shadow);
+}
+.w-globe {
+  width: 74px; height: 74px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.35), transparent 42%),
+    conic-gradient(from 200deg, #123a63, #1d6ea8, #2f9ad6, #123a63);
+  box-shadow: 0 0 0 1px rgba(76, 194, 255, 0.25), 0 10px 30px rgba(20, 110, 180, 0.35);
+}
+.w-card h1 { font-size: 21px; line-height: 1.25; margin-bottom: 9px; }
+.w-card p { margin: 0 0 16px; color: var(--ink-2); font-size: 13.5px; line-height: 1.55; }
+.w-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.primary {
+  padding: 11px 20px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 620;
+  font-size: 13.5px;
+  box-shadow: 0 6px 20px rgba(76, 194, 255, 0.3);
+}
+.primary:hover { filter: brightness(1.07); }
+.ghost {
+  padding: 11px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--hair);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 560;
+}
+.ghost:hover { background: rgba(255, 255, 255, 0.07); }
+.w-foot { margin: 15px 0 0 !important; font-size: 11.5px !important; color: var(--ink-3) !important; }
+
+/* --------------------------------------------------------------- toasts --- */
+#toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--time-h) + 26px);
+  transform: translateX(-50%);
+  z-index: 70;
+  max-width: min(460px, calc(100vw - 40px));
+  padding: 10px 15px;
+  border-radius: 10px;
+  background: rgba(16, 22, 33, 0.94);
+  border: 1px solid var(--hair);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  color: var(--ink);
+  animation: rise 200ms cubic-bezier(.2, .8, .3, 1);
+}
+#toast.bad { border-color: rgba(255, 107, 107, 0.5); }
+@keyframes rise { from { opacity: 0; transform: translate(-50%, 8px); } }
+
+#busy {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--safe-t) + var(--top-h) + 22px);
+  transform: translateX(-50%);
+  z-index: 35;
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 14px 7px 11px;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--hair);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+#busy i {
+  width: 13px; height: 13px;
+  border-radius: 50%;
+  border: 2px solid rgba(76, 194, 255, 0.25);
+  border-top-color: var(--accent);
+  animation: spin 700ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* -------------------------------------------------------------- compare --- */
+#compare { position: absolute; inset: 0; z-index: 22; pointer-events: none; }
+.cmp-line {
+  position: absolute;
+  top: 0; bottom: 0;
+  left: var(--x, 50%);
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.6);
+}
+.cmp-grip {
+  position: absolute;
+  left: var(--x, 50%);
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: rgba(16, 22, 33, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: auto;
+  cursor: ew-resize;
+  touch-action: none;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+.cmp-tag {
+  position: absolute;
+  top: calc(var(--safe-t) + var(--top-h) + 20px);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  background: rgba(16, 22, 33, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: var(--ink);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.cmp-tag:hover { border-color: var(--accent); color: var(--accent); }
+.cmp-tag::after { content: ' ▾'; opacity: 0.6; }
+.cmp-b { border-color: rgba(255, 180, 84, 0.55); }
+.cmp-a { left: calc(var(--x, 50%) - 12px); transform: translateX(-100%); }
+.cmp-b { left: calc(var(--x, 50%) + 12px); }
+
+/* ------------------------------------------------------------ phone grip -- */
+.sheet-grip { display: none; }
+
+/* ============================== R E S P O N S I V E ======================= */
+
+/* Big desktop: more room for the stack, bigger hit targets, wider timeline. */
+@media (min-width: 1500px) {
+  :root { --panel-w: 380px; --time-h: 150px; }
+  html, body { font-size: 15px; }
+  .tool { width: 42px; height: 42px; }
+  .date-chip { min-width: 168px; }
+}
+
+/* Tablet: the panel floats over the map instead of pushing the readout. */
+@media (max-width: 1023px) {
+  #app.panel-open #readout { left: calc(var(--safe-l) + 10px); opacity: 0; }
+  .panel { box-shadow: 0 22px 60px rgba(0, 0, 0, 0.7); }
+  .search { width: min(320px, 38vw); }
+
+  /* The bottom bar has to hold the same seven controls in 800px instead of
+     1400. Everything gives a little; nothing is dropped. */
+  .time-row { gap: 8px; }
+  .date-chip { padding: 2px 8px 3px; flex: 0 1 auto; overflow: hidden; }
+  .date-chip #dateText { font-size: 18px; }
+  .stepper, .tl-scale, .play, #todayBtn, #animBtn { flex: none; }
+  .tl-scale button { padding: 7px 9px; font-size: 11.5px; }
+  .step { width: 32px; height: 32px; }
+}
+
+/* Phone: the panel becomes a bottom sheet, tools go to the bottom right, and
+   the timeline collapses to the row that matters. Nothing is a hover target. */
+@media (max-width: 700px) {
+  :root { --time-h: 88px; --top-h: 44px; }
+
+  #top { gap: 6px; top: calc(var(--safe-t) + 8px); left: calc(var(--safe-l) + 8px); right: calc(var(--safe-r) + 8px); }
+  .brand b { display: none; }
+  .brand { padding: 0 11px; }
+  .search { width: 100%; flex: 1; }
+  .search:focus-within { width: 100%; }
+  .net .lbl { display: none; }
+  .net { padding: 0 12px; }
+
+  /* The layer panel becomes a bottom sheet. Over a photograph of the Earth,
+     glass is not enough — text has to sit on something nearly opaque or the
+     coastline behind it reads as part of the words. */
+  .panel {
+    background: rgba(9, 13, 21, 0.95);
+    top: auto;
+    left: 0; right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 68vh;
+    border-radius: 18px 18px 0 0;
+    border-bottom: 0;
+    padding-bottom: var(--safe-b);
+    transform: translateY(calc(100% + 20px));
+    transition: transform 240ms cubic-bezier(.2, .8, .25, 1), opacity 160ms ease;
+  }
+  .panel.closed { transform: translateY(calc(100% + 20px)); }
+  #app.panel-open .panel { transform: translateY(0); opacity: 1; pointer-events: auto; }
+  .panel-head { padding-top: 16px; }
+  .panel-head::before {
+    content: '';
+    position: absolute;
+    top: 7px; left: 50%;
+    transform: translateX(-50%);
+    width: 38px; height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.22);
+  }
+  .panel-head { position: relative; }
+  .panel-day {
+    display: inline-block;
+    margin-left: auto;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--hair);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--ink);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .panel-head .icon-btn { margin-left: 6px; }
+
+  #tools {
+    top: auto;
+    transform: none;
+    bottom: calc(var(--time-h) + 12px);
+    right: calc(var(--safe-r) + 8px);
+    flex-direction: column;
+    transition: opacity 160ms ease, transform 160ms ease;
+  }
+
+  /* With a sheet up, the map's own furniture is in the way of the thing the
+     person is actually using — and half-visible through the glass, which is
+     worse than either. It goes, and comes back when the sheet does. */
+  #app.panel-open #tools,
+  #app.panel-open #time,
+  #app.panel-open #readout,
+  body.sheet-open #tools,
+  body.sheet-open #time,
+  body.sheet-open #readout {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+  }
+  .tool { width: 42px; height: 42px; }
+  #tools .tool[data-tool=zoomin], #tools .tool[data-tool=zoomout] { display: none; }
+
+  /* Stacked, not overlapping: readout, then the two labelled buttons, then the
+     bar. Four objects on four baselines was the phone critic's second-worst
+     finding. */
+  #readout {
+    left: calc(var(--safe-l) + 10px);
+    bottom: calc(var(--time-h) + 64px);
+    font-size: 11px;
+    gap: 9px;
+    padding: 4px 9px;
+  }
+  #readout .credit { display: none; }
+
+  /* The bottom bar on a phone: the date is the biggest thing on it, the
+     stepper is a real 44 px target, and the ruler clears the home indicator.
+     It is OPAQUE — a photograph of the Earth behind a date is not a background,
+     it is noise in the one place the app has to be readable. */
+  :root { --time-h: 140px; }
+  #time {
+    padding: 8px 10px calc(var(--safe-b) + 14px);
+    background: #070a11;
+  }
+  .time-row { gap: 7px; }
+  .date-chip { padding: 2px 6px 3px; flex: 1 1 auto; min-width: 0; }
+  .date-chip #dateText { font-size: 19px; }
+  .step { width: 44px; height: 40px; flex: none; }
+  .tl-scale { display: none; }
+  #animBtn { display: none; }
+  #todayBtn { display: none; }
+  .play { height: 40px; padding: 0 13px 0 11px; }
+  .play-lbl { display: none; }
+  .timeline { height: 54px; margin-top: 8px; }
+
+  .sheet, .sheet.big {
+    background: rgba(9, 13, 21, 0.96);
+    left: 0; right: 0; top: auto; bottom: 0;
+    width: auto;
+    max-width: none;
+    transform: none;
+    max-height: 88vh;
+    border-radius: 18px 18px 0 0;
+    padding-bottom: var(--safe-b);
+    animation: sheetup 240ms cubic-bezier(.2, .8, .25, 1);
+  }
+  @keyframes sheetup { from { transform: translateY(16px); opacity: 0; } }
+  .sheet-head { position: relative; padding-top: 18px; }
+  .sheet-head::before {
+    content: '';
+    position: absolute;
+    top: 8px; left: 50%;
+    transform: translateX(-50%);
+    width: 38px; height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.22);
+  }
+  .meas-grid { grid-template-columns: 1fr; }
+  .tour-list { grid-template-columns: 1fr; }
+  #toast { bottom: calc(var(--time-h) + 60px); }
+
+  .w-card { padding: 22px 18px 18px; }
+  .w-card h1 { font-size: 19px; }
+}
+
+/* Short landscape phones: the timeline eats the screen, so shrink it. */
+@media (max-height: 460px) and (orientation: landscape) {
+  :root { --time-h: 66px; }
+  .timeline { height: 24px; }
+  #welcome .w-globe { display: none; }
+  .w-card { padding: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+}
+
+/* Boot: hold the first frame until the map has something to show. */
+#app.boot #panel, #app.boot #tools, #app.boot #time, #app.boot #readout { opacity: 0; }
+#app:not(.boot) #panel, #app:not(.boot) #tools, #app:not(.boot) #time, #app:not(.boot) #readout {
+  transition: opacity 320ms ease 60ms;
+}
+
+/* ====================== D I A L O G   I N T E R N A L S ==================== */
+/* The sheets are content as much as controls, so their type is set for
+   reading: a field row that wraps on a phone, statements that stay sentences. */
+
+.field-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.field-label { font-size: 12.5px; color: var(--ink-3); }
+.field {
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--hair-2);
+  color: var(--ink);
+  font-size: 13.5px;
+  min-width: 0;
+}
+.field:focus { outline: none; border-color: rgba(76, 194, 255, 0.55); }
+select.field { padding-right: 6px; }
+input[type=date].field { min-width: 150px; }
+input[type=checkbox] {
+  width: 18px; height: 18px;
+  accent-color: var(--accent);
+}
+.field-note { font-size: 12px; color: var(--ink-3); margin: 4px 0 12px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; }
+.chip-btn {
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--hair);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.chip-btn:hover { color: var(--ink); border-color: rgba(76, 194, 255, 0.5); background: rgba(76, 194, 255, 0.1); }
+
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; align-items: center; }
+/*
+ * `.sheet-body a { color: var(--accent) }` is specificity (0,1,1) and beats
+ * `.primary` (0,1,0) — so the Download link at the end of a GIF render was
+ * accent text on an accent background: a 1:1 contrast slab with an invisible
+ * label, as the primary call to action after a ten-second wait. Any anchor
+ * wearing a button's clothes takes the button's ink.
+ */
+.actions a.primary, .sheet-body a.primary { text-decoration: none; display: inline-block; color: var(--accent-ink); }
+.actions a.ghost, .sheet-body a.ghost { text-decoration: none; display: inline-block; color: var(--ink); }
+
+.progress { margin: 14px 0 0; }
+.progress-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.progress-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 180ms ease; }
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+  gap: 8px;
+  margin: 4px 0 16px;
+}
+.stat {
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--hair-2);
+}
+.stat b { display: block; font-size: 17px; font-weight: 640; font-variant-numeric: tabular-nums; }
+.stat span { display: block; font-size: 11.5px; color: var(--ink-3); margin-top: 2px; line-height: 1.35; }
+
+.view-list { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.view-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 10px;
+  border: 1px solid var(--hair-2);
+  background: rgba(255, 255, 255, 0.035);
+  padding: 6px 8px 6px 6px;
+}
+.view-open { display: flex; align-items: center; gap: 11px; flex: 1; min-width: 0; text-align: left; }
+.view-open img {
+  width: 78px; height: 46px;
+  object-fit: cover;
+  border-radius: 7px;
+  border: 1px solid var(--hair-2);
+  flex: none;
+  background: #06090f;
+}
+.view-open b { display: block; font-size: 13px; font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.view-open span span, .view-open > span > span { display: block; font-size: 11.5px; color: var(--ink-3); }
+
+.shot-preview { margin: 10px 0; }
+.shot-preview img {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--hair-2);
+  display: block;
+}
+
+ul.plain { margin: 0 0 12px; padding-left: 18px; color: var(--ink-2); }
+ul.plain li { margin-bottom: 5px; line-height: 1.5; }
+
+.together .lbl { font-size: 12.5px; color: var(--ink-2); }
+@media (max-width: 700px) {
+  .together .lbl { display: none; }
+  .together { padding: 0 12px; }
+}
+
+/* The date, on a phone, on one line. Three lines of chip is most of a thumb. */
+@media (max-width: 700px) {
+  .date-chip .sub { font-size: 9.5px; }
+}
+
+
+/* ------------------------------------------------------ inspector (wide) -- *
+ * What a big screen is FOR: the extra width carries facts about what is on
+ * the map — where you are, what the top layer is, its resolution and cadence,
+ * whether it has anything for this day, and its legend. Below 1400px it is not
+ * there at all, and the map keeps the room.
+ */
+#inspect { display: none; }
+
+@media (min-width: 1400px) {
+  #inspect {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    right: calc(var(--safe-r) + 10px);
+    top: calc(var(--safe-t) + var(--top-h) + 16px);
+    width: 296px;
+    max-height: calc(100% - var(--safe-t) - var(--top-h) - var(--time-h) - 32px);
+    border-radius: var(--r);
+    background: var(--glass);
+    border: 1px solid var(--hair);
+    backdrop-filter: blur(18px) saturate(1.35);
+    -webkit-backdrop-filter: blur(18px) saturate(1.35);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    z-index: 25;
+  }
+  /* The rail keeps navigation and drops to the corner, where a map's zoom
+     controls live; the inspector takes the labelled actions. */
+  #tools {
+    top: auto;
+    bottom: calc(var(--time-h) + 16px);
+    transform: none;
+    flex-direction: row;
+  }
+  #tools .tool-gap { width: 1px; height: auto; margin: 4px 3px; }
+  #tools .tool[data-tool="compare"],
+  #tools .tool[data-tool="measure"],
+  #tools .tool[data-tool="shot"],
+  #tools .tool[data-tool="views"],
+  #tools .tool[data-tool="tours"],
+  #tools .tool-gap { display: none; }
+  #tools { right: calc(var(--safe-r) + 318px); }
+}
+
+.ins-head {
+  padding: 11px 14px 9px;
+  border-bottom: 1px solid var(--hair-2);
+}
+.ins-head h2 {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ins-body { overflow-y: auto; padding: 12px 14px 14px; }
+.ins-place { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+.ins-coords { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
+.ins-sep { height: 1px; background: var(--hair-2); margin: 12px 0; }
+.ins-layer b { display: block; font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+.ins-layer .who { display: block; font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+.ins-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  margin: 10px 0 0;
+  font-size: 11.5px;
+}
+.ins-facts dt { color: var(--ink-3); }
+.ins-facts dd {
+  margin: 0;
+  font-family: var(--mono);
+  color: var(--ink-2);
+  min-width: 0;
+  overflow-wrap: break-word;
+  font-size: 11px;
+}
+.ins-about { font-size: 11.5px; color: var(--ink-3); line-height: 1.5; margin: 10px 0 0; }
+.ins-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.ins-actions button {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--hair);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.ins-actions button:hover { color: var(--ink); border-color: rgba(76, 194, 255, 0.5); background: rgba(76, 194, 255, 0.1); }
+.ins-ok { color: var(--good); }
+.ins-warn { color: var(--warn); }
+
+/* Destructive is destructive. Two identical neutral buttons where one wipes
+   the pinned imagery is a trap. */
+.danger { border-color: rgba(255, 107, 107, 0.45) !important; color: var(--bad) !important; }
+.danger:hover { background: rgba(255, 107, 107, 0.12) !important; }
+
+/* The sheet's scroll edge, so a clipped card reads as "more below" and not as
+   a broken dialog. */
+.browse-body, .sheet-body { -webkit-mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 26px), transparent 100%); mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 26px), transparent 100%); }
+.sheet-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px calc(12px + var(--safe-b));
+  border-top: 1px solid var(--hair-2);
+  background: rgba(10, 14, 22, 0.6);
+}
+.sheet-foot .count { font-size: 12.5px; color: var(--ink-3); margin-right: auto; }
+
+@media (max-width: 700px) {
+  /* Two labelled buttons instead of six mystery glyphs at the screen edge. */
+  #tools { display: none; }
+  #phonebar {
+    display: flex;
+    gap: 8px;
+    position: absolute;
+    right: calc(var(--safe-r) + 10px);
+    bottom: calc(var(--time-h) + 12px);
+    z-index: 25;
+  }
+  .pb {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 40px;
+    padding: 0 14px;
+    border-radius: 999px;
+    background: var(--glass);
+    border: 1px solid var(--hair);
+    backdrop-filter: blur(14px) saturate(1.3);
+    -webkit-backdrop-filter: blur(14px) saturate(1.3);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+    font-size: 13px;
+    font-weight: 560;
+    color: var(--ink);
+  }
+  .pb svg { color: var(--accent); }
+  #app.panel-open #phonebar, body.sheet-open #phonebar { opacity: 0; pointer-events: none; }
+}
+
+/* The day, written on the playhead itself. */
+.tl-cursor b {
+  position: absolute;
+  top: 15px;
+  left: 7px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+.tl-cursor.flip b { left: auto; right: 7px; }
+
+.off-note { color: var(--ink-3) !important; margin-bottom: 8px !important; }
+
+.tool-list { display: flex; flex-direction: column; gap: 8px; }
+.tool-row {
+  text-align: left;
+  padding: 13px 14px;
+  border-radius: 11px;
+  border: 1px solid var(--hair-2);
+  background: rgba(255, 255, 255, 0.04);
+}
+.tool-row:hover { border-color: rgba(76, 194, 255, 0.45); background: rgba(76, 194, 255, 0.08); }
+.tool-row b { display: block; font-size: 14px; font-weight: 600; }
+.tool-row span { display: block; font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
+
+#toast { display: flex; align-items: center; gap: 12px; }
+.toast-do {
+  padding: 5px 11px;
+  border-radius: 7px;
+  border: 1px solid rgba(76, 194, 255, 0.45);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  flex: none;
+}
+.toast-do:hover { background: rgba(76, 194, 255, 0.14); }
+
+/* Compare belongs to the MAP, not to the window: the divider used to run
+   through the header between two pills it has nothing to do with. */
+#compare {
+  top: calc(var(--safe-t) + var(--top-h) + 12px);
+  bottom: calc(var(--time-h) + 10px);
+  inset-inline: 0;
+}
+.cmp-tag { top: 8px; }
+
+/* ---------------------------------------------------------------- calendar */
+.cal-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.cal-title { flex: 1; text-align: center; font-size: 14.5px; font-weight: 600; }
+.cal-nav {
+  width: 34px; height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--hair);
+  color: var(--ink-2);
+  font-size: 17px;
+  line-height: 1;
+}
+.cal-nav:hover { color: var(--ink); background: rgba(255, 255, 255, 0.08); }
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.cal-dow {
+  text-align: center;
+  font-size: 10.5px;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+  padding-bottom: 2px;
+}
+.cal-day {
+  height: 38px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.cal-day:hover { background: rgba(255, 255, 255, 0.09); }
+.cal-day.thin { color: var(--ink-3); opacity: 0.55; }
+.cal-day.out { color: var(--ink-3); opacity: 0.25; pointer-events: none; }
+.cal-day.today { border-color: rgba(255, 255, 255, 0.28); }
+.cal-day.on { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+/* The day you are ON, but the layer has nothing for it. A solid accent chip
+   here says "this one is good"; it is the opposite. Keep the ring so you can
+   still find yourself in the month, drop the fill. */
+.cal-day.on.thin {
+  background: none;
+  color: var(--ink-2);
+  opacity: 1;
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* ------------------------------------------------------------- loading ---- *
+ * Imagery arrives tile by tile over a connection that may be a train window.
+ * A map that is quietly working looks identical to a map that has given up, so
+ * one hairline says which — indeterminate, because the app genuinely does not
+ * know how many tiles a pan will need until it has drawn the frame.
+ */
+#loading {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  overflow: hidden;
+  z-index: 32;
+  pointer-events: none;
+}
+#loading i {
+  display: block;
+  height: 100%;
+  width: 34%;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: sweep 1.1s ease-in-out infinite;
+}
+@keyframes sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(320%); }
+}
+
+/* Shortcut sheet */
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; align-items: baseline; }
+.keys kbd {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--hair);
+  white-space: nowrap;
+}
+.keys span { font-size: 13px; color: var(--ink-2); }
+
+/* The legend, inline in the layer row. */
+.row-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+}
+.row-legend i {
+  display: block;
+  height: 7px;
+  flex: none;
+  width: 11px;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+}
+.row-legend i.ramp { flex: 1; width: auto; min-width: 40px; }
+.row-legend b {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.row-legend b.hi { margin-left: auto; }
+
+/* The welcome globe is drawn, not gradient-guessed. */
+.w-globe { width: 88px; height: 88px; display: block; margin: 0 auto 14px; background: none; box-shadow: none; }
+
+/* Tools sheet rows carry their glyph. */
+.tool-row { display: flex; align-items: flex-start; gap: 12px; }
+.tool-row svg { color: var(--accent); flex: none; margin-top: 1px; }
+.tool-txt { min-width: 0; }
+
+/* Segmented control (animation step, and anywhere else a short list of
+   mutually exclusive words beats a native select). */
+.seg { display: inline-flex; border-radius: 9px; border: 1px solid var(--hair); overflow: hidden; }
+.seg button { padding: 7px 11px; font-size: 12.5px; color: var(--ink-3); }
+.seg button + button { border-left: 1px solid var(--hair); }
+.seg button:hover { color: var(--ink); background: rgba(255, 255, 255, 0.07); }
+.seg button.on { color: var(--accent); background: rgba(76, 194, 255, 0.15); }
+
+/* A field that is really a button (it opens the app's own calendar). */
+.field-btn { display: inline-flex; align-items: center; min-width: 132px; justify-content: center; }
+.field-btn:hover { border-color: rgba(76, 194, 255, 0.5); color: var(--accent); }
+
+/* Year grid in the calendar. */
+.cal-years {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(66px, 1fr));
+  gap: 5px;
+  max-height: 232px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+.cal-year {
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--hair-2);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.cal-year:hover { border-color: rgba(76, 194, 255, 0.5); color: var(--ink); }
+.cal-year.on { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+
+/* Storage: one meter beats four decorative numbers. */
+.stat .sub { font-size: 10.5px; color: var(--ink-3); opacity: 0.8; }
+.meter { margin: 2px 0 18px; }
+.meter-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  border: 1px solid var(--hair-2);
+}
+.meter-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 260ms ease; }
+
+/* A destructive control should look like a decision, not like a twin. */
+.linky {
+  border: 0 !important;
+  padding: 8px 4px !important;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-size: 12.5px;
+}
+
+/* The calendar's month title is a control: it opens the years. */
+.cal-title { border-radius: 9px; padding: 6px 10px; }
+.cal-title::after { content: ' ▾'; font-size: 11px; opacity: 0.55; }
+.cal-title:hover { background: rgba(255, 255, 255, 0.07); }
+
+/* The readout, once it lives inside the bottom bar. */
+.time-row #readout {
+  position: static;
+  margin: 0 auto;
+  background: none;
+  border: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: 0;
+  opacity: 1;
+  gap: 14px;
+}
+#app.panel-open .time-row #readout { left: auto; }
+
+@media (max-width: 700px) {
+  /* With a sheet up, the top bar is behind glass and its icons read as
+     smudges. It goes with the rest of the furniture. */
+  #app.panel-open #top, body.sheet-open #top {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms ease;
+  }
+}

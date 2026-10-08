@@ -1,0 +1,33 @@
+{
+  "tagline": "One of you is lost in the network; the other reads the codes. Talk fast.",
+  "description": "Send the invite and the other person is in the same room. One of you is a HACKER lost in an 8×8 corporate network. The other is a NAVIGATOR at a terminal. Walk the maze, read the access codes, type them into nmap together, find the TARGET, and hack it before the locator catches you. The codes ARE the maze — colours, walls, traps, the target.\n\nThe original connection is your voice. You can still shout the codes in a meeting, or the hacker taps Send code and the navigator’s map fills in, layer by layer. On one device you switch seats without losing the maze.\n\nA trap costs you time. Hacking the wrong node costs you more. Time runs out and you are lost in CYBERSPACE. Top scores are saved.\n\nAn unofficial port of Lost in CYBERSPACE by Bartek Szopka and Zofia Korcz (js13kGames 2017). The maze and the terminal are the game.",
+  "author": {
+    "name": "Bartek Szopka & Zofia Korcz",
+    "url": "https://github.com/bartaz/lost-in-cyberspace"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "Lost in CYBERSPACE",
+    "url": "https://github.com/bartaz/lost-in-cyberspace",
+    "blessed": false
+  },
+  "releaseDate": "2026-08-24",
+  "categories": [
+    "Games"
+  ],
+  "tags": [
+    "coop",
+    "maze",
+    "terminal",
+    "js13k",
+    "multiplayer",
+    "offline"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/lost-in-cyberspace",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

@@ -1,0 +1,34 @@
+{
+  "tagline": "Watch particles form little creatures. Share the jar with a friend.",
+  "description": "Press Share the jar, then Invite in the bar above the app, and send the link. A friend opens it and lands in the same mix. Tap to stir; they see your poke. Playing alone is the original toy.\n\nThe mix is saved with your copy of the app.\n\nA jar of tiny coloured specks. Each colour likes some colours and shies from others. From that one rule they bunch into worms, cells, crystals — things that look alive, for a while. Push shoves them away from your finger; switch to Pull and they gather instead. New mix pours a fresh set of likes and shies.\n\nAn unofficial port of Particle Life by hunar4321.",
+  "author": {
+    "name": "hunar4321",
+    "url": "https://github.com/hunar4321/particle-life"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "Particle Life",
+    "url": "https://github.com/hunar4321/particle-life",
+    "blessed": false
+  },
+  "releaseDate": "2026-08-23",
+  "categories": [
+    "Creativity",
+    "Games"
+  ],
+  "tags": [
+    "particles",
+    "life",
+    "colours",
+    "toy",
+    "multiplayer",
+    "offline"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/particle-life",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

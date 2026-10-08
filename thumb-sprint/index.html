@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Thumb Sprint</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Thumb Sprint</h1>
+    <div class="seg" id="modeSeg" role="group" aria-label="Opponent">
+      <button type="button" data-mode="ghost" id="ghostBtn">Ghost</button>
+      <button type="button" data-mode="cpu" class="on" id="cpuBtn">Computer</button>
+    </div>
+  </header>
+
+  <p class="status" id="status" aria-live="polite">Mash to sprint.</p>
+
+  <div class="trackwrap">
+    <canvas id="track" width="720" height="360" aria-label="Race track"></canvas>
+  </div>
+
+  <button type="button" class="mash" id="mash" aria-label="Mash to run">
+    <span class="mash-label" id="mashLabel">MASH</span>
+    <span class="mash-hint" id="mashHint">tap</span>
+  </button>
+
+  <div class="bar" id="bar">
+    <button type="button" class="ghost-btn" id="startBtn" hidden>Start</button>
+    <button type="button" class="ghost-btn" id="againBtn" hidden>Again</button>
+  </div>
+</div>
+
+<script src="race.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Contrast Ratio</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="bar">
+    <div class="field">
+      <div class="field-head">
+        <label for="background">Background</label>
+        <output class="hex" id="backgroundHex" for="background" aria-live="polite"></output>
+      </div>
+      <span class="entry">
+        <span class="swatch">
+          <span class="swatch-color" id="backgroundSwatch"></span>
+          <input id="backgroundColorPicker" class="color-picker" type="color" tabindex="-1" aria-label="Pick a background colour">
+        </span>
+        <input id="background" class="text-input" value="white" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off">
+        <button type="button" class="best" id="backgroundBest" title="Use the background with the most contrast against the text colour">Best</button>
+      </span>
+    </div>
+
+    <button type="button" id="swap" title="Swap the two colours" aria-label="Swap the two colours">&#8646;</button>
+
+    <div class="field">
+      <div class="field-head">
+        <label for="foreground">Text</label>
+        <output class="hex" id="foregroundHex" for="foreground" aria-live="polite"></output>
+      </div>
+      <span class="entry">
+        <span class="swatch">
+          <span class="swatch-color" id="foregroundSwatch"></span>
+          <input id="foregroundColorPicker" class="color-picker" type="color" tabindex="-1" aria-label="Pick a text colour">
+        </span>
+        <input id="foreground" class="text-input" value="hsla(200,0%,0%,.7)" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off">
+        <button type="button" class="best" id="foregroundBest" title="Use the text colour with the most contrast against the background">Best</button>
+      </span>
+    </div>
+  </header>
+
+  <section id="verdict">
+    <output for="background foreground" class="contrast" id="contrast" tabindex="0" aria-live="polite">
+      <strong id="ratio">?</strong>
+      <span class="error" id="error"></span>
+    </output>
+    <div id="results">
+      <output for="background foreground" id="wcag"></output>
+      <output for="background foreground" id="note"></output>
+      <output for="background foreground" id="detail"></output>
+    </div>
+  </section>
+
+  <section id="preview">
+    <div class="preview-inner">
+      <p class="big">Large text, 24 pixels</p>
+      <p class="sample">Ordinary text at reading size. This paragraph is here so you can see the pair, not only read the number &mdash; in <i>italic</i>, <b>bold</b>, and <b><i>bold italic</i></b>.</p>
+    </div>
+  </section>
+
+  <p id="foot">Unofficial port of contrast-ratio by siege-media. Originally by Lea Verou.</p>
+
+  <script src="vendor/color.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Kana Quiz</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <header>
+    <button type="button" class="icon-btn" id="backBtn" hidden aria-label="Back">←</button>
+    <h1>Kana Quiz</h1>
+    <span class="score" id="scoreChip" aria-live="polite"></span>
+  </header>
+
+  <section id="home" class="home">
+    <p class="lead" id="lead">A kana. Four sounds. Tap the right one.</p>
+
+    <div class="seg" id="scriptSeg" role="group" aria-label="Script">
+      <button type="button" data-script="hiragana" class="on">Hiragana</button>
+      <button type="button" data-script="katakana">Katakana</button>
+      <button type="button" data-script="both">Both</button>
+    </div>
+    <div class="seg" id="dirSeg" role="group" aria-label="Direction">
+      <button type="button" data-dir="toRomaji" class="on">Kana → sound</button>
+      <button type="button" data-dir="toKana">Sound → kana</button>
+    </div>
+
+    <div class="presets" id="presets" role="group" aria-label="Quick pick"></div>
+    <p class="count" id="pickLine"><span id="pickCount"></span> <button type="button" class="text" id="freshBtn" hidden>New drill</button></p>
+    <div id="rows" class="chart"></div>
+
+    <p class="err" id="homeErr" hidden></p>
+    <div class="actions">
+      <button type="button" class="primary" id="continueBtn" hidden>Continue</button>
+      <button type="button" class="primary" id="startBtn">Start drill</button>
+      <button type="button" class="ghost" id="reviewBtn" hidden>Review misses</button>
+      <button type="button" class="ghost" id="friendBtn">Play a friend</button>
+    </div>
+  </section>
+
+  <section id="lobby" class="lobby" hidden>
+    <p class="lead">Same shuffled deck. Press <b>Invite</b> in the bar above the app — that link is the room.</p>
+    <div class="seg" id="raceSeg" role="group" aria-label="Race">
+      <button type="button" data-race="firstN" class="on">First to 10</button>
+      <button type="button" data-race="deck">Whole deck</button>
+    </div>
+    <div id="lobbyPeople" class="versus"></div>
+    <p id="lobbyWait" class="wait">Waiting for a friend…</p>
+    <div class="prompt wait-kana" id="lobbyKana" lang="ja" aria-hidden="true">あ</div>
+    <p class="hint">You only write your own score. First to ten right wins, or whoever has more when the cards run out.</p>
+    <button type="button" class="ghost" id="lobbyBack">Back</button>
+  </section>
+
+  <section id="quiz" class="quiz" hidden>
+    <div id="versus" class="versus" hidden></div>
+    <p id="waitNote" class="wait" hidden>Waiting for a friend — press <b>Invite</b> in the bar above.</p>
+    <p id="feedback" class="feedback" aria-live="polite">Which sound?</p>
+    <div id="prompt" class="prompt" aria-live="polite"></div>
+    <div id="choices" class="choices" role="group" aria-label="Answers"></div>
+    <div class="bar" aria-hidden="true"><i id="barFill"></i></div>
+    <p id="progress" class="progress"></p>
+  </section>
+
+  <section id="done" class="done" hidden>
+    <p id="doneTitle" class="done-title">Deck done</p>
+    <p id="doneScore" class="done-score"></p>
+    <p id="doneNote" class="done-note"></p>
+    <div id="missedStrip" class="missed" hidden></div>
+    <button type="button" class="primary" id="againBtn">Again</button>
+    <button type="button" class="ghost" id="reviewDoneBtn" hidden>Review misses</button>
+    <button type="button" class="ghost" id="homeBtn">Change rows</button>
+  </section>
+</div>
+
+<script src="vendor/kana.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

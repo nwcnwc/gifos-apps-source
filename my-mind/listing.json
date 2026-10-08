@@ -1,0 +1,32 @@
+{
+  "tagline": "Mind maps at typing speed: Tab for a child, Enter for a sibling.",
+  "description": "Close it, come back, or send someone your copy — the same bubbles are there.\n\nClick a bubble and type. Tab inserts a child, Enter a sibling, arrows walk the map, Delete removes a node. Drag to pan, wheel to zoom. Colours, layouts (map, graph, tree), shapes, and a yes/no status live on each item. New starts a blank map.\n\nOn a phone, tap a bubble to select it, tap again to type, and use Child / Sibling / Edit / Delete at the bottom.\n\nPress Invite in the bar above so a friend can watch the same map.\n\nAn unofficial port of My Mind by Ondřej Žára. Same map, same keys.",
+  "author": {
+    "name": "Ondřej Žára",
+    "url": "https://github.com/ondras/my-mind"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "My Mind",
+    "url": "https://github.com/ondras/my-mind",
+    "blessed": false
+  },
+  "releaseDate": "2026-08-24",
+  "categories": [
+    "Productivity"
+  ],
+  "tags": [
+    "mindmap",
+    "outline",
+    "notes",
+    "ideas",
+    "offline"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/my-mind",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

@@ -1,0 +1,34 @@
+{
+  "tagline": "Hear sine, square, and saw. An explorable that fits a phone.",
+  "description": "The original Waveforms is a long article. This is the same lesson — displacement, frequency, air molecules, harmonics — as a walk-through you can finish with a thumb.\n\nTap Hear for a bass tone. Drag amplitude for loudness, frequency for pitch. Watch a square assemble from odd harmonics, and hear it happen. Your place in the guide is saved: close it, open it later, you are still there.\n\nUnofficial port of Waveforms by Josh Comeau. Bugs go to GifOS, not upstream.",
+  "author": {
+    "name": "Josh Comeau",
+    "url": "https://github.com/joshwcomeau/waveforms"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "Waveforms",
+    "url": "https://github.com/joshwcomeau/waveforms",
+    "blessed": false
+  },
+  "releaseDate": "2026-08-24",
+  "categories": [
+    "Learning",
+    "Creativity"
+  ],
+  "tags": [
+    "sound",
+    "waveform",
+    "sine",
+    "synthesis",
+    "explorable",
+    "offline"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/waveforms",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

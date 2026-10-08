@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Yahtzee</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <link href="vendor/main.css" rel="stylesheet">
+  <link href="style.css" rel="stylesheet">
+</head>
+<body>
+  <div class="container">
+    <header class="top">
+      <h1>Yahtzee</h1>
+      <div class="top-meta">
+        <span id="best">Best: 0</span>
+        <button type="button" id="friendBtn">Play a friend</button>
+      </div>
+    </header>
+
+    <div id="friend-bar" hidden>
+      <p id="friend-hint">Press <b>Invite</b> above to send the link. You both play now — nobody waits.</p>
+      <div class="friend-row">
+        <p id="friend-status"></p>
+        <ul id="friend-scores"></ul>
+        <div class="friend-actions">
+          <button type="button" id="againBtn" hidden>Play again</button>
+          <button type="button" id="leaveBtn">Solo</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="turn-bar">
+      <p id="turn-hint">Roll to throw the dice. Tap a die to keep it.</p>
+      <div class="turn-actions">
+        <span id="rolls-left">3 rolls</span>
+        <button type="button" id="rollBtn">Roll</button>
+      </div>
+    </div>
+
+    <div class="dices">
+      <canvas id="d0" class="dice"></canvas>
+      <canvas id="d1" class="dice"></canvas>
+      <canvas id="d2" class="dice"></canvas>
+      <canvas id="d3" class="dice"></canvas>
+      <canvas id="d4" class="dice"></canvas>
+      <canvas id="play" class="paquet"></canvas>
+      <canvas class="counter"></canvas>
+      <div id="die-hits">
+        <button type="button" class="die-hit" data-i="0" aria-label="Keep die 1"></button>
+        <button type="button" class="die-hit" data-i="1" aria-label="Keep die 2"></button>
+        <button type="button" class="die-hit" data-i="2" aria-label="Keep die 3"></button>
+        <button type="button" class="die-hit" data-i="3" aria-label="Keep die 4"></button>
+        <button type="button" class="die-hit" data-i="4" aria-label="Keep die 5"></button>
+      </div>
+    </div>
+
+    <div class="results">
+      <img src="vendor/images/scores.jpg" width="360" height="auto" alt="">
+      <div>
+        <div class="result multi">
+          <div class="name">Ones</div>
+          <div class="score"></div>
+        </div>
+        <div class="result multi">
+          <div class="name">Twos</div>
+          <div class="score"></div>
+        </div>
+        <div class="result multi">
+          <div class="name">Threes</div>
+          <div class="score"></div>
+        </div>
+        <div class="result multi">
+          <div class="name">Fours</div>
+          <div class="score"></div>
+        </div>
+        <div class="result multi">
+          <div class="name">Fives</div>
+          <div class="score"></div>
+        </div>
+        <div class="result multi">
+          <div class="name">Sixes</div>
+          <div class="score"></div>
+        </div>
+        <div id="sum" class="result saved">
+          <div class="name">≥63 +35</div>
+          <div class="score"></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="result yams">
+          <div class="name">3 of a kind</div>
+          <div class="score"></div>
+        </div>
+        <div class="result yams">
+          <div class="name">4 of a kind</div>
+          <div class="score"></div>
+        </div>
+        <div class="result yams">
+          <div class="name">Sm. straight</div>
+          <div class="score"></div>
+        </div>
+        <div class="result yams">
+          <div class="name">Lg. straight</div>
+          <div class="score"></div>
+        </div>
+        <div class="result yams">
+          <div class="name">Full house</div>
+          <div class="score"></div>
+        </div>
+        <div class="result yams">
+          <div class="name">Chance</div>
+          <div class="score"></div>
+        </div>
+        <div id="yahtzee" class="result yams">
+          <div class="name">Yahtzee <span id="ybonus" hidden></span></div>
+          <div class="score"></div>
+        </div>
+      </div>
+      <div id="total" class="result saved">
+        <div class="name">TOTAL</div>
+        <div class="score"></div>
+      </div>
+    </div>
+
+    <p class="foot">Unofficial port of the felt-table Yahtzee by Alhissar (MIT). Not a Hasbro product. Playing alone is five dice and a scorecard. A table is one round, each scorecard on its own row — nobody writes on anybody else’s.</p>
+  </div>
+
+  <div class="invisible">
+    <img src="vendor/images/colors_small.png" alt="" id="colors" width="500" height="100">
+    <img src="vendor/images/numbers.png" alt="" id="nb" width="162" height="54">
+  </div>
+
+  <script src="vendor/Card.js"></script>
+  <script src="vendor/Dices.js"></script>
+  <script src="vendor/Player.js"></script>
+  <script src="vendor/functions.js"></script>
+  <script src="scores.js"></script>
+  <script src="storage.js"></script>
+  <script src="rules.js"></script>
+  <script src="mp.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,261 @@
+{
+ "note": "Every source this app ships from, with the URL it came from, the bytes that were fetched, the licence statement that permits the use, and the attribution the licence requires. Appended to by each builder; never overwritten.",
+ "sources": [
+  {
+   "id": "tsk",
+   "title": "Treasury of Scripture Knowledge",
+   "authors": "Canne, Browne, Blayney, Scott and others",
+   "published": "c.1830-1880",
+   "url": "https://raw.githubusercontent.com/narthur/tsk-cli/master/tskxref.txt",
+   "bytes": 4541772,
+   "license": "Public Domain",
+   "licenseBasis": "The TSV file is distributed inside a GPL-3.0 repository that states no grant of its own for the data. The WORK is public domain by age (published c.1880) and CrossWire's packaging of the same text records that determination: https://crosswire.org/ftpmirror/pub/sword/packages/rawzip/TSK.zip (2643739 bytes), mods.d/tsk.conf line `DistributionLicense=Public Domain`. The TSV is used for its structure; the rights basis is the c.1880 publication date and CrossWire's determination.",
+   "attribution": null,
+   "usedIn": [
+    "help-xrefs.gbx"
+   ]
+  },
+  {
+   "id": "easton",
+   "title": "Easton's Bible Dictionary",
+   "published": "1897",
+   "authors": "M. G. Easton, M.A., D.D.",
+   "url": "https://crosswire.org/ftpmirror/pub/sword/packages/rawzip/Easton.zip",
+   "bytes": 1437674,
+   "license": "Public Domain",
+   "licenseBasis": "mods.d/easton.conf: `DistributionLicense=Public Domain`; About: \"Easton's 1897 Bible Dictionary … Public Domain -- Copy Freely\".",
+   "attribution": null,
+   "usedIn": [
+    "help-dict.gbx"
+   ]
+  },
+  {
+   "id": "smith",
+   "title": "Smith's Bible Dictionary",
+   "published": "1884",
+   "authors": "Dr. William Smith",
+   "url": "https://crosswire.org/ftpmirror/pub/sword/packages/rawzip/Smith.zip",
+   "bytes": 1209292,
+   "license": "Public Domain",
+   "licenseBasis": "mods.d/smith.conf: `DistributionLicense=Public Domain`; About: \"Smith's Bible Dictionary by Dr. William Smith. (1884) Public domain.\"",
+   "attribution": null,
+   "usedIn": [
+    "help-dict.gbx"
+   ]
+  },
+  {
+   "id": "nave",
+   "title": "Nave's Topical Bible",
+   "published": "early 1900s",
+   "authors": "Orville J. Nave, A.M., D.D., LL.D.",
+   "url": "https://crosswire.org/ftpmirror/pub/sword/packages/rawzip/Nave.zip",
+   "bytes": 1300879,
+   "license": "Public Domain",
+   "licenseBasis": "mods.d/nave.conf: `DistributionLicense=Public Domain`, TextSource=https://ccel.org/ccel/n/nave/bible.xml",
+   "attribution": null,
+   "usedIn": [
+    "help-topics.gbx"
+   ]
+  },
+  {
+   "id": "torrey",
+   "title": "Torrey's New Topical Textbook",
+   "authors": "R. A. Torrey",
+   "published": "reprint of an out-of-copyright edition",
+   "url": "https://crosswire.org/ftpmirror/pub/sword/packages/rawzip/Torrey.zip",
+   "bytes": 422465,
+   "license": "Public Domain",
+   "licenseBasis": "mods.d/torrey.conf: `DistributionLicense=Public Domain`; About: \"No copyright notice appears on the book, and it is a reprint of the original edition which is out of copyright.\"",
+   "attribution": null,
+   "usedIn": [
+    "help-topics.gbx"
+   ]
+  },
+  {
+   "id": "mhcc",
+   "title": "Matthew Henry's Concise Commentary on the Whole Bible",
+   "authors": "Matthew Henry (1662-1714), with the concise edition completed after his death",
+   "url": "https://github.com/lyteword/mhenry-concise",
+   "bytes": null,
+   "license": "CC0-1.0",
+   "licenseBasis": "The repository's LICENSE file is the Creative Commons CC0 1.0 Universal public-domain dedication, verified by its opening lines \"Creative Commons Legal Code\" and \"CC0 1.0 Universal\". CrossWire's MHCC.zip (1773039 bytes, mods.d/mhcc.conf `DistributionLicense=Public Domain`) carries the same text and is the fallback; it is not used here.",
+   "attribution": null,
+   "usedIn": [
+    "help-mhcc.gbx"
+   ]
+  },
+  {
+   "id": "openbible-geo",
+   "title": "Bible place gazetteer",
+   "authors": "OpenBible.info",
+   "url": "https://www.openbible.info/geo/data/places.txt",
+   "bytes": 115249,
+   "license": "CC BY",
+   "licenseBasis": "OpenBible.info publishes its geocoding data under Creative Commons Attribution. Attribution is REQUIRED and is carried in the pack header and shown wherever a place is displayed.",
+   "attribution": "Bible place data © OpenBible.info, licensed CC BY 4.0. Source: https://www.openbible.info/geo/",
+   "usedIn": [
+    "help-places.gbx"
+   ]
+  },
+  {
+   "id": "mcheyne",
+   "title": "M'Cheyne One-Year Reading Plan",
+   "published": "1842",
+   "authors": "Robert Murray M'Cheyne",
+   "url": "https://raw.githubusercontent.com/willswire/mcheyne/main/App/PlanConstants.swift",
+   "bytes": 43470,
+   "license": "Public Domain",
+   "licenseBasis": "The 1842 plan is public domain by age. The machine-readable copy consulted sits in an Apache-2.0 repository whose licence covers that project's code, not the 1842 table; the table was transcribed into the MCHEYNE literal in apps/bible/tools/build-helps.mjs rather than vendored, so no Apache-2.0 file is redistributed.",
+   "attribution": null,
+   "usedIn": [
+    "help-plans.gbx"
+   ]
+  },
+  {
+   "id": "strongs-h",
+   "title": "Strong's Hebrew Dictionary",
+   "published": "1894",
+   "authors": "James Strong",
+   "url": "https://raw.githubusercontent.com/openscriptures/strongs/master/hebrew/StrongHebrewG.xml",
+   "bytes": 6436400,
+   "license": "Public Domain",
+   "licenseBasis": "Strong's 1894 dictionary is public domain by age. The Open Scriptures XML layers TWOT glosses (Moody Bible Institute, 1980, copyrighted) into @gloss; this build never reads @gloss, drops the <foreign> and <list> blocks, and test/unit/bible-lexicon.js re-checks that no gloss value reached a packed field.",
+   "attribution": null,
+   "usedIn": [
+    "lex-strongs-h.gbx"
+   ]
+  },
+  {
+   "id": "strongs-g",
+   "title": "Strong's Greek Dictionary",
+   "published": "1890",
+   "authors": "James Strong",
+   "url": "https://raw.githubusercontent.com/openscriptures/strongs/master/greek/StrongsGreekDictionaryXML_1.4/strongsgreek.xml",
+   "bytes": 2636209,
+   "license": "Public Domain",
+   "licenseBasis": "Strong's 1890 dictionary is public domain by age.",
+   "attribution": null,
+   "usedIn": [
+    "lex-strongs-g.gbx"
+   ]
+  },
+  {
+   "id": "morphhb",
+   "title": "Open Scriptures Hebrew Bible (Westminster Leningrad Codex morphology)",
+   "authors": "Open Scriptures Hebrew Bible project",
+   "url": "https://github.com/openscriptures/morphhb",
+   "license": "CC BY 4.0",
+   "licenseBasis": "The repository's LICENSE is Creative Commons Attribution 4.0. Attribution is REQUIRED and is carried in the pack header and shown wherever the interlinear is displayed.",
+   "attribution": "Original work of the Open Scriptures Hebrew Bible available at https://github.com/openscriptures/morphhb",
+   "usedIn": [
+    "int-wlc.gbx"
+   ]
+  },
+  {
+   "id": "byztxt",
+   "title": "Byzantine Majority Text with Strong's numbers and Robinson's parsing",
+   "url": "https://github.com/byztxt/byzantine-majority-text",
+   "license": "Unlicense (public domain)",
+   "licenseBasis": "The repository is published under the Unlicense.",
+   "attribution": null,
+   "usedIn": [
+    "int-grcbyz.gbx"
+   ]
+  },
+  {
+   "id": "tischendorf",
+   "title": "Tischendorf 8th edition with Strong's numbers and Robinson's parsing",
+   "url": "https://github.com/morphgnt/tischendorf-data",
+   "license": "Public Domain",
+   "licenseBasis": "Tischendorf 8th (1869-1872) is public domain by age; MorphGNT publishes the tagged text as public domain.",
+   "attribution": null,
+   "usedIn": [
+    "int-grctisch.gbx"
+   ]
+  },
+  {
+   "id": "dtn",
+   "title": "Darby Translation Notes (J. N. Darby's footnotes)",
+   "authors": "John Nelson Darby (1800–1882); 1890 Morrish English Bible notes, via the 1961 Kingston Bible Trust / Bible Truth Publishers reprint",
+   "published": "1890 (notes); 1961 reprint of the 1890 text",
+   "url": "https://crosswire.org/ftpmirror/pub/sword/packages/rawzip/DTN.zip",
+   "bytes": 332159,
+   "license": "Public Domain",
+   "licenseBasis": "CrossWire DTN module mods.d/dtn.conf: `DistributionLicense=Public Domain` (SwordVersionDate=2002-01-01). The notes are those printed with J.N. Darby's English Bible (Morrish, 1890). Darby died in 1882; the 1890 edition is public domain by age. The electronic text is the 1961 reprint's footnotes: a condensation of the 1890 notes (1939 Stow Hill omitted Hebrew/Greek manuscript references) plus further notes taken from Darby's French and German Bibles and his collected writings. Asterisk-marked notes the 1961 editors could not identify as Darby's are omitted.",
+   "attribution": null,
+   "usedIn": [
+    "engDBY.gbp"
+   ]
+  }
+ ],
+ "helpsPacks": {
+  "help-xrefs.gbx": {
+   "bytes": 1793486,
+   "sha256": "7df7abcfaa8782ccc6a7ba7cb4e5904cb84b56fc585c9462c2bce0f4477c7aaa",
+   "entries": 63682,
+   "verses": 29055
+  },
+  "help-dict.gbx": {
+   "bytes": 2162265,
+   "sha256": "09e1f5278ba3685944512cd6b35111e25f446b7c8264fd6769c7549ef05dc0ac",
+   "easton": 3963,
+   "smith": 4639,
+   "entries": 8602
+  },
+  "help-topics.gbx": {
+   "bytes": 1324036,
+   "sha256": "d044b068dff00ce1625295c85c843cb6f0861ed1895d91c1cdf7099b1e8c9114",
+   "nave": 5322,
+   "torrey": 628,
+   "topics": 5950,
+   "refs": 107328
+  },
+  "help-mhcc.gbx": {
+   "bytes": 1363066,
+   "sha256": "54a7a3cb81f0f9841476cd713480a76af804a75aaed4c8fef420da3f28ad30e0",
+   "notes": 5130,
+   "books": 66,
+   "skippedHeads": 0,
+   "booksPrefaced": 66,
+   "outlines": 1017
+  },
+  "help-places.gbx": {
+   "bytes": 16760,
+   "sha256": "42bfba42dac225220d1d945d6b1e5779cf6258b0b821b2eaab4fa5ecf7d20385",
+   "places": 556,
+   "resolved": 234,
+   "approx": 266,
+   "dropped": 718,
+   "rows": 1274
+  },
+  "help-plans.gbx": {
+   "bytes": 8305,
+   "sha256": "efe3e9737bc4546ae98a36c1f09a6107c5cb69d3669dea656c074e74e64b9b82",
+   "mcheyne": 365,
+   "psalms-proverbs": 365,
+   "whole-bible-even": 365
+  }
+ },
+ "origPacks": {
+  "lex-strongs-h.gbx": {
+   "bytes": 744080,
+   "sha256": "7bd98378d2091078783d9e502d4b05a547b966281dce1d8974d405f06c6fc0c2"
+  },
+  "lex-strongs-g.gbx": {
+   "bytes": 502565,
+   "sha256": "a8166b53fbabb51f28d15aa92b82de7d590fb53344dc5a3bc72018823fd9e5d2"
+  },
+  "int-wlc.gbx": {
+   "bytes": 3255140,
+   "sha256": "0d33e5391aa622706a0ec882d5d8892301de610394a629f4fd2d89fc6a3e42f9"
+  },
+  "int-grcbyz.gbx": {
+   "bytes": 1170496,
+   "sha256": "9893a7c74e109aeb6d7d4b8acad9792366a58aecba1cdb8607e2003cd14afb8c"
+  },
+  "int-grctisch.gbx": {
+   "bytes": 1108700,
+   "sha256": "d6fcc5189a93cad5190632b1021868e6165bcd56edd8dad2dcd76012c31417f4"
+  }
+ }
+}

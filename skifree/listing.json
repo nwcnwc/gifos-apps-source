@@ -1,0 +1,34 @@
+{
+  "tagline": "SkiFree on a phone: tilt to steer, race a friend's ghost.",
+  "description": "Send the Invite in the bar above the slope. A friend opens the link and you both ski your own run — they show up as a ghost, a little ahead or a little behind. Farthest down the mountain wins.\n\nOn your own it is SkiFree. Point where you want to go — mouse, keys, a finger, or tilt the phone — and you go. Trees, rocks, jumps. Crash and get back up. Go far enough and something hungry starts hunting you. Five skiers; when they are gone, that is how far you got. Next run, a ghost of your best skis with you.\n\nOn a phone you drag on the snow, tilt to steer, and tap BOOST to go faster.\n\nYour best distance is saved.\n\nAn unofficial port of SkiFree.js by basicallydan, MIT-licensed. The pictures come from the 1991 PC game. This copy adds the ghosts and the phone. Bugs go to GifOS, not upstream.",
+  "author": {
+    "name": "basicallydan",
+    "url": "https://github.com/basicallydan/skifree.js"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "SkiFree.js",
+    "url": "https://github.com/basicallydan/skifree.js",
+    "blessed": false
+  },
+  "releaseDate": "2026-08-23",
+  "categories": [
+    "Games"
+  ],
+  "tags": [
+    "ski",
+    "arcade",
+    "yeti",
+    "multiplayer",
+    "touch",
+    "tilt",
+    "offline"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/skifree",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

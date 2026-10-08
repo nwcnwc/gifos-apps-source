@@ -1,0 +1,235 @@
+/* Phone reflow. Upstream is a 920px desktop frame; we stack and enlarge taps. */
+html, body {
+  height: 100%;
+  margin: 0;
+  background: #0a0a0f;
+  color: #EEE;
+}
+body {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+#adr-boot {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #0a0a0f;
+  color: #c8c4b8;
+  font-family: "Times New Roman", Times, serif;
+  letter-spacing: 0.04em;
+  transition: opacity 0.45s;
+}
+#adr-boot.gone { opacity: 0; pointer-events: none; }
+#adr-boot-note { font-size: 18px; text-align: center; padding: 0 24px; }
+
+#adr-room {
+  position: fixed;
+  top: 8px;
+  right: 12px;
+  z-index: 40;
+  font-size: 13px;
+  color: #e8a848;
+  background: rgba(10, 10, 15, 0.72);
+  border: 1px solid #e8a848;
+  padding: 4px 8px;
+}
+#adr-room[hidden] { display: none; }
+
+#adr-pad {
+  position: fixed;
+  right: 12px;
+  bottom: 72px;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: 56px 56px 56px;
+  grid-template-rows: 56px 56px 56px;
+  gap: 6px;
+  pointer-events: auto;
+}
+#adr-pad[hidden] { display: none; }
+#adr-pad .adr-dir {
+  width: 56px;
+  height: 56px;
+  border: 1px solid #EEE;
+  background: rgba(10, 10, 15, 0.72);
+  color: #EEE;
+  font-size: 22px;
+  line-height: 56px;
+  text-align: center;
+  padding: 0;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+#adr-pad .adr-dir[data-dir="up"] { grid-column: 2; grid-row: 1; }
+#adr-pad .adr-dir[data-dir="left"] { grid-column: 1; grid-row: 2; }
+#adr-pad .adr-dir[data-dir="right"] { grid-column: 3; grid-row: 2; }
+#adr-pad .adr-dir[data-dir="down"] { grid-column: 2; grid-row: 3; }
+
+div.button {
+  min-height: 36px;
+  min-width: 110px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  z-index: 1;
+}
+/* Original cooldown is #DDD at z-index -1. Lights-off (the first run) made
+   that a white slab over #EEE text — stoke looked empty. Keep it under the
+   label; a dim fill reads on both themes. */
+div.button div.cooldown {
+  z-index: -1;
+  background-color: rgba(160, 140, 90, 0.35);
+}
+#lightButton, #stokeButton {
+  min-height: 44px;
+  min-width: 132px;
+  font-size: 18px;
+}
+
+.menu {
+  max-width: calc(100% - 24px);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 16px;
+}
+.menu span {
+  float: none;
+  margin-left: 0;
+  font-size: 15px;
+  padding: 6px 0;
+}
+
+@media (max-width: 720px) {
+  html, body {
+    height: auto;
+    min-height: 100%;
+  }
+  div#wrapper {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 8px 12px 96px;
+    box-sizing: border-box;
+  }
+  div#content {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+  /* Slider parents must stay in flow. Hiding them (the old 720px rule) made
+     #roomPanel 0×0 on a phone — only the log painted. Inactive locations
+     hide; the active one is .adr-active. World/Space live as siblings of
+     #main on #outerSlider, so hide #main when it has no active child. */
+  div#outerSlider,
+  div#outerSlider > div,
+  div#locationSlider {
+    position: relative !important;
+    float: none;
+    width: 100% !important;
+    height: auto !important;
+    left: 0 !important;
+    top: 0 !important;
+    overflow: visible !important;
+  }
+  div.location {
+    position: relative;
+    float: none;
+    width: 100% !important;
+    height: auto;
+    left: 0 !important;
+    display: none !important;
+  }
+  div.location.adr-active {
+    display: block !important;
+  }
+  #main:not(:has(.location.adr-active)) {
+    display: none !important;
+  }
+  div#header {
+    height: auto;
+    padding-bottom: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+  }
+  div.headerButton {
+    float: none;
+    font-size: 16px;
+    margin: 0;
+    padding: 8px 0 8px 10px;
+  }
+  div#notifications {
+    order: -1;
+    position: relative;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: auto;
+    max-height: 28vh;
+    overflow-y: auto;
+    margin-bottom: 12px;
+  }
+  div#notifyGradient { display: none; }
+  div#storesContainer {
+    position: relative !important;
+    top: auto !important;
+    right: auto !important;
+    width: 100%;
+    margin: 12px 0;
+  }
+  div#stores, div#weapons, div#outfitting, div#perks, div#village, div#population {
+    width: auto;
+    max-width: 100%;
+  }
+  div#perks {
+    position: relative;
+    top: auto;
+    right: auto;
+    margin-top: 16px;
+  }
+  div#buildBtns, div#craftBtns, div#buyBtns {
+    position: relative;
+    top: auto;
+    left: auto;
+    margin: 12px 0;
+  }
+  #roomPanel, #outsidePanel, #pathPanel, #worldPanel, #shipPanel, #spacePanel, #fabricatorPanel {
+    min-height: 0;
+  }
+  #map {
+    font-size: 9px;
+    line-height: 9px;
+    letter-spacing: 0;
+    max-width: 100%;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .eventPanel {
+    left: 8px !important;
+    right: 8px;
+    width: auto !important;
+    max-width: calc(100% - 16px);
+  }
+  #buttons > .button,
+  #roomPanel > .button,
+  #outsidePanel > .button {
+    min-height: 44px;
+  }
+  body.adr-pad-on div#wrapper { padding-bottom: 220px; }
+}
+
+@media (min-width: 721px) {
+  div#wrapper {
+    padding-top: 16px;
+  }
+}

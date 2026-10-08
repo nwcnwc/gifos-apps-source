@@ -1,0 +1,32 @@
+{
+  "tagline": "Paste a cron expression, read it back in plain English.",
+  "description": "Type a five-field schedule. The app says it in English, names each field, and lists the next times it fires.\n\nThe last expression you typed comes back the next time you open the app. Press Invite (the GifOS bar) and the same sentence shows up, read-only, for everyone in a meeting.\n\nAn unofficial port of cRonstrue by bradymholt. English only.",
+  "author": {
+    "name": "bradymholt",
+    "url": "https://github.com/bradymholt/cRonstrue"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "cRonstrue",
+    "url": "https://github.com/bradymholt/cRonstrue",
+    "blessed": false
+  },
+  "releaseDate": "2026-08-24",
+  "categories": [
+    "Developer",
+    "Utilities"
+  ],
+  "tags": [
+    "cron",
+    "schedule",
+    "english",
+    "offline"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/cron-speak",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

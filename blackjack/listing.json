@@ -1,0 +1,32 @@
+{
+  "tagline": "Beat the dealer to 21. Friends who open your invite play their own hands.",
+  "description": "Hit, stand, or double. Split a pair. Aces are soft until they have to be one. The dealer stands on 17. A natural 21 pays 3:2. Go broke and the table says so; restock deals you a fresh pile.\n\nYour chips stay with your copy of the app — send someone that copy and the table goes with it. One link sits friends at the same table. The host deals. The dealer plays in the host's browser.\n\nAn unofficial port of blackjack by hanhaechi.",
+  "author": {
+    "name": "hanhaechi",
+    "url": "https://github.com/hanhaechi/blackjack"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "blackjack",
+    "url": "https://github.com/hanhaechi/blackjack",
+    "blessed": false
+  },
+  "releaseDate": "2026-08-24",
+  "categories": [
+    "Games"
+  ],
+  "tags": [
+    "blackjack",
+    "cards",
+    "party",
+    "multiplayer",
+    "offline"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/blackjack",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

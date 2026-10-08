@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>JSON Diff</title>
+<link rel="stylesheet" href="vendor/html.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>JSON Diff</h1>
+    <p class="lead">Paste two documents. Added is green, removed is red.</p>
+  </header>
+
+  <div class="phone-tabs" role="tablist" aria-label="Pane">
+    <button type="button" id="tabLeft" class="tab" aria-selected="true">Left</button>
+    <button type="button" id="tabRight" class="tab" aria-selected="false">Right</button>
+    <button type="button" id="tabDiff" class="tab" aria-selected="false">Difference</button>
+  </div>
+
+  <div class="panes">
+    <div class="field field-left">
+      <label for="left">Left — old</label>
+      <textarea id="left" rows="10" spellcheck="false" autocomplete="off" placeholder='{"name": "Ada"}'></textarea>
+      <span id="leftErr" class="err" hidden></span>
+      <label class="file">Choose a JSON file
+        <input id="leftFile" type="file" accept=".json,application/json,text/plain">
+      </label>
+    </div>
+    <div class="field field-right">
+      <label for="right">Right — new</label>
+      <textarea id="right" rows="10" spellcheck="false" autocomplete="off" placeholder='{"name": "Ada Lovelace"}'></textarea>
+      <span id="rightErr" class="err" hidden></span>
+      <label class="file">Choose a JSON file
+        <input id="rightFile" type="file" accept=".json,application/json,text/plain">
+      </label>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button type="button" id="prettyBtn" class="ghost">Pretty</button>
+    <button type="button" id="swapBtn" class="ghost">Swap</button>
+    <button type="button" id="sampleBtn" class="ghost">Sample</button>
+    <button type="button" id="clearBtn" class="ghost">Clear</button>
+    <label class="check"><input type="checkbox" id="unchanged"> Show unchanged</label>
+    <label class="check"><input type="checkbox" id="matchId" checked> Match lists by id</label>
+  </div>
+
+  <section class="visual">
+    <div class="visual-bar">
+      <h2>Difference</h2>
+      <div class="view-tabs" role="tablist" aria-label="Difference format">
+        <button type="button" id="viewVisual" class="tab on" aria-selected="true">Visual</button>
+        <button type="button" id="viewJson" class="tab" aria-selected="false">JSON</button>
+        <button type="button" id="viewPatch" class="tab" aria-selected="false">Patch</button>
+      </div>
+      <button type="button" id="copyBtn" class="ghost slim">Copy</button>
+    </div>
+    <p id="stats" class="stats" hidden></p>
+    <p id="empty" class="hint">Paste both sides to compare.</p>
+    <div id="delta" class="delta" hidden></div>
+    <pre id="raw" class="raw" hidden></pre>
+    <p id="same" class="hint" hidden>No difference.</p>
+    <p id="copyMsg" class="hint" hidden></p>
+  </section>
+  <p id="meet" class="meet">Press <b>Invite</b> (top bar) to show this difference, read-only, in a meeting.</p>
+</div>
+
+<script src="vendor/jsondiffpatch.umd.js"></script>
+<script src="mp.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

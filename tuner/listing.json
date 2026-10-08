@@ -1,0 +1,33 @@
+{
+  "tagline": "Play a note; see the pitch. A chromatic tuner for any instrument.",
+  "description": "Press Record a note, play or sing one pitch, then stop. The app names the note, the frequency in Hertz, and how many cents sharp or flat you were. It is a take, not a live needle — you record, then it reads. If the take is too quiet or has no clear pitch, it says so.\n\nThe last reading comes back the next time you open the app. Pick guitar, ukulele or bass to aim at an open string, and tap a string to hear the target.\n\nAn unofficial port of PitchDetect by Chris Wilson. Bugs go to GifOS, not upstream.",
+  "author": {
+    "name": "Chris Wilson",
+    "url": "https://github.com/cwilso/PitchDetect"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "PitchDetect",
+    "url": "https://github.com/cwilso/PitchDetect",
+    "blessed": false
+  },
+  "releaseDate": "2026-08-24",
+  "categories": [
+    "Learning"
+  ],
+  "tags": [
+    "tuner",
+    "pitch",
+    "guitar",
+    "note",
+    "audio",
+    "offline"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/tuner",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

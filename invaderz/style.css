@@ -1,0 +1,89 @@
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  width: 100%; height: 100%; overflow: hidden;
+  background: #0b0c10; color: #1a1a1a;
+  font-family: "Courier New", Courier, monospace;
+  user-select: none;
+  display: flex; flex-direction: column;
+}
+#stage {
+  position: relative;
+  flex: 1 1 auto; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+#canvas {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  touch-action: none;
+  border: 2px solid #111;
+  background: #fff;
+}
+
+#hud {
+  position: fixed; left: 12px; top: 12px; z-index: 5;
+  pointer-events: none; font-size: 12px; letter-spacing: .04em;
+  color: rgba(232, 240, 255, .7);
+}
+body.touch #hud { display: none; }
+@media (max-width: 500px) { #hud { display: none; } }
+@media (pointer: coarse) { #hud { display: none; } }
+
+#tally {
+  position: fixed; right: 12px; top: 12px; z-index: 5;
+  font-size: 12px; letter-spacing: .08em; color: rgba(232, 240, 255, .8);
+  background: rgba(11, 12, 16, .7); border: 1px solid rgba(232, 240, 255, .25);
+  padding: 4px 8px; cursor: pointer;
+}
+#tally[hidden] { display: none; }
+
+#score {
+  position: fixed; left: 50%; top: 12%; transform: translateX(-50%);
+  z-index: 6; min-width: 16rem;
+  background: rgba(11, 12, 16, .88); border: 1px solid rgba(232, 240, 255, .35);
+  color: #e8f0ff; padding: 10px 14px;
+}
+#score[hidden] { display: none; }
+#score table { width: 100%; border-collapse: collapse; font-size: 14px; }
+#score th { text-align: left; font-weight: 400; color: rgba(232, 240, 255, .5); padding-bottom: 6px; }
+#score td { padding: 3px 8px 3px 0; }
+#score td:nth-child(2) { text-align: right; }
+#score tr.me td { color: #fff; }
+
+/* Pad sits UNDER the board so a thumb never covers the cannon. */
+#touch {
+  display: none;
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 20;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  padding: .45rem .7rem max(.7rem, env(safe-area-inset-bottom));
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: .6rem;
+  background: #0b0c10;
+}
+#touch[hidden] { display: none; }
+body.touch #touch { display: flex; }
+.t-col {
+  display: flex; gap: .5rem; pointer-events: none;
+  align-items: flex-end;
+}
+.t-btn {
+  pointer-events: auto;
+  width: 4.4rem; height: 4.4rem;
+  border-radius: .7rem;
+  border: 0;
+  background: #008CBA;
+  color: #fff;
+  font: 700 .7rem/1 "Courier New", Courier, monospace;
+  letter-spacing: .08em;
+  cursor: pointer;
+  box-shadow: 0 4px 0 #006080;
+  touch-action: manipulation;
+}
+.t-btn.wide { width: 5.6rem; height: 5.6rem; font-size: .82rem; }
+.t-btn.on { background: #33a9d0; box-shadow: 0 2px 0 #006080; transform: translateY(2px); }
+body:not(.touch) #touch { display: none; }

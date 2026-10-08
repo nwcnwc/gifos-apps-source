@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sandspiel</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="shell">
+    <header id="hud">
+      <div id="brand">Sandspiel</div>
+      <div id="which">Water</div>
+    </header>
+
+    <div class="actions">
+      <button type="button" id="shareBtn"><span class="wide">Play together</span><span class="narrow">Together</span></button>
+      <button type="button" id="pauseBtn">Pause</button>
+      <button type="button" id="undoBtn">Undo</button>
+      <button type="button" id="resetBtn">Reset</button>
+    </div>
+
+    <div id="friend-bar" hidden>
+      <p id="friend-hint">Press <b>Invite</b> in the bar above the app to send the link. Friends land on this wall of boards. Put yours up; tap a card to open it.</p>
+      <p id="friend-status"></p>
+      <ul id="friend-scores"></ul>
+      <div class="wall-put">
+        <input id="wallTitle" type="text" maxlength="48" placeholder="Board title" autocomplete="off">
+        <button type="button" id="putBtn">Put on the wall</button>
+      </div>
+      <div id="wall"></div>
+      <div class="friend-actions">
+        <button type="button" id="leaveBtn">← Solo</button>
+      </div>
+    </div>
+
+    <div id="stage">
+      <canvas id="world" width="180" height="120">This toy needs a canvas.</canvas>
+      <p id="hint" hidden>Tap to pour water</p>
+      <p id="fail" hidden role="alert"></p>
+    </div>
+
+    <div id="palette" role="list"></div>
+    <div id="brushes" aria-label="Brush size"></div>
+
+    <div id="saves" class="empty">
+      <input id="saveName" type="text" maxlength="40" placeholder="Name this board" autocomplete="off">
+      <button type="button" id="keepBtn">Keep</button>
+      <ul id="saveList"></ul>
+    </div>
+
+    <p class="foot">Unofficial port of Sandspiel by Max Bittker (MIT). The file is the world. A wall is cards in a meeting.</p>
+  </div>
+
+  <script src="species.js"></script>
+  <script src="wasm-bytes.js"></script>
+  <script src="wasm.js"></script>
+  <script src="app.js"></script>
+  <script src="wall.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "gifos": "1.0",
+  "appId": "yahtzee",
+  "name": "Yahtzee",
+  "shortName": "Yahtzee",
+  "version": "1.0",
+  "minBuild": 947,
+  "description": "Five dice and a scorecard. Sit a table over a meeting from one invite — each of you has your own card.",
+  "entry": "index.html",
+  "accent": [26, 122, 58],
+  "capabilities": {
+    "db": true,
+    "multiplayer": true
+  },
+  "data": {
+    "save": { "visibility": "private" },
+    "room": { "visibility": "read-write" }
+  }
+}

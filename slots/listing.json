@@ -1,0 +1,33 @@
+{
+  "tagline": "Five fruit reels and a lever. Friends watch the same spin from one link.",
+  "description": "Five fruit reels, a gold payline, a lever. Land three of a kind and the credits jump. Auto keeps pulling. Stake 10, 25, 50 or 100. Go broke and Top up restores your credits.\n\nSend one link and everyone at the table watches the same spin \u2014 anyone can pull. Your credits are saved with your copy of the app.\n\nAn unofficial port of html5-slot-machine by johakr.",
+  "author": {
+    "name": "johakr",
+    "url": "https://github.com/johakr/html5-slot-machine"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "html5-slot-machine",
+    "url": "https://github.com/johakr/html5-slot-machine",
+    "blessed": false
+  },
+  "releaseDate": "2026-08-24",
+  "categories": [
+    "Games"
+  ],
+  "tags": [
+    "slots",
+    "party",
+    "reels",
+    "arcade",
+    "multiplayer",
+    "offline"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/slots",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

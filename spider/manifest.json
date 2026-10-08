@@ -1,0 +1,23 @@
+{
+  "gifos": "1.0",
+  "appId": "spider",
+  "name": "Spider",
+  "shortName": "Spider",
+  "version": "1.1",
+  "minBuild": 947,
+  "description": "Spider patience. 1, 2 or 4 suits. The file is the tableau.",
+  "entry": "index.html",
+  "accent": [48, 90, 48],
+  "capabilities": {
+    "db": true
+  },
+  "data": {
+    "save": { "visibility": "private" }
+  },
+  "launch": {
+    "deal": {
+      "label": "Play this deal",
+      "detail": "A deal seed, optionally seed@1, seed@2 or seed@4."
+    }
+  }
+}

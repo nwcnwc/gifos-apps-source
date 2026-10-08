@@ -1,0 +1,34 @@
+{
+  "tagline": "Race a friend: same falling shapes, two boards, first to top out loses.",
+  "description": "Press Play a friend, then Invite in the bar above, and send the link. You both get the same shapes, each on your own board. Last one still stacking wins.\n\nOn your own it is the original falling-blocks game. Slide, turn, and drop the shapes. Fill a row and it vanishes. The pile grows; the game is over when it reaches the top. Close it, come back, your best is still here.\n\nOn a phone, use the pad at the bottom or swipe the board. Hold left or right to slide; tap to turn; swipe down or press drop to drop.\n\nAn unofficial port of canvas-tetris by dionyziz, MIT-licensed. This copy puts two boards in one room, and adds a pad that works with a thumb.",
+  "author": {
+    "name": "dionyziz",
+    "url": "https://github.com/dionyziz/canvas-tetris"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "canvas-tetris",
+    "url": "https://github.com/dionyziz/canvas-tetris",
+    "blessed": false
+  },
+  "releaseDate": "2026-08-23",
+  "updated": "2026-08-23",
+  "categories": [
+    "Games"
+  ],
+  "tags": [
+    "falling",
+    "blocks",
+    "puzzle",
+    "arcade",
+    "multiplayer",
+    "offline"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/falling-blocks",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

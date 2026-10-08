@@ -1,0 +1,29 @@
+{
+  "gifos": "1.0",
+  "appId": "piano-trainer",
+  "name": "Piano Trainer",
+  "shortName": "Piano",
+  "version": "1.1",
+  "minBuild": 947,
+  "description": "Scales, chords, fifths, a quiz. Tap the keys or use the home row.",
+  "entry": "index.html",
+  "accent": [232, 196, 96],
+  "capabilities": {
+    "db": true,
+    "multiplayer": true
+  },
+  "data": {
+    "save": { "visibility": "private" },
+    "room": { "visibility": "read-write" }
+  },
+  "launch": {
+    "mode": {
+      "label": "Open in a practice mode",
+      "detail": "scales, chords, sevenths, fifths, or quiz."
+    },
+    "key": {
+      "label": "Open on a key",
+      "detail": "C Major, G Major, A Minor, and the others in the list."
+    }
+  }
+}

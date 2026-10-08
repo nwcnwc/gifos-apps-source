@@ -1,0 +1,32 @@
+{
+  "tagline": "A calculator that speaks units: type 1 ft to cm, get the answer.",
+  "description": "Type a line, press Enter: 1 ft to cm, 5 kg in lb, 100 C to F. The last pad comes back the next time you open the app.\n\nOn a phone the keypad has digits and units so you can convert without a keyboard. A line that does not calculate says why. Variables stick: a = 3 then a * 2.\n\nUnofficial port of fend by printfn. Same engine as their calculator.",
+  "author": {
+    "name": "printfn",
+    "url": "https://github.com/printfn/fend"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "fend",
+    "url": "https://github.com/printfn/fend",
+    "blessed": false
+  },
+  "releaseDate": "2026-08-24",
+  "categories": [
+    "Utilities"
+  ],
+  "tags": [
+    "calculator",
+    "units",
+    "math",
+    "notepad",
+    "offline"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/fend",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

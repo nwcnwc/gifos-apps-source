@@ -1,0 +1,96 @@
+:root {
+  --bg: #050508;
+  --fg: #ffe600;
+  --muted: #8a8aa0;
+  --pad: rgba(12, 12, 20, .72);
+  --line: rgba(255, 230, 0, .4);
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; height: 100%; background: var(--bg); color: #eee;
+  font: 14px/1.35 "Courier New", Courier, monospace;
+  overflow: hidden; user-select: none;
+}
+#app {
+  height: 100%; height: 100dvh;
+  display: flex; flex-direction: column;
+  padding: max(.4rem, env(safe-area-inset-top)) .5rem max(.5rem, env(safe-area-inset-bottom));
+}
+header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: .8rem; padding: .1rem .2rem .2rem; flex-shrink: 0;
+}
+#hi { color: var(--fg); font-weight: 700; letter-spacing: .08em; white-space: nowrap; }
+#hud { color: #eee; font-size: .9rem; text-align: right; }
+#status { color: var(--muted); font-size: .82rem; margin: 0 0 .25rem; flex-shrink: 0; }
+#nosupport { color: #f88; margin: .5rem; }
+#stage {
+  flex: 1; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+#canvas {
+  display: block;
+  background: #000;
+  width: min(100%, calc((100dvh - 9rem) * 960 / 640));
+  height: auto;
+  max-height: 100%;
+  border-radius: 8px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+#roster {
+  margin: .3rem 0;
+  padding: .35rem .55rem;
+  background: #0e0e16;
+  border: 1px solid #222;
+  border-radius: .5rem;
+  font-size: .78rem;
+  color: var(--muted);
+  max-height: 4.8rem;
+  overflow: auto;
+  flex-shrink: 0;
+}
+#roster[hidden] { display: none; }
+#roster .row { display: flex; justify-content: space-between; gap: .6rem; padding: .1rem 0; }
+#roster .me { color: var(--fg); }
+
+#touch {
+  flex-shrink: 0;
+  display: none;
+  justify-content: center;
+  padding-top: .35rem;
+  touch-action: none;
+}
+.pad {
+  display: grid;
+  grid-template-columns: 4.6rem 4.6rem 4.6rem;
+  grid-template-rows: 4.6rem 4.6rem 4.6rem;
+  gap: .4rem;
+}
+.pad button {
+  border: 1px solid var(--line);
+  background: var(--pad);
+  color: var(--fg);
+  border-radius: .7rem;
+  font: 700 .9rem/1 "Courier New", Courier, monospace;
+  cursor: pointer;
+  min-height: 44px;
+  touch-action: none;
+}
+.pad button.gap { visibility: hidden; pointer-events: none; }
+.pad button.pause { font-size: .62rem; letter-spacing: .06em; color: #ccc; }
+.pad button.on { background: rgba(255, 230, 0, .28); }
+
+/* A mouse never sees the pad. A finger, or a narrow cabinet, always does —
+   waiting for the first touch left a blank slab under the maze. */
+@media (pointer: coarse), (max-width: 720px) {
+  body { --pad-on: 1; }
+  #touch { display: flex; }
+  #status { display: none; }
+  #canvas { border-radius: 0; max-height: none; }
+}
+
+body.touch #touch { display: flex; }
+body.touch #status { display: none; }
+body.mouse #touch { display: none; }

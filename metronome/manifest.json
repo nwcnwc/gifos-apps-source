@@ -1,0 +1,29 @@
+{
+  "gifos": "1.0",
+  "appId": "metronome",
+  "name": "Metronome",
+  "shortName": "Metro",
+  "version": "1.1",
+  "minBuild": 947,
+  "description": "A click that keeps time. Tempo lives in this file. No microphone.",
+  "entry": "index.html",
+  "accent": [232, 80, 64],
+  "capabilities": {
+    "db": true,
+    "multiplayer": true
+  },
+  "data": {
+    "save": { "visibility": "private" },
+    "room": { "visibility": "read-only" }
+  },
+  "launch": {
+    "bpm": {
+      "label": "Open at a tempo the link picked",
+      "detail": "A number of beats per minute, 30 to 240."
+    },
+    "sig": {
+      "label": "Open in a time signature the link picked",
+      "detail": "2/4, 3/4, 4/4, or 6/8."
+    }
+  }
+}

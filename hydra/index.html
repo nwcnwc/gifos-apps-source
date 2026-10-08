@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Hydra</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="view">This synth needs a canvas.</canvas>
+
+  <div id="ui">
+    <header id="hud">
+      <div id="brand">hydra</div>
+      <div id="which">Voronoi</div>
+      <div class="actions">
+        <button type="button" id="shareBtn">Jam together</button>
+        <button type="button" id="patchBtn" aria-expanded="true" aria-controls="recipe">Code</button>
+        <button type="button" id="runBtn" title="Ctrl+Shift+Enter">Run</button>
+      </div>
+    </header>
+
+    <div id="friend-bar" hidden>
+      <p id="friend-hint">Press <b>Invite</b> in the bar above the app, then send the link. You both run the same patch. Change it and press Run — they see it.</p>
+      <p id="friend-status"></p>
+      <ul id="friend-scores"></ul>
+      <div class="friend-actions">
+        <button type="button" id="leaveBtn">← Solo</button>
+      </div>
+    </div>
+
+    <p id="err" hidden></p>
+
+    <label class="sr" for="recipe">Hydra patch</label>
+    <textarea id="recipe" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
+
+    <div id="chips" role="list"></div>
+  </div>
+
+  <div id="welcome" hidden>
+    <p class="welcome-kicker">live coding video synth</p>
+    <h1>hydra</h1>
+    <p class="welcome-copy">Close this window. Change some numbers. Type <b>Ctrl + Enter</b> for a line, <b>Ctrl + Shift + Enter</b> for the sketch.</p>
+    <button type="button" id="welcomeClose">Close this window</button>
+  </div>
+
+  <!-- Order matters: the runtime inlines each <script src> where it stands. -->
+  <script src="vendor/glsl-functions.js"></script>
+  <script src="vendor/utility-functions.js"></script>
+  <script src="vendor/hydra-engine.js"></script>
+  <script src="sketch.js"></script>
+  <script src="snippets.js"></script>
+  <script src="app.js"></script>
+  <script src="mp.js"></script>
+</body>
+</html>

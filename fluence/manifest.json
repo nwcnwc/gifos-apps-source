@@ -1,0 +1,21 @@
+{
+  "gifos": "1.0",
+  "appId": "fluence",
+  "name": "Fluence",
+  "shortName": "Fluence",
+  "version": "1.0.0",
+  "minBuild": 947,
+  "entry": "index.html",
+  "accent": [123, 92, 255],
+  "capabilities": {
+    "db": true,
+    "microphone": true,
+    "ai": ["smartest", "cheapest", "image"],
+    "api": ["deepgram"]
+  },
+  "data": {
+    "takes": { "visibility": "private" },
+    "reviews": { "visibility": "private" },
+    "benchmarks": { "visibility": "private" }
+  }
+}

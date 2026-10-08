@@ -1,0 +1,32 @@
+{
+  "tagline": "One of you is the psychic. Read their clue, find the mark on the dial.",
+  "description": "Press Play a friend, then Invite in the bar above the app, and send the link. Whoever opens it is the other seat. Close it mid-game and come back; nothing is lost.\n\nOne of you is the psychic. They see a mark sitting somewhere between two opposites — hot and cold, friend and enemy, trashy and classy. They give a clue: one thought that belongs on that line, right where the mark is. The other is the guesser. They slide the needle to where they think the clue lives.\n\nThe closer the needle, the more you score. Dead on is four (counted as three, and you keep the card). Close is three or two. A miss is nothing. Seven cards, and you swap seats after each one. Sit together on one device, or play from two.\n\nAn unofficial port of Longwave by cynicaloptimist.",
+  "author": {
+    "name": "cynicaloptimist",
+    "url": "https://github.com/cynicaloptimist/longwave"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "Longwave",
+    "url": "https://github.com/cynicaloptimist/longwave",
+    "blessed": false
+  },
+  "releaseDate": "2026-08-23",
+  "categories": [
+    "Games"
+  ],
+  "tags": [
+    "spectrum",
+    "party",
+    "clue",
+    "needle",
+    "multiplayer"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/longwave",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

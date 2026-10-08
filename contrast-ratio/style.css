@@ -1,0 +1,250 @@
+/* One column, top to bottom: the two colours, the verdict, the preview.
+ * Nothing floats over anything. The checkerboard shows through wherever a
+ * colour is see-through. */
+
+:root {
+  --ink: #1c1c20;
+  --muted: #6b6b73;
+  --line: rgba(0, 0, 0, .16);
+  --check:
+    linear-gradient(45deg, #d8d8d8 25%, transparent 25%, transparent 75%, #d8d8d8 75%, #d8d8d8),
+    linear-gradient(45deg, #d8d8d8 25%, transparent 25%, transparent 75%, #d8d8d8 75%, #d8d8d8);
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  background: #f4f4f5;
+  color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  overflow: auto;
+}
+
+/* ---- the two colours ---------------------------------------------------- */
+
+#bar {
+  display: flex;
+  align-items: flex-end;
+  gap: .5rem;
+  flex-wrap: wrap;
+  padding: .7rem .8rem;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+}
+
+.field {
+  flex: 1 1 11rem;
+  min-width: 9rem;
+}
+/* Whatever was typed — a name, an hsla(), a picker click — the hex is on
+ * screen next to the field. It is the form you paste back into CSS. */
+.field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .5rem;
+  margin: 0 .1rem .2rem;
+}
+.hex {
+  font: .72rem/1 ui-monospace, Consolas, Monaco, monospace;
+  color: var(--muted);
+  user-select: all;
+  white-space: nowrap;
+}
+.field label {
+  display: block;
+  margin: 0;
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.entry {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: .4rem;
+  background: #fff;
+  overflow: hidden;
+}
+.entry:focus-within { border-color: #5ea72a; box-shadow: 0 0 0 2px rgba(94, 167, 42, .25); }
+
+.swatch {
+  position: relative;
+  flex: 0 0 2rem;
+  background: var(--check);
+  background-color: #fff;
+  background-size: 12px 12px;
+  background-position: 0 0, 6px 6px;
+  border-right: 1px solid var(--line);
+  cursor: pointer;
+}
+.swatch-color {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .1);
+}
+.color-picker {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.text-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  padding: .4rem .5rem;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 15px/1.3 ui-monospace, Consolas, Monaco, "Andale Mono", monospace;
+}
+.text-input:focus { outline: none; }
+
+/* The ceiling, in one tap: the most contrast this side can have against the
+ * other. Sits at the far end of the box, mirroring the swatch. */
+.best {
+  flex: 0 0 auto;
+  padding: 0 .55rem;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  font: 600 .72rem/1 system-ui, sans-serif;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.best:hover,
+.best:focus { background: #f0f0f2; color: var(--ink); }
+
+#swap {
+  flex: 0 0 auto;
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: .4rem;
+  background: #fff;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+#swap:hover,
+#swap:focus { background: #f0f0f2; color: var(--ink); }
+
+/* ---- the verdict -------------------------------------------------------- */
+
+#verdict {
+  display: flex;
+  align-items: center;
+  gap: .9rem;
+  padding: .8rem;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+}
+
+.contrast {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 4.5rem;
+  height: 4.5rem;
+  padding: 0 .15rem;
+  border-radius: 50%;
+  background: hsl(0, 0%, 50%);
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+  font: 700 1.22rem/1 system-ui, sans-serif;
+  letter-spacing: -.02em;
+}
+.contrast:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.contrast .error {
+  font-size: .62rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  opacity: .9;
+}
+.contrast .error:not(:empty) { margin-top: .15rem; }
+
+#results { min-width: 0; }
+#wcag {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+#note {
+  display: block;
+  margin-top: .1rem;
+  font-size: .82rem;
+  color: var(--muted);
+}
+#detail {
+  display: block;
+  margin-top: .25rem;
+  font-size: .72rem;
+  color: var(--muted);
+  font-family: ui-monospace, Consolas, Monaco, monospace;
+}
+
+/* ---- the preview -------------------------------------------------------- */
+
+#preview {
+  flex: 1 1 auto;
+  min-height: 6rem;
+  overflow: auto;
+  background: var(--check);
+  background-color: #fff;
+  background-size: 20px 20px;
+  background-position: 0 0, 10px 10px;
+}
+.preview-inner {
+  min-height: 100%;
+  padding: 1rem 1.1rem 1.4rem;
+}
+.preview-inner p {
+  max-width: 36rem;
+  margin: 0 0 .7rem;
+}
+.preview-inner p:last-child { margin-bottom: 0; }
+.big { font-size: 24px; font-weight: 700; line-height: 1.25; }
+.sample { font-size: 16px; }
+
+#foot {
+  margin: 0;
+  padding: .45rem .8rem calc(.45rem + env(safe-area-inset-bottom));
+  background: #fff;
+  border-top: 1px solid var(--line);
+  font-size: .68rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+@media (max-width: 30rem) {
+  #bar { gap: .4rem .5rem; }
+  .field { flex-basis: 100%; }
+  #bar div.field:nth-of-type(1) { order: 1; }
+  #swap { order: 2; width: 100%; }
+  #bar div.field:nth-of-type(2) { order: 3; }
+  #bar div.field:nth-of-type(2) label { margin-top: .15rem; }
+  #verdict { padding: .7rem .8rem; }
+  .contrast { width: 4rem; height: 4rem; font-size: 1.1rem; }
+}

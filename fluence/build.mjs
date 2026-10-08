@@ -1,0 +1,43 @@
+// Pack apps/fluence/ source into the finished, downloadable
+// site/apps/fluence/fluence.gif (the App Store's copy — see apps/README.md).
+// Uses the SAME codec the GifOS desktop and MCP server use
+// (site/js/gifos-gif.js) — it only needs CompressionStream + TextEncoder, both
+// native in Node 22. Run:  node apps/fluence/build.mjs
+import '../../site/js/gifos-gif.js'; // attaches globalThis.GifOS.gif
+import { oratorIcon } from './icon.mjs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const dir = dirname(fileURLToPath(import.meta.url));
+const gif = globalThis.GifOS.gif;
+const read = (p) => readFileSync(join(dir, p), 'utf8');
+
+const manifest = JSON.parse(read('manifest.json'));
+const files = {
+  'manifest.json': JSON.stringify(manifest),
+  'index.html': read('index.html'),
+  'style.css': read('style.css'),
+  'wordlists.js': read('wordlists.js'),
+  'features.js': read('features.js'),
+  'coach.js': read('coach.js'),
+  'drills.js': read('drills.js'),
+  'weekly.js': read('weekly.js'),
+  'app.js': read('app.js'),
+};
+
+{
+  const help = read('help.md').trim();
+  if (help.length < 400) throw new Error('help.md is too short (' + help.length + ')');
+  files['help.md'] = help;
+}
+
+const bytes = await gif.encode(files, { preview: oratorIcon() });
+// Into the PUBLISH boundary: Pages ships only site/, and the App Store has to
+// be able to download this. site/apps/<slug>/ is also where the catalog build
+// (scripts/build-app-catalog.mjs) looks for it.
+const out = join(dir, '..', '..', 'site', 'apps', 'fluence', 'fluence.gif');
+mkdirSync(dirname(out), { recursive: true });
+writeFileSync(out, bytes);
+console.log('wrote site/apps/fluence/fluence.gif —', bytes.length, 'bytes, from', Object.keys(files).length, 'files');
+console.log('now refresh the store catalog: node scripts/build-app-catalog.mjs');
