@@ -1,0 +1,55 @@
+# Review pull requests only. This repo does not publish the store file.
+name: Review
+
+on:
+  pull_request:
+    paths:
+      - '*/reviews/**'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Validate review files
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            git fetch --no-tags origin "${{ github.base_ref }}"
+          fi
+          bad=0
+          seen=0
+          while IFS= read -r line || [ -n "$line" ]; do
+            [ -z "$line" ] && continue
+            seen=1
+            rest="${line#*$'\t'}"
+            IFS=$'\t' read -r -a paths <<< "$rest"
+            for p in "${paths[@]}"; do
+              if [[ ! "$p" =~ ^[^/]+/reviews/ ]]; then
+                echo "A review pull request may only touch <slug>/reviews/ files: $p"
+                bad=1
+              fi
+            done
+          done < <(git diff --name-status "${BASE}" HEAD)
+          if [ "$seen" -eq 0 ]; then
+            echo "No files changed."
+            exit 1
+          fi
+          if [ "$bad" -ne 0 ]; then
+            exit 1
+          fi
+          # The pull request must not be able to replace the validator.
+          git show "${BASE}:scripts/build-app-reviews.mjs" > scripts/build-app-reviews.mjs
+          git diff --name-status "${BASE}" HEAD -- '*/reviews/**' \
+            | node scripts/build-app-reviews.mjs --pr "$AUTHOR"
