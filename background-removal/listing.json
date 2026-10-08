@@ -29,7 +29,7 @@
     "gpu"
   ],
   "license": "AGPL-3.0",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/background-removal",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/background-removal",
   "cover": "screenshot.png",
   "coverCrop": {
     "top": 0

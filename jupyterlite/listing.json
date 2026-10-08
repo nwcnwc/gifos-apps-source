@@ -27,7 +27,7 @@
     "offline"
   ],
   "license": "BSD-3-Clause",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/jupyterlite",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/jupyterlite",
   "cover": "screenshot.png",
   "coverCrop": {
     "top": 0

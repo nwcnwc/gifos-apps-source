@@ -50,7 +50,7 @@ if (listing.basedOn.blessed !== false || listing.basedOn.name !== 'lrc-maker') t
 if (listing.author.name !== 'magic-akari' || listing.porter.name !== 'GifOS') throw new Error('author');
 if (listing.license !== 'MIT' || listing.categories[0] !== 'Creativity') throw new Error('meta');
 if (listing.releaseDate !== '2026-08-24') throw new Error('date');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/lrc-maker') throw new Error('homepage');
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/lrc-maker') throw new Error('homepage');
 const listingBlob = JSON.stringify(listing);
 for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage', 'WebGL', 'CDN', 'React']) {
   if (listingBlob.includes(bad)) throw new Error('listing ' + bad);

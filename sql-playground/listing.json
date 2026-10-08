@@ -27,7 +27,7 @@
     "offline"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/sql-playground",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/sql-playground",
   "cover": "screenshot.png",
   "coverCrop": {
     "top": 0

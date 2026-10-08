@@ -6,7 +6,7 @@ The corresponding source is the files packed in this GIF (index.html,
 the scripts it loads, help.md, engine.js, models.js, app.js, and this
 notice). A browsable copy lives at:
 
-  https://github.com/nwcnwc/gifos/tree/main/apps/background-removal
+  https://github.com/nwcnwc/gifos-apps-source/tree/main/background-removal
 
 Upstream:
   https://github.com/imgly/background-removal-js

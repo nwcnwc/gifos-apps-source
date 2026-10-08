@@ -51,7 +51,7 @@ if (!listing.basedOn || listing.basedOn.blessed !== false) throw new Error('unof
 if (listing.basedOn.name !== 'Yopass') throw new Error('basedOn.name');
 if (/gifos/i.test(listing.author.name)) throw new Error('author is them');
 if (listing.license !== 'Apache-2.0') throw new Error('Apache-2.0');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/yopass') throw new Error('homepage');
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/yopass') throw new Error('homepage');
 const listingBlob = JSON.stringify(listing);
 for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage', 'WebRTC', 'JSON']) {
   if (listingBlob.includes(bad)) throw new Error('listing.json mentions ' + bad);

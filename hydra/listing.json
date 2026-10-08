@@ -28,7 +28,7 @@
     "offline"
   ],
   "license": "AGPL-3.0",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/hydra",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/hydra",
   "cover": "screenshot.png",
   "screenshots": []
 }

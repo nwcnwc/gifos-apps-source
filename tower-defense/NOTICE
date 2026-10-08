@@ -15,5 +15,5 @@ Bugs go to GifOS, not upstream.
 Port surface (boot.js, mp.js, touch.js, the GifOS packing, this NOTICE addendum):
 Copyright 2026 GifOS contributors.
 
-Bugs for this port: https://github.com/nwcnwc/gifos/issues
+Bugs for this port: https://github.com/nwcnwc/gifos-apps-source/issues
 Upstream HTML5 Tower Defense: https://github.com/oldj/html5-tower-defense

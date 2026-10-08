@@ -28,7 +28,7 @@
     "race"
   ],
   "license": "GPL-3.0",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/monkeytype",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/monkeytype",
   "cover": "screenshot.png",
   "coverCrop": {
     "top": 0

@@ -86,7 +86,7 @@ if (listing.basedOn) throw new Error('finance is not a port; remove basedOn');
 if (listing.releaseDate !== '2026-08-25') throw new Error('listing.releaseDate must be 2026-08-25');
 if (listing.license !== 'MIT') throw new Error('listing.license must be MIT');
 if (listing.categories[0] !== 'Productivity') throw new Error('categories must lead with Productivity');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/finance') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/finance') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 if (listing.tagline.length > 80) throw new Error('tagline must fit a card: <= 80 chars');

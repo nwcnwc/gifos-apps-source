@@ -18,5 +18,5 @@ Bugs go to GifOS, not upstream.
 Port surface (boot.js, mp.js, the GifOS packing, this NOTICE addendum):
 Copyright 2026 GifOS contributors.
 
-Bugs for this port: https://github.com/nwcnwc/gifos/issues
+Bugs for this port: https://github.com/nwcnwc/gifos-apps-source/issues
 Upstream Tower Building Game: https://github.com/iamkun/tower_game

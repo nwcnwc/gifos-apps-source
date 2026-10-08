@@ -27,7 +27,7 @@
     "board"
   ],
   "license": "BSD-2-Clause with Commons Clause",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/nullboard",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/nullboard",
   "cover": "screenshot.png",
   "screenshots": []
 }

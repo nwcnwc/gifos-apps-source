@@ -105,7 +105,7 @@ for (const tag of ['quiz', 'buzzer', 'party', 'multiplayer', 'offline']) {
   if (!listing.tags || listing.tags.indexOf(tag) < 0) throw new Error('listing.tags must include ' + tag);
 }
 if (listing.releaseDate !== '2026-08-23') throw new Error('listing.releaseDate must be 2026-08-23');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/quiz-buzzer') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/quiz-buzzer') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 if (listing.cover !== 'screenshot.png') throw new Error('listing.cover must be screenshot.png');

@@ -65,7 +65,7 @@ if (listing.basedOn.name !== 'Lost in CYBERSPACE') throw new Error('basedOn.name
 if (!listing.porter || listing.porter.name !== 'GifOS') throw new Error('porter');
 if (/gifos/i.test(listing.author.name)) throw new Error('author is them, never GifOS');
 if (listing.license !== 'MIT') throw new Error('license MIT');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/lost-in-cyberspace') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/lost-in-cyberspace') {
   throw new Error('homepage');
 }
 const listingBlob = JSON.stringify(listing);

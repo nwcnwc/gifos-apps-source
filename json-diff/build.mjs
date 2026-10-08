@@ -74,7 +74,7 @@ if (!listing.author || listing.author.name !== 'benjamine' || /gifos/i.test(list
 if (listing.license !== 'MIT') throw new Error('listing.license must be MIT');
 if (!listing.categories || listing.categories[0] !== 'Developer') throw new Error('listing.categories must include Developer');
 if (listing.releaseDate !== '2026-08-24') throw new Error('listing.releaseDate must be 2026-08-24');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/json-diff') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/json-diff') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 

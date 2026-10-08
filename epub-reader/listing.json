@@ -27,7 +27,7 @@
     "multiplayer"
   ],
   "license": "BSD-2-Clause",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/epub-reader",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/epub-reader",
   "cover": "screenshot.png",
   "coverCrop": {
     "top": 0

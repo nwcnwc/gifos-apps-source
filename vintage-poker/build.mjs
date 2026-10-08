@@ -67,7 +67,7 @@ if (!listing.basedOn || listing.basedOn.blessed !== false || listing.basedOn.nam
 }
 if (!listing.author || /gifos/i.test(listing.author.name) || listing.porter.name !== 'GifOS') throw new Error('credits');
 if (listing.license !== 'MIT' || listing.releaseDate !== '2026-08-24') throw new Error('listing');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/vintage-poker') throw new Error('homepage');
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/vintage-poker') throw new Error('homepage');
 const listingBlob = JSON.stringify(listing);
 for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage', 'WebRTC', 'JSON']) {
   if (listingBlob.includes(bad)) throw new Error(bad);

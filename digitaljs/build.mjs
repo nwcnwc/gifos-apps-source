@@ -60,7 +60,7 @@ if (manifest.capabilities.network) throw new Error('no network');
 if (listing.basedOn.blessed !== false || listing.basedOn.name !== 'DigitalJS') throw new Error('basedOn');
 if (listing.author.name !== 'Marek Materzok' || listing.porter.name !== 'GifOS') throw new Error('author');
 if (listing.license !== 'BSD-2-Clause') throw new Error('license');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/digitaljs') throw new Error('homepage');
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/digitaljs') throw new Error('homepage');
 if (!listing.description.includes('unofficial port')) throw new Error('listing must say unofficial port');
 if (!listing.tagline.toLowerCase().includes('gif')) throw new Error('tagline should sell the file');
 const listingBlob = JSON.stringify(listing);

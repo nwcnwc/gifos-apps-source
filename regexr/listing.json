@@ -28,7 +28,7 @@
     "multiplayer"
   ],
   "license": "GPL-3.0",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/regexr",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/regexr",
   "cover": "screenshot.png",
   "screenshots": []
 }

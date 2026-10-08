@@ -53,7 +53,7 @@ if (listing.basedOn.url !== 'https://github.com/mermaid-js/mermaid') throw new E
 if (listing.author.name !== 'mermaid-js' || listing.porter.name !== 'GifOS') throw new Error('author');
 if (listing.license !== 'MIT' || listing.categories[0] !== 'Productivity') throw new Error('meta');
 if (listing.releaseDate !== '2026-08-24') throw new Error('date');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/mermaid') throw new Error('homepage');
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/mermaid') throw new Error('homepage');
 if (!listing.description.includes('unofficial wrap')) throw new Error('listing must say unofficial wrap');
 const listingBlob = JSON.stringify(listing);
 for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage', 'WebGL', 'CDN', 'SvelteKit', 'IIFE']) {

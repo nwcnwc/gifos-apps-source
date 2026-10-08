@@ -46,7 +46,7 @@ if (!manifest.data.players || manifest.data.players.visibility !== 'read-write')
 if (!listing.basedOn || listing.basedOn.blessed !== false) throw new Error('unofficial');
 if (/gifos/i.test(listing.author.name)) throw new Error('author is them');
 if (listing.license !== 'MIT') throw new Error('MIT');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/tanks') throw new Error('homepage');
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/tanks') throw new Error('homepage');
 const listingBlob = JSON.stringify(listing);
 for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage', 'WebRTC', 'JSON']) {
   if (listingBlob.includes(bad)) throw new Error('listing.json mentions ' + bad);

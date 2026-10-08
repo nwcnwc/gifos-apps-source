@@ -81,7 +81,7 @@ if (!listing.author || /gifos/i.test(listing.author.name)) {
   throw new Error('author is FuturePress, never GifOS');
 }
 if (listing.license !== 'BSD-2-Clause') throw new Error('listing.license must be BSD-2-Clause');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/epub-reader') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/epub-reader') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 const listingBlob = JSON.stringify(listing);

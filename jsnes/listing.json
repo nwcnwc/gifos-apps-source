@@ -27,7 +27,7 @@
     "homebrew"
   ],
   "license": "Apache-2.0",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/jsnes",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/jsnes",
   "cover": "screenshot.png",
   "screenshots": []
 }

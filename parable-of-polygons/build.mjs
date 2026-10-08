@@ -82,7 +82,7 @@ if (!listing.author || /gifos/i.test(listing.author.name)) throw new Error('auth
 if (!/nicky|vi hart/i.test(listing.author.name)) throw new Error('author must credit Vi Hart & Nicky Case');
 if (listing.license !== 'CC0-1.0') throw new Error('listing.license must be CC0-1.0');
 if (!listing.categories || listing.categories.indexOf('Learning') < 0) throw new Error('category must include Learning');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/parable-of-polygons') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/parable-of-polygons') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 const listingBlob = JSON.stringify(listing);

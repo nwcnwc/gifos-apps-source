@@ -71,7 +71,7 @@ if (listing.basedOn.name !== 'alphaTab') throw new Error('basedOn.name must be a
 if (!listing.porter || listing.porter.name !== 'GifOS') throw new Error('porter must be GifOS');
 if (!listing.author || /gifos/i.test(listing.author.name)) throw new Error('author is Daniel Kuschny, never GifOS');
 if (listing.license !== 'MPL-2.0') throw new Error('listing.license must be MPL-2.0');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/alphatab') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/alphatab') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 const listingBlob = JSON.stringify(listing);

@@ -18,7 +18,7 @@
     "multiplayer"
   ],
   "license": "GPL-3.0-or-later",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/chess-grandmaster",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/chess-grandmaster",
   "cover": "screenshot.png",
   "coverCrop": {
     "top": 88

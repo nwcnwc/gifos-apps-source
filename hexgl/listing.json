@@ -18,7 +18,7 @@
   "categories": ["Games"],
   "tags": ["racing", "webgl", "futuristic", "offline", "multiplayer", "touch"],
   "license": "MIT",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/hexgl",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/hexgl",
   "cover": "screenshot.png",
   "screenshots": []
 }

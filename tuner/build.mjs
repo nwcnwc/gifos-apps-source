@@ -68,7 +68,7 @@ if (!listing.author || listing.author.name !== 'Chris Wilson' || /gifos/i.test(l
 if (listing.license !== 'MIT') throw new Error('listing.license must be MIT');
 if (!listing.categories || listing.categories[0] !== 'Learning') throw new Error('category must be Learning');
 if (listing.releaseDate !== '2026-08-24') throw new Error('listing.releaseDate must be 2026-08-24');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/tuner') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/tuner') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 

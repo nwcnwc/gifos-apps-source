@@ -31,7 +31,7 @@
     "cart"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/tic80",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/tic80",
   "cover": "screenshot.png",
   "coverCrop": {
     "top": 36

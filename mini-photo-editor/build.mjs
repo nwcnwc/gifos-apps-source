@@ -53,7 +53,7 @@ if (listing.basedOn.blessed !== false || listing.basedOn.name !== 'mini-photo-ed
 if (listing.author.name !== 'xdadda' || listing.porter.name !== 'GifOS') throw new Error('author');
 if (listing.license !== 'MIT' || listing.categories[0] !== 'Creativity') throw new Error('meta');
 if (listing.releaseDate !== '2026-08-24') throw new Error('date');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/mini-photo-editor') throw new Error('homepage');
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/mini-photo-editor') throw new Error('homepage');
 const listingBlob = JSON.stringify(listing);
 for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage', 'WebGL', 'CDN']) {
   if (listingBlob.includes(bad)) throw new Error('listing ' + bad);

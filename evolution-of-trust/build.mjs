@@ -191,7 +191,7 @@ if (!listing.author || listing.author.name !== 'Nicky Case' || /gifos/i.test(lis
 if (!listing.porter || listing.porter.name !== 'GifOS') throw new Error('porter');
 if (listing.license !== 'CC0-1.0') throw new Error('license');
 if (listing.releaseDate !== '2026-08-30') throw new Error('date');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/evolution-of-trust') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/evolution-of-trust') {
   throw new Error('homepage');
 }
 if (!listing.categories || listing.categories[0] !== 'Games') throw new Error('Games');

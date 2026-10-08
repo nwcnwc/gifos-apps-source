@@ -140,7 +140,7 @@ if (!listing.author || listing.author.name !== 'Thibaut Despoulain' || /gifos/i.
 }
 if (!listing.porter || listing.porter.name !== 'GifOS') throw new Error('porter');
 if (listing.license !== 'MIT') throw new Error('license');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/hexgl') throw new Error('homepage');
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/hexgl') throw new Error('homepage');
 if (!/offline/i.test(listing.tagline) && !/GIF/i.test(listing.tagline)) {
   throw new Error('tagline must sell the GifOS reason');
 }

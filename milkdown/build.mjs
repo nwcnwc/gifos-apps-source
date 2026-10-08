@@ -67,7 +67,7 @@ if (listing.basedOn.url !== 'https://github.com/Milkdown/milkdown') throw new Er
 if (!listing.porter || listing.porter.name !== 'GifOS') throw new Error('porter must be GifOS');
 if (!listing.author || /gifos/i.test(listing.author.name)) throw new Error('author is them, never GifOS');
 if (listing.license !== 'MIT') throw new Error('listing.license must be MIT');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/milkdown') throw new Error('homepage');
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/milkdown') throw new Error('homepage');
 const listingBlob = JSON.stringify(listing);
 for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage', 'WebRTC', 'CDN', 'IIFE']) {
   if (listingBlob.includes(bad)) throw new Error('listing.json mentions ' + bad);

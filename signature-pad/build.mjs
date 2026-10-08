@@ -81,7 +81,7 @@ if (!listing.author || listing.author.name !== 'szimek') {
 if (listing.license !== 'MIT') throw new Error('listing.license must be MIT');
 if (!listing.categories || listing.categories[0] !== 'Utilities') throw new Error('category must be Utilities');
 if (listing.releaseDate !== '2026-08-23') throw new Error('releaseDate must be 2026-08-23');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/signature-pad') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/signature-pad') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 

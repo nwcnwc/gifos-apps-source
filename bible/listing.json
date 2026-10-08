@@ -17,7 +17,7 @@
     "study"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/bible",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/bible",
   "cover": "screenshot.png",
   "coverCrop": {
     "top": 104

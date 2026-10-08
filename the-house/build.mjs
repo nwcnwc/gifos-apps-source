@@ -229,7 +229,7 @@ if (!listing.author || listing.author.name !== 'Artur Kot' || /gifos/i.test(list
 if (!listing.porter || listing.porter.name !== 'GifOS') throw new Error('porter');
 if (listing.license !== 'MIT') throw new Error('MIT');
 if (listing.releaseDate !== '2026-08-24') throw new Error('date');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/the-house') throw new Error('homepage');
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/the-house') throw new Error('homepage');
 if (!listing.categories || listing.categories[0] !== 'Games') throw new Error('Games');
 const listingBlob = JSON.stringify(listing);
 for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage', 'WebRTC']) {

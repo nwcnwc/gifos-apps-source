@@ -97,7 +97,7 @@ if (!listing.categories || listing.categories[0] !== 'Creativity') {
   throw new Error('listing.categories must include Creativity');
 }
 if (listing.releaseDate !== '2026-08-30') throw new Error('listing.releaseDate must be 2026-08-30');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/primitive') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/primitive') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 

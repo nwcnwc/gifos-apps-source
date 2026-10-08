@@ -63,7 +63,7 @@ if (!listing.author || listing.author.name !== 'bradymholt' || /gifos/i.test(lis
 if (listing.license !== 'MIT') throw new Error('listing.license must be MIT');
 if (!listing.categories || listing.categories[0] !== 'Developer') throw new Error('listing.categories must include Developer');
 if (listing.releaseDate !== '2026-08-24') throw new Error('listing.releaseDate must be 2026-08-24');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/cron-speak') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/cron-speak') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 

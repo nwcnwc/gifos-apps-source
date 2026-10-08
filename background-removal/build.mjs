@@ -78,7 +78,7 @@ if (!listing.porter || listing.porter.name !== 'GifOS') throw new Error('listing
 if (!listing.author || /gifos/i.test(listing.author.name)) throw new Error('author is IMG.LY, never GifOS');
 if (listing.license !== 'AGPL-3.0') throw new Error('listing.license must be AGPL-3.0');
 if (!listing.categories.includes('Creativity')) throw new Error('categories must include Creativity');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/background-removal') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/background-removal') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 if (listing.tagline.length > 120) throw new Error('tagline too long');

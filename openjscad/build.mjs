@@ -93,7 +93,7 @@ if (!listing.categories || listing.categories[0] !== 'Utilities') {
   throw new Error('listing.categories must include Utilities');
 }
 if (listing.releaseDate !== '2026-08-30') throw new Error('listing.releaseDate must be 2026-08-30');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/openjscad') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/openjscad') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 

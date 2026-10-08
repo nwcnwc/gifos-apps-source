@@ -85,7 +85,7 @@ if (!listing.categories || listing.categories[0] !== 'Games') {
   throw new Error('listing.categories must include Games');
 }
 if (listing.releaseDate !== '2026-08-23') throw new Error('listing.releaseDate must be 2026-08-23');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/mykonos') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/mykonos') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 

@@ -31,7 +31,7 @@
     "multiplayer"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/monaco-code",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/monaco-code",
   "cover": "screenshot.png",
   "coverCrop": {
     "top": 0

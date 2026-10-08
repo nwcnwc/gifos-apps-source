@@ -31,7 +31,7 @@
     "gpu"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/vocal-remover",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/vocal-remover",
   "cover": "screenshot.png",
   "screenshots": []
 }

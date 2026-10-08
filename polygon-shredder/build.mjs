@@ -70,7 +70,7 @@ if (listing.basedOn.url !== 'https://github.com/spite/polygon-shredder') throw n
 if (listing.author.name !== 'spite' || listing.porter.name !== 'GifOS') throw new Error('author/porter');
 if (listing.license !== 'MIT' || listing.categories[0] !== 'Creativity') throw new Error('license/category');
 if (listing.releaseDate !== '2026-08-24') throw new Error('releaseDate');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/polygon-shredder') throw new Error('homepage');
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/polygon-shredder') throw new Error('homepage');
 
 const listingBlob = JSON.stringify(listing);
 for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage', 'WebGL', 'requestAnimationFrame', 'CDN', 'Three.js', 'dat.gui']) {

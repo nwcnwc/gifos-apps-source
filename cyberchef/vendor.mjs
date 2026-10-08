@@ -177,7 +177,7 @@ const notice = [
   'Crown Copyright. See LICENSE in this directory (and packed inside the App GIF).',
   '',
   'This GifOS app is an UNOFFICIAL port. It is not affiliated with, endorsed by,',
-  'or blessed by GCHQ. Bugs belong at https://github.com/nwcnwc/gifos/issues —',
+  'or blessed by GCHQ. Bugs belong at https://github.com/nwcnwc/gifos-apps-source/issues —',
   'not upstream.',
   '',
   'Third-party notices from the production bundles ride beside this file as',

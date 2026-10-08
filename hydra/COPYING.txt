@@ -4,7 +4,7 @@ licensed under the GNU Affero General Public License version 3.
 The corresponding source is the files packed in this GIF (index.html,
 the scripts it loads, help.md, and this notice). A browsable copy lives at:
 
-  https://github.com/nwcnwc/gifos/tree/main/apps/hydra
+  https://github.com/nwcnwc/gifos-apps-source/tree/main/hydra
 
 Upstream:
   https://github.com/hydra-synth/hydra

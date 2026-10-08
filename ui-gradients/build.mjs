@@ -152,7 +152,7 @@ if (!listing.categories || listing.categories[0] !== 'Creativity') {
   throw new Error('category must be Creativity');
 }
 if (listing.releaseDate !== '2026-08-23') throw new Error('releaseDate must be 2026-08-23');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/ui-gradients') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/ui-gradients') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 

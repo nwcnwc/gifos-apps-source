@@ -27,7 +27,7 @@
     "chrome"
   ],
   "license": "BSD-3-Clause",
-  "homepage": "https://github.com/nwcnwc/gifos/tree/main/apps/chrome-dino",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/chrome-dino",
   "cover": "screenshot.png",
   "screenshots": []
 }

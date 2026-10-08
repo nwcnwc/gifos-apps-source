@@ -84,7 +84,7 @@ if (!listing.author || /gifos/i.test(listing.author.name)) {
   throw new Error('author is Mozilla, never GifOS');
 }
 if (listing.license !== 'Apache-2.0') throw new Error('listing.license must be Apache-2.0');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/pdf-reader') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/pdf-reader') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 const listingBlob = JSON.stringify(listing);

@@ -104,7 +104,7 @@ if (listing.author.name.indexOf('Townsend') < 0) throw new Error('author');
 if (/gifos/i.test(listing.author.name)) throw new Error('author is never GifOS');
 if (listing.porter.name !== 'GifOS') throw new Error('porter');
 if (listing.license !== 'MPL-2.0') throw new Error('license');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/a-dark-room') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/a-dark-room') {
   throw new Error('homepage');
 }
 if (!/fire lives in the file/i.test(listing.tagline)) throw new Error('tagline');

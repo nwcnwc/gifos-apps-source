@@ -70,7 +70,7 @@ if (!listing.author || listing.author.name !== 'mrdoob' || /gifos/i.test(listing
 if (listing.license !== 'MIT') throw new Error('listing.license must be MIT');
 if (!listing.categories || listing.categories[0] !== 'Creativity') throw new Error('category must be Creativity');
 if (listing.releaseDate !== '2026-08-24') throw new Error('listing.releaseDate must be 2026-08-24');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/texgen') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/texgen') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 

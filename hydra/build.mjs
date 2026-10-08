@@ -144,7 +144,7 @@ if (!listing.categories || listing.categories[0] !== 'Creativity') {
   throw new Error('category must be Creativity');
 }
 if (listing.releaseDate !== '2026-08-30') throw new Error('releaseDate must be 2026-08-30');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/hydra') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/hydra') {
   throw new Error('homepage must be the gifos tree');
 }
 if (!files['COPYING.txt'].includes('GNU AFFERO GENERAL PUBLIC LICENSE')) {

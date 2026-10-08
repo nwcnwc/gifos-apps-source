@@ -59,7 +59,7 @@ if (!listing.porter || listing.porter.name !== 'GifOS') throw new Error('porter 
 if (!listing.author || /gifos/i.test(listing.author.name)) throw new Error('author is them, never GifOS');
 if (listing.license !== 'Apache-2.0') throw new Error('listing.license must be Apache-2.0');
 if (listing.releaseDate !== '2026-08-30') throw new Error('listing.releaseDate');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/rawgraphs') throw new Error('homepage');
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/rawgraphs') throw new Error('homepage');
 if (!listing.description.includes('unofficial port')) throw new Error('listing must say unofficial port');
 if (!listing.description.includes('offline') && !listing.description.toLowerCase().includes('this device')) {
   throw new Error('listing must sell offline / this device');

@@ -67,7 +67,7 @@ if (!listing.author || !/comeau/i.test(listing.author.name) || /gifos/i.test(lis
 if (listing.license !== 'MIT') throw new Error('listing.license must be MIT');
 if (!listing.categories || listing.categories.indexOf('Learning') < 0) throw new Error('category must include Learning');
 if (listing.releaseDate !== '2026-08-24') throw new Error('listing.releaseDate must be 2026-08-24');
-if (listing.homepage !== 'https://github.com/nwcnwc/gifos/tree/main/apps/waveforms') {
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/waveforms') {
   throw new Error('listing.homepage must be the gifos tree');
 }
 
