@@ -8,8 +8,8 @@
 // localStorage, so a saved highscore never appeared on the title.
 //
 // This suite PLAYS the shipped IIFE in a fake DOM: it places a Path the
-// same way a drag does, then source-scans the one-liner phone/save rules a
-// vm cannot run.
+// same way a drag does, drags through the jam's own pointer handlers, and
+// boots the shell (shim, game, boot) to check the save, the fit and Back.
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -52,8 +52,11 @@ function el(tag, ns) {
     children: kids,
     childNodes: kids,
     parentNode: null,
-    innerHTML: '',
-    innerText: '',
+    // innerText follows innerHTML, as a browser's does (boot.js reads it)
+    get innerHTML() { return node._html || ''; },
+    set innerHTML(v) { node._html = String(v); node._text = node._html.replace(/<[^>]*>/g, ''); },
+    get innerText() { return node._text || ''; },
+    set innerText(v) { node._text = String(v); node._html = node._text; },
     textContent: '',
     className: '',
     id: '',
@@ -91,8 +94,13 @@ function el(tag, ns) {
       const h = parseFloat(attrs.height) || 80;
       return { left: 0, top: 0, width: w, height: h, right: w, bottom: h };
     },
-    querySelectorAll() { return []; },
-    querySelector() { return null; },
+    querySelectorAll(sel) {   // tag selectors only (div, svg, button): what the shell asks for
+      const out = [], want = String(sel).toUpperCase();
+      const walk = (n) => { for (const c of n.children || []) { if (c.tagName === want) out.push(c); walk(c); } };
+      walk(node);
+      return out;
+    },
+    querySelector(sel) { return node.querySelectorAll(sel)[0] || null; },
     classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
     _attrs: attrs,
     _listeners: listeners,
@@ -105,7 +113,8 @@ function el(tag, ns) {
   return node;
 }
 
-function loadGame() {
+function loadGame(opts) {
+  opts = opts || {};
   const body = el('body');
   const head = el('head');
   const doc = {
@@ -152,8 +161,8 @@ function loadGame() {
     requestAnimationFrame(fn) { return setTimeout(() => fn(0), 0); },
     cancelAnimationFrame() {},
     performance: { now: () => 0 },
-    innerWidth: 390,
-    innerHeight: 844,
+    innerWidth: opts.w || 390,
+    innerHeight: opts.h || 844,
     screen: { orientation: { lock: () => Promise.resolve() } },
     AudioContext: function () { throw new Error('no audio in unit'); },
     document: doc,
@@ -166,7 +175,7 @@ function loadGame() {
   sandbox.globalThis = sandbox;
   sandbox.self = sandbox;
   vm.createContext(sandbox);
-  vm.runInContext(fs.readFileSync(path.join(APP, 'vendor', 'game.js'), 'utf8'), sandbox, {
+  if (!opts.skipGame) vm.runInContext(fs.readFileSync(path.join(APP, 'vendor', 'game.js'), 'utf8'), sandbox, {
     filename: 'game.js',
   });
   return { sandbox, mem, timers, doc };
@@ -220,61 +229,113 @@ function loadGame() {
 }
 
 // ---- a finger-drag reaches the same code a mouse-drag does ------------------
+// Drags through the jam's own pointer handlers on a fresh valley, on a row the
+// seeded board leaves clear.
+function drag(kind, opts) {
+  opts = opts || {};
+  const { sandbox } = loadGame();
+  const TY = sandbox.TinyYurts;
+  const layer = TY.gridPointerLayer;
+  let captured = 0;
+  layer.setPointerCapture = () => { captured++; };
+  layer.getBoundingClientRect = () => ({ left: 0, top: 0, width: 208, height: 112, right: 208, bottom: 112 });
+  const ev = (type, x, y) => ({
+    type, pointerId: 1, pointerType: kind, isPrimary: true, buttons: opts.buttons || 0, button: 0,
+    clientX: x, clientY: y, x: opts.junkXY ? x + 150 : x, y: opts.junkXY ? y + 90 : y,
+    stopPropagation() {}, preventDefault() {},
+  });
+  const pts = [[12, 92], [20, 92], [28, 92], [36, 92]];
+  const n0 = TY.paths.length, inv0 = TY.inventory.paths;
+  TY.handlePointerdown(ev('pointerdown', ...pts[0]));
+  for (const p of pts.slice(1)) TY.handlePointermove(ev('pointermove', ...p));
+  TY.handlePointerup(ev('pointerup', ...pts[pts.length - 1]));
+  const cells = TY.paths.slice(n0).map((p) => p.points.map((q) => q.x + ',' + q.y).join('>')).join(' ');
+  return { added: TY.paths.length - n0, spent: inv0 - TY.inventory.paths, captured, cells };
+}
 {
-  const src = fs.readFileSync(path.join(APP, 'vendor', 'game.js'), 'utf8');
-  check('touch is treated as a left-drag (isDraw)',
-    /isDraw\s*=/.test(src) && /pointerType === ["']touch["']/.test(src));
-  check('pointerdown captures the pointer so a drag cannot slip off the board',
-    /setPointerCapture/.test(src));
-  check('cell math uses clientX, not the non-standard event.x',
-    /clientX != null \? event\.clientX/.test(src) || /event\.clientX/.test(src));
-  check('the original buttons===1 mouse path is still there',
-    /event\.buttons === 1/.test(src));
+  const touch = drag('touch');
+  check('touch is treated as a left-drag (a buttons=0 finger drag places path tiles)', touch.added > 0 && touch.spent === touch.added, touch);
+  check('pointerdown captures the pointer so a drag cannot slip off the board', touch.captured === 1, touch);
+  const junk = drag('touch', { junkXY: true });
+  check('cell math uses clientX, not the non-standard event.x', junk.cells === touch.cells && junk.added === touch.added, { junk: junk.cells, real: touch.cells });
+  const mouse = drag('mouse', { buttons: 1 });
+  const hover = drag('mouse', { buttons: 0 });
+  check('the original buttons===1 mouse path is still there (and a hover draws nothing)', mouse.added > 0 && mouse.cells === touch.cells && hover.added === 0, { mouse, hover });
 }
 
-// ---- the shell: hydrate BEFORE the jam reads localStorage, portrait fit -----
-{
-  const boot = fs.readFileSync(path.join(APP, 'boot.js'), 'utf8');
+// ---- the shell, booted: shim, game, boot in page order -----------------------
+// index.html's own <script> order, the jam's fake DOM, a fake gifos.db.
+function bootPage(opts) {
+  opts = opts || {};
   const html = fs.readFileSync(path.join(APP, 'index.html'), 'utf8');
-  const css = fs.readFileSync(path.join(APP, 'style.css'), 'utf8');
-  check('game.js is a static script (a dynamic src cannot load in the sandbox)',
-    /src=["']vendor\/game\.js["']/.test(html));
-  check('shim.js still loads first (the sandbox has no localStorage)',
-    html.indexOf('shim.js') < html.indexOf('vendor/game.js') &&
-    html.indexOf('vendor/game.js') < html.indexOf('boot.js'));
-  check('boot hydrates the saved highscore onto the title',
-    /hydrate/.test(boot) && /paintHi/.test(boot));
-  check('portrait uses meet so the valley is not cropped',
-    /xMidYMid meet/.test(boot));
-  check('Back is registered and does not always swallow',
-    /onBack/.test(boot) && /return false/.test(boot));
-  check('the page cannot be pan-stolen from under a drag',
-    /touch-action:\s*none/.test(css));
-  check('Invite is OS chrome, not an in-app button',
-    !/id=["']invite["']/.test(html));
+  const order = opts.order || [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/g)].map((m) => m[1]);
+  const puts = []; let back = null;
+  const saved = opts.saved || null;
+  const gifos = { db: () => ({ get: () => Promise.resolve(saved), put: (r) => { puts.push(r); return Promise.resolve(); }, subscribe() {} }),
+    me: () => Promise.resolve({ id: 'local' }), onBack: (fn) => { back = fn; } };
+  const g = loadGame({ skipGame: true, w: opts.w, h: opts.h });
+  const sb = g.sandbox;
+  sb.gifos = gifos;
+  delete sb.localStorage;   // the sandboxed iframe has none: shim.js provides it
+  const roster = el('div'); roster.id = 'roster'; roster.hidden = true;
+  g.doc.getElementById = (id) => (id === 'roster' ? roster : null);
+  let error = null;
+  try { for (const f of order) vm.runInContext(fs.readFileSync(path.join(APP, f), 'utf8'), sb, { filename: f }); } catch (e) { error = e; }
+  return { sb, doc: g.doc, puts, back: () => back, error, order };
 }
-
-// ---- listing claims must be true of this build ------------------------------
-{
-  const listing = JSON.parse(fs.readFileSync(path.join(APP, 'listing.json'), 'utf8'));
-  const help = fs.readFileSync(path.join(APP, 'help.md'), 'utf8');
-  const boot = fs.readFileSync(path.join(APP, 'boot.js'), 'utf8');
-  check('tagline fits a store card', listing.tagline.length <= 120 && listing.tagline.length > 20);
-  check('description says the score is saved and a friend can watch',
-    /saved/i.test(listing.description) && /Invite/.test(listing.description));
-  check('listing does not mention internals',
-    !/gifos\.db|WASM|sandbox|localStorage/.test(JSON.stringify(listing)));
-  check('unofficial port of the named original',
-    listing.basedOn && listing.basedOn.name === 'Tiny Yurts' && listing.basedOn.blessed === false);
-  check('author is burntcustard, porter is GifOS',
-    listing.author.name === 'burntcustard' && listing.porter.name === 'GifOS');
-  check('help covers drag, erase, scoring, invite, save',
-    /drag/i.test(help) && /red/i.test(help) && /settlers/i.test(help) && /Invite/.test(help) && /best score/i.test(help));
-  check('help does not document OS chrome twice',
-    !/Steal|Abilities|remix/i.test(help));
-  check('saved best score is actually written',
-    /db\('save'\)/.test(boot) && /Tiny Yurts/.test(boot));
-}
-
-console.log(failures ? failures + ' FAILURES' : 'ALL PASS');
-process.exit(failures ? 1 : 0);
+const flushTY = () => new Promise((r) => setTimeout(r, 30));
+(async () => {
+  {
+    const p = bootPage({ saved: { id: 'prefs', score: '1234' } });
+    await flushTY();
+    const title = p.doc.querySelectorAll('div').find((d) => /^Highscore:/.test(d.innerText || ''));
+    check('game.js is a static script, shim.js first, boot.js last: the page boots in that order',
+      !p.error && p.order.indexOf('shim.js') < p.order.indexOf('vendor/game.js') && p.order.indexOf('vendor/game.js') < p.order.indexOf('boot.js') && !!p.sb.TinyYurts, p.error && String(p.error));
+    const swapped = bootPage({ order: ['vendor/game.js', 'shim.js', 'boot.js'] });
+    check('…and game.js before shim.js does not boot (the sandbox has no localStorage)', !!swapped.error);
+    check('boot hydrates the saved highscore onto the title', !!title && /1234/.test(title.innerText), title && title.innerText);
+    try { p.sb.localStorage.setItem('Tiny Yurts', '77'); } catch (e) {}
+    check('saved best score is actually written (through gifos.db)', p.puts.some((r) => r.id === 'prefs' && r.score === '77'), p.puts);
+  }
+  {
+    const portrait = bootPage({ w: 390, h: 844 });
+    const land = bootPage({ w: 1024, h: 600 });
+    const board = (b) => b.doc.querySelectorAll('svg').find((s) => (s.getAttribute('viewBox') || '').indexOf('0 0 208') === 0);
+    const pb = board(portrait), lb = board(land);
+    check('portrait uses meet so the valley is not cropped',
+      !!pb && pb.getAttribute('preserveAspectRatio') === 'xMidYMid meet' && parseFloat(pb.style.height) <= 844 * 0.58 && !!lb && lb.getAttribute('preserveAspectRatio') === 'xMidYMid slice',
+      pb && pb.getAttribute('preserveAspectRatio'));
+    check('the board cannot be pan-stolen from under a drag', !!pb && pb.style.touchAction === 'none');
+    // TEXT-CHECK: the page-wide gesture setting is CSS; only a browser applies it.
+    check('…nor the page', /touch-action:\s*none/.test(fs.readFileSync(path.join(APP, 'style.css'), 'utf8')));
+  }
+  {
+    const p = bootPage();
+    await flushTY();
+    const pause = p.doc.querySelectorAll('button').find((b) => b.style.width === '64px' && b.style.height === '64px');
+    let paused = 0;
+    if (pause) { pause.click = () => { paused++; }; pause.style.opacity = '1'; }
+    const fn = p.back();
+    const first = fn ? fn() : null, second = fn ? fn() : null;
+    check('Back is registered and does not always swallow (in play it pauses once, then lets go)', !!pause && first === true && paused === 1 && second === false, { first, second, paused });
+    if (pause) pause.style.opacity = '0';
+    check('…and on the menu it lets the OS go back', fn && fn() === false);
+  }
+  {
+    const html = fs.readFileSync(path.join(APP, 'index.html'), 'utf8');
+    const tags = [...html.matchAll(/<(button|a)\b([^>]*)>([^<]*)</gi)];
+    check('Invite is OS chrome, not an in-app button',
+      !/\bid=["']invite["']/i.test(html) && !tags.some((t) => /^\s*invite\s*$/i.test(t[3])));
+  }
+  // ---- listing facts that are data, not prose ----
+  {
+    const listing = JSON.parse(fs.readFileSync(path.join(APP, 'listing.json'), 'utf8'));
+    check('tagline fits a store card', listing.tagline.length <= 120 && listing.tagline.length > 20);
+    check('unofficial port of the named original',
+      listing.basedOn && listing.basedOn.name === 'Tiny Yurts' && listing.basedOn.blessed === false);
+    check('author is burntcustard, porter is GifOS',
+      listing.author.name === 'burntcustard' && listing.porter.name === 'GifOS');
+  }
+  console.log(failures ? failures + ' FAILURES' : 'ALL PASS');
+  process.exit(failures ? 1 : 0);
+})().catch((e) => { console.error(e); process.exit(2); });

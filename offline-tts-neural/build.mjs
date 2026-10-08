@@ -51,7 +51,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -185,7 +185,7 @@ if (!existsSync(join(dir, 'help.md'))) throw new Error('help.md is missing');
 }
 
 const bytes = await gif.encode(files, { preview: neuralTtsIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'offline-tts-neural', 'offline-tts-neural.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'offline-tts-neural', 'offline-tts-neural.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/offline-tts-neural/offline-tts-neural.gif —', (bytes.length / 1e6).toFixed(2), 'MB from', Object.keys(files).length, 'files (engine + voices + self-test in-GIF; KittenTTS weights by asset pin)');

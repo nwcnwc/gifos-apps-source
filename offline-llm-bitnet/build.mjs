@@ -46,7 +46,7 @@ import { bitnetIcon } from './icon.mjs';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -95,7 +95,7 @@ const files = {
 };
 
 const bytes = await gif.encode(files, { preview: bitnetIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'offline-llm-bitnet', 'offline-llm-bitnet.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'offline-llm-bitnet', 'offline-llm-bitnet.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/offline-llm-bitnet/offline-llm-bitnet.gif —', (bytes.length / 1e6).toFixed(2), 'MB from', Object.keys(files).length, 'files (engine + self-test model in-GIF; BitNet weights by asset pin)');

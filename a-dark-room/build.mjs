@@ -26,7 +26,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -157,7 +157,7 @@ for (const [n, b] of Object.entries(assetFiles)) files[n] = b;
 files[CREDITS_PATH] = creditsJson(listing, 'a-dark-room');
 
 try {
-  files['llms.txt'] = readFileSync(join(dir, '..', '..', 'site', 'llms.txt'), 'utf8');
+  files['llms.txt'] = readFileSync(join(dir, '..', '..', 'gifos-app', 'llms.txt'), 'utf8');
 } catch (e) {}
 
 const html = files['index.html'];
@@ -226,7 +226,7 @@ if (shot[0] !== 0x89 || shot[1] !== 0x50) throw new Error('screenshot is not a P
 if (shot.length < 20 * 1024) throw new Error('screenshot.png is too small to be a frame of the running game');
 
 const bytes = await gif.encode(files, { preview: darkRoomIcon(), accent: manifest.accent });
-const outDir = join(dir, '..', '..', 'site', 'apps', 'a-dark-room');
+const outDir = join(dir, '..', '..', 'gifos-app', 'apps', 'a-dark-room');
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'a-dark-room.gif'), bytes);
 

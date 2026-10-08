@@ -36,7 +36,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -196,7 +196,7 @@ if (process.env.PT_SHOT === '1' || !existsSync(shotPath)) {
 }
 
 const bytes = await gif.encode(files, { preview: periodicTableIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'periodic-table', 'periodic-table.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'periodic-table', 'periodic-table.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/periodic-table/periodic-table.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

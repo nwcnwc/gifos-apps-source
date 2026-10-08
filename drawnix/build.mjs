@@ -36,7 +36,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -82,7 +82,7 @@ if (/<\/script/i.test(files['vendor/drawnix.js'])) {
 }
 
 const bytes = await gif.encode(files, { preview: drawnixIcon(), accent: manifest.accent });
-const outDir = join(dir, '..', '..', 'site', 'apps', 'drawnix');
+const outDir = join(dir, '..', '..', 'gifos-app', 'apps', 'drawnix');
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'drawnix.gif'), bytes);
 

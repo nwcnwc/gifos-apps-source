@@ -120,7 +120,7 @@ export async function ensureDtn() {
   mkdirSync(cache, { recursive: true });
   if (!existsSync(ZIP) || statSync(ZIP).size < 1000) {
     const { pull } = await import('./source.mjs');
-    const pack = join(dir, '..', '..', '..', 'site', 'apps', 'bible', 'packs', 'engDBY.gbp');
+    const pack = join(dir, '..', '..', '..', 'gifos-app', 'apps', 'bible', 'packs', 'engDBY.gbp');
     const r = await pull(DTN_URL, ZIP, { packPath: pack });
     if (r.status === 'missing') throw new Error('DTN.zip ' + (r.reason || 'unavailable'));
   }

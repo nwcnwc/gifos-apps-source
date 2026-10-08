@@ -34,7 +34,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -209,7 +209,7 @@ if (shot.length < 1000) throw new Error('screenshot png looks empty');
 writeFileSync(join(dir, 'screenshot.png'), shot);
 
 const bytes = await gif.encode(files, { preview: kanaQuizIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'kana-quiz', 'kana-quiz.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'kana-quiz', 'kana-quiz.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/kana-quiz/kana-quiz.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

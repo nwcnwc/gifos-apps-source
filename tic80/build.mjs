@@ -33,7 +33,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -185,7 +185,7 @@ const shot = screenshotPng();
 writeFileSync(join(dir, 'screenshot.png'), shot);
 
 const bytes = await gif.encode(files, { preview: tic80Icon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'tic80', 'tic80.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'tic80', 'tic80.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/tic80/tic80.gif —', (bytes.length / 1e6).toFixed(2), 'MB, from',

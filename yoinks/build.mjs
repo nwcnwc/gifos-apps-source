@@ -24,7 +24,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -95,7 +95,7 @@ for (const s of ['yoink any video. paste. yoink. done.', 'Paste a link', '↵ yo
 }
 
 const bytes = await gif.encode(files, { preview: yoinksIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'yoinks', 'yoinks.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'yoinks', 'yoinks.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/yoinks/yoinks.gif —', (bytes.length / 1024).toFixed(0), 'KB, from', Object.keys(files).length, 'files');

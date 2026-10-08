@@ -36,7 +36,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -186,7 +186,7 @@ if (!existsSync(shotPath) || process.env.C4_SHOT === 'gen') {
 }
 
 const bytes = await gif.encode(files, { preview: connectFourIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'connect-four', 'connect-four.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'connect-four', 'connect-four.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/connect-four/connect-four.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

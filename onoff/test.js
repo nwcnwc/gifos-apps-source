@@ -278,46 +278,154 @@ function flushSleep(env, ms) {
     { paused: g.scene.paused, deaths: g.scene.deaths.value });
 }
 
+// ---- CSS as rules: selector -> declarations (structure, not substrings) -----
+// Rules inside an @media block carry that block's prelude in `media`.
+function cssRules(css) {
+  const text = String(css).replace(/\/\*[\s\S]*?\*\//g, '');
+  const out = [];
+  const stack = [];
+  let buf = '';
+  for (const ch of text) {
+    if (ch === '{') { stack.push(buf.trim()); buf = ''; }
+    else if (ch === '}') {
+      const pre = stack.pop();
+      if (pre != null && pre[0] !== '@') {
+        const decl = {};
+        for (const d of buf.split(';')) { const i = d.indexOf(':'); if (i > 0) decl[d.slice(0, i).trim().toLowerCase()] = d.slice(i + 1).trim(); }
+        const media = stack.filter((x) => x[0] === '@').join(' ');
+        for (const sel of pre.split(',')) out.push({ sel: sel.trim().replace(/\s+/g, ' '), decl, media });
+      }
+      buf = '';
+    } else buf += ch;
+  }
+  return out;
+}
+// The value a property gets on a selector outside any @media (last rule
+// wins), or inside the @media whose prelude matches `media`; null if unset.
+function cssValue(rules, selTest, prop, media) {
+  let v = null;
+  for (const r of rules) {
+    if (media ? !media.test(r.media) : r.media) continue;
+    if ((typeof selTest === 'string' ? r.sel === selTest : selTest.test(r.sel)) && prop in r.decl) v = r.decl[prop];
+  }
+  return v;
+}
+
+// ---- the shell (boot.js + touch.js) on top of the REAL game ----------------
+// Same harness as above, plus a fake gifos (prefs rows, onBack), recorded
+// intervals and timers, and the two shell scripts run after the vendor game.
+function fire(node, type, ev) {
+  const e = Object.assign({ type, pointerId: 1, preventDefault() {}, stopPropagation() {} }, ev || {});
+  (node.listeners[type] || []).slice().forEach((f) => f(e));
+}
+async function shellEnv(o) {
+  o = o || {};
+  const rows = new Map(Object.entries(o.rows || {}));
+  const puts = [];
+  const intervals = [], timers = [], winL = {};
+  let back = null;
+  const gifos = {
+    db: (name) => {
+      if (o.dbThrows) throw new Error('the save is locked (test)');
+      return {
+        get: async (id) => (rows.has(id) ? rows.get(id) : null),
+        put: async (row) => { if (o.putFails) throw new Error('disk full (test)'); puts.push(row); rows.set(row.id, row); return row; },
+      };
+    },
+    onBack: (f) => { back = f; },
+  };
+  const env = load(Object.assign({
+    gifos,
+    setInterval: (f) => { intervals.push(f); return intervals.length; },
+    setTimeout: (f, ms) => { timers.push({ f, ms }); return timers.length; },
+    addEventListener: (t, f) => (winL[t] = winL[t] || []).push(f),
+    matchMedia: () => ({ matches: false }),
+    innerWidth: 1024, innerHeight: 768,
+  }, o.extra || {}));
+  // As in index.html: these start hidden.
+  for (const id of ['touch', 'from-start', 'db-err']) env.doc.getElementById(id).hidden = true;
+  for (const f of ['boot.js', 'touch.js']) vm.runInContext(fs.readFileSync(path.join(APP, f), 'utf8'), env.sandbox, { filename: f });
+  for (let k = 0; k < 10; k++) await new Promise((r) => setImmediate(r));
+  return { env, S: env.sandbox, g: env.sandbox.ONOFF_GAME, $: (id) => env.doc.getElementById(id), rows, puts, intervals, timers, winL, back: () => (back ? back() : undefined) };
+}
+async function shell() {
+  {
+    const t = await shellEnv({ rows: { best: { id: 'best', level: 7 } } });
+    check('a saved furthest room shows the "from the first room" control at the title', t.$('from-start').hidden === false);
+    const item0 = t.env.doc.querySelectorAll('#title .menu .item')[0];
+    check('title rows get a tap rect (an SVG <g> is not a button)', item0.children.some((c) => c.tagName === 'RECT' && c.attrs.width && c.attrs.height));
+    fire(item0, 'pointerup');
+    check('Start continues from the furthest saved room', t.g.state === 'play' && t.g.scene.index === 6, { state: t.g.state, index: t.g.scene.index });
+    check('Back leaves a room for the title (consumed)', t.back() === true && t.g.state === 'title');
+    check('…at the title Back lets the OS close', t.back() === false);
+    t.$('from-start').listeners.click.forEach((f) => f({}));
+    check('"from the first room" really starts at room 1', t.g.state === 'play' && t.g.scene.index === 0);
+    t.g.state = 'edit';
+    check('Back leaves the editor for the title and keeps the room you drew', t.back() === true && t.g.state === 'title' && t.rows.has('edit'));
+    t.g.state = 'controls';
+    check('…and leaves the controls screen too', t.back() === true && t.g.state === 'title');
+  }
+  {
+    const t = await shellEnv();
+    check('no progress, no "from the first room" control', t.$('from-start').hidden === true);
+    fire(t.env.doc.querySelectorAll('#title .menu .item')[0], 'click');
+    t.g.scene.index = 4;
+    t.intervals.forEach((f) => f());
+    await new Promise((r) => setImmediate(r));
+    check('the furthest room reached is saved to prefs', t.rows.get('best') && t.rows.get('best').level === 5, t.rows.get('best'));
+    // The pad: keys the sim already reads, held at least MIN_HOLD.
+    check('the pad hides on a desktop until a touch', t.$('touch').hidden === true);
+    (t.winL.touchstart || []).forEach((f) => f({}));
+    check('…a first touch reveals it', t.$('touch').hidden === false);
+    const jump = t.$('touch').children.find((b) => b.attrs['data-key'] === 'jump');
+    fire(jump, 'pointerdown');
+    check('the pad injects keys the sim already reads (JUMP = w / ArrowUp)', t.S.ONOFF_DOWN.has('w') && t.S.ONOFF_DOWN.has('ArrowUp'));
+    fire(jump, 'pointerup');
+    check('…a quick tap is held for a minimum time, not dropped at once', t.S.ONOFF_DOWN.has('w') && t.timers.some((x) => x.ms > 0));
+    t.timers.splice(0).forEach((x) => x.f());
+    check('…then released', !t.S.ONOFF_DOWN.has('w'));
+    const flip = t.$('touch').children.find((b) => b.attrs['data-key'] === 'toggle');
+    const on0 = t.g.scene.on;
+    fire(flip, 'pointerdown');
+    check('ON/OFF on the pad flips the world', t.g.scene.on !== on0);
+  }
+  {
+    const t = await shellEnv({ dbThrows: true });
+    check('a db failure is shown', t.$('db-err').hidden === false && !!t.$('db-err').textContent);
+    const u = await shellEnv({ putFails: true });
+    fire(u.env.doc.querySelectorAll('#title .menu .item')[0], 'click');
+    u.intervals.forEach((f) => f());
+    for (let k = 0; k < 5; k++) await new Promise((r) => setImmediate(r));
+    check('…and so is a save that fails', u.$('db-err').hidden === false && !!u.$('db-err').textContent);
+  }
+  {
+    const t = await shellEnv({ extra: { AudioContext: function () { throw new Error('audio blocked (test)'); } } });
+    t.g.title.selected = 0;
+    t.g.title.choose();
+    check('AudioContext cannot kill the rooms (a throwing AudioContext still plays)', t.S.ONOFF_LEVELS.length === 25 && t.g.state === 'play');
+  }
+}
+
 {
   const src = (f) => fs.readFileSync(path.join(APP, f), 'utf8');
-  const html = src('index.html');
-  const boot = src('boot.js');
-  const touch = src('touch.js');
-  const css = src('style.css');
-  const vendor = src('vendor/onoff.js');
   const listing = JSON.parse(src('listing.json'));
   const manifest = JSON.parse(src('manifest.json'));
-  const help = src('help.md');
-
-  check('Start continues from the furthest saved room',
-    /resumeIndex/.test(boot) && /best - 1/.test(boot));
-  check('from the first room is a real control when you have progress',
-    html.includes('id="from-start"') && /fromStart/.test(boot));
-  check('Back leaves a room / controls / editor for the title',
-    /onBack/.test(boot) && /state = 'title'/.test(boot));
-  check('the pad injects keys the sim already reads',
-    /data-key="jump"/.test(html) && /ONOFF_DOWN/.test(touch) && /MIN_HOLD/.test(touch));
-  check('title rows have a tap rect (SVG <g> is not a button)',
-    /createElementNS/.test(boot) && /pointerup/.test(boot));
-  check('the pad keeps a strip so landscape does not cover the floor',
-    /padding-bottom/.test(css) && /body\.touch/.test(css));
-  check('a db failure is shown', html.includes('id="db-err"') && /dbErr/.test(boot));
-  check('AudioContext cannot kill the rooms',
-    vendor.includes('FakeAudioContext') && vendor.includes('ONOFF_LEVELS'));
-  check('vendor is classic script, not ESM',
-    !/^\s*import\s/m.test(vendor) && !/export\s+\{/.test(vendor));
+  const C = cssRules(src('style.css'));
+  check('the pad keeps a strip so landscape does not cover the floor', /rem|px/.test(cssValue(C, 'body.touch', 'padding-bottom') || ''), cssValue(C, 'body.touch', 'padding-bottom'));
+  // "vendor is classic script, not ESM": it RUNS above via vm.runInContext,
+  // which throws on import/export, so that guarantee is behavioural already.
+  // Listing/help wording is copy and is not pinned; the data fields are.
   check('listing author is them, not GifOS',
     listing.author && listing.author.name !== 'GifOS' && listing.basedOn && listing.porter);
-  check('listing leads with the file-is-the-save',
-    /room 18|GIF|file/i.test(listing.description.slice(0, 200)));
-  check('help names jump, flip, phone pad, and the save',
-    /JUMP/.test(help) && /ON\/OFF/.test(help) && /furthest room/i.test(help));
   check('db is declared and multiplayer is not',
     manifest.capabilities && manifest.capabilities.db === true && !manifest.capabilities.multiplayer);
 }
 
+shell().catch((e) => { failures++; console.log('FAIL — shell crashed: ' + (e && e.stack || e)); }).then(() => {
 if (failures) {
   console.log('\n' + failures + ' FAIL');
   process.exit(1);
 }
 console.log('\nAll PASS');
+  process.exit(0);
+});

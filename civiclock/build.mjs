@@ -28,7 +28,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -230,7 +230,7 @@ if (!existsSync(shotPath)) {
 }
 
 const bytes = await gif.encode(files, { preview: civiclockIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'civiclock', 'civiclock.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'civiclock', 'civiclock.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/civiclock/civiclock.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

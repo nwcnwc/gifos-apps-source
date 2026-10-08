@@ -3,7 +3,7 @@
 // Uses the SAME codec the GifOS desktop and MCP server use
 // (site/js/gifos-gif.js) — it only needs CompressionStream + TextEncoder, both
 // native in Node 22. Run:  node apps/fluence/build.mjs
-import '../../site/js/gifos-gif.js'; // attaches globalThis.GifOS.gif
+import '../../gifos-app/js/gifos-gif.js'; // attaches globalThis.GifOS.gif
 import { oratorIcon } from './icon.mjs';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -36,7 +36,7 @@ const bytes = await gif.encode(files, { preview: oratorIcon() });
 // Into the PUBLISH boundary: Pages ships only site/, and the App Store has to
 // be able to download this. site/apps/<slug>/ is also where the catalog build
 // (scripts/build-app-catalog.mjs) looks for it.
-const out = join(dir, '..', '..', 'site', 'apps', 'fluence', 'fluence.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'fluence', 'fluence.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/fluence/fluence.gif —', bytes.length, 'bytes, from', Object.keys(files).length, 'files');

@@ -12,13 +12,18 @@ const apps = fs.readdirSync(root).filter((name) => {
 
 let failed = 0;
 const missing = [];
+let ran = 0;
 for (const slug of apps) {
-  const suite = path.join(root, slug, 'test.js');
-  if (!fs.existsSync(suite)) { missing.push(slug); continue; }
-  process.stdout.write('\n===== ' + slug + ' =====\n');
-  const r = spawnSync(process.execPath, [suite], { stdio: 'inherit' });
-  if (r.status) failed++;
+  const dir = path.join(root, slug);
+  const suites = fs.readdirSync(dir).filter((name) => /^test(-[a-z0-9-]+)?\.js$/.test(name)).sort();
+  if (!suites.length) { missing.push(slug); continue; }
+  for (const name of suites) {
+    ran++;
+    process.stdout.write('\n===== ' + slug + '/' + name + ' =====\n');
+    const r = spawnSync(process.execPath, [path.join(dir, name)], { stdio: 'inherit' });
+    if (r.status) failed++;
+  }
 }
-process.stdout.write('\n' + (apps.length - missing.length) + ' suites, ' + missing.length + ' apps with no test.js\n');
+process.stdout.write('\n' + ran + ' suites, ' + missing.length + ' apps with no test.js\n');
 for (const slug of missing) process.stdout.write('  no suite  ' + slug + '\n');
 process.exit(failed ? 1 : 0);

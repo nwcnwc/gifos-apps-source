@@ -7,7 +7,7 @@
 // from the pinned npm packages and is run only when the pin moves.
 //
 // Run:  node apps/fortune-sheet/build.mjs
-import '../../site/js/gifos-gif.js'; // attaches globalThis.GifOS.gif
+import '../../gifos-app/js/gifos-gif.js'; // attaches globalThis.GifOS.gif
 import { fortuneSheetIcon } from './icon.mjs';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -58,7 +58,7 @@ if (!html.includes('href="vendor/fortune-sheet.css"')) throw new Error('index.ht
 if (!html.includes('href="style.css"')) throw new Error('index.html does not load style.css');
 
 const bytes = await gif.encode(files, { preview: fortuneSheetIcon(), accent: manifest.accent });
-const outDir = join(dir, '..', '..', 'site', 'apps', 'fortune-sheet');
+const outDir = join(dir, '..', '..', 'gifos-app', 'apps', 'fortune-sheet');
 mkdirSync(outDir, { recursive: true });
 const out = join(outDir, 'fortune-sheet.gif');
 writeFileSync(out, bytes);

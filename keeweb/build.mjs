@@ -36,7 +36,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -110,7 +110,7 @@ for (const s of SCRIPTS) {
 if (!html.includes('href="style.css"')) throw new Error('index.html does not load style.css');
 
 const bytes = await gif.encode(files, { preview: keewebIcon(), accent: manifest.accent });
-const outDir = join(dir, '..', '..', 'site', 'apps', 'keeweb');
+const outDir = join(dir, '..', '..', 'gifos-app', 'apps', 'keeweb');
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'keeweb.gif'), bytes);
 

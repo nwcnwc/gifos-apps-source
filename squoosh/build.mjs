@@ -48,7 +48,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -349,7 +349,7 @@ const shot = screenshotPng();
 writeFileSync(join(dir, 'screenshot.png'), shot);
 
 const bytes = await gif.encode(files, { preview: squooshIcon(), accent: manifest.accent });
-const outDir = join(dir, '..', '..', 'site', 'apps', 'squoosh');
+const outDir = join(dir, '..', '..', 'gifos-app', 'apps', 'squoosh');
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'squoosh.gif'), bytes);
 

@@ -25,7 +25,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -114,7 +114,7 @@ if (!existsSync(shotPath) || process.env.REWRITE_SHOT) {
   writeFileSync(shotPath, shot);
 }
 const bytes = await gif.encode(files, { preview: duckHuntIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'duck-hunt', 'duck-hunt.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'duck-hunt', 'duck-hunt.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/duck-hunt/duck-hunt.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

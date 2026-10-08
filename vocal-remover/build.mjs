@@ -47,7 +47,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -192,7 +192,7 @@ if (!html.includes('href="style.css"')) throw new Error('index.html does not loa
 const bytes = await gif.encode(files, { preview: vocalRemoverIcon(), accent: manifest.accent });
 // Into the PUBLISH boundary: site/ is what GitHub Pages serves, so a GIF
 // anywhere else is not downloadable (see apps/README.md).
-const out = join(dir, '..', '..', 'site', 'apps', 'vocal-remover', 'vocal-remover.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'vocal-remover', 'vocal-remover.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/vocal-remover/vocal-remover.gif —', (bytes.length / 1e6).toFixed(2), 'MB from',

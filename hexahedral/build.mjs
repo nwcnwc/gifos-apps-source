@@ -26,7 +26,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -107,7 +107,7 @@ for (const [n, s] of Object.entries(files)) {
 const shot = screenshotPng();
 writeFileSync(join(dir, 'screenshot.png'), shot);
 const bytes = await gif.encode(files, { preview: hexahedralIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'hexahedral', 'hexahedral.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'hexahedral', 'hexahedral.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/hexahedral/hexahedral.gif —', bytes.length, 'bytes');

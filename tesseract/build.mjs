@@ -39,7 +39,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -131,7 +131,7 @@ for (const m of indexHtml.matchAll(/\b(?:src|href)=["']([^"']+)["']/gi)) {
 }
 
 const bytes = await gif.encode(files, { preview: tesseractIcon(), accent: manifest.accent });
-const outDir = join(dir, '..', '..', 'site', 'apps', 'tesseract');
+const outDir = join(dir, '..', '..', 'gifos-app', 'apps', 'tesseract');
 mkdirSync(outDir, { recursive: true });
 const gifPath = join(outDir, 'tesseract.gif');
 writeFileSync(gifPath, bytes);

@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const PACKS = join(dir, '..', '..', '..', 'site', 'apps', 'bible', 'packs');
+const PACKS = join(dir, '..', '..', '..', 'gifos-app', 'apps', 'bible', 'packs');
 
 // Each entry: { id, magic: 'GBP2'|'GBX1'|'*', apply(header, sections) ->
 // { header, sections } or null to skip }. `id` is stamped on the header so a

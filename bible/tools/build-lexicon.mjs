@@ -55,7 +55,7 @@ import { fileURLToPath } from 'node:url';
 const dir = dirname(fileURLToPath(import.meta.url));
 const root = join(dir, '..', '..', '..');
 const cache = join(dir, '..', '.cache', 'orig');
-const outDir = join(root, 'site', 'apps', 'bible', 'packs');
+const outDir = join(root, 'gifos-app', 'apps', 'bible', 'packs');
 
 export const SOURCES = {
   greek: {

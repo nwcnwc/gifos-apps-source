@@ -26,7 +26,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -104,7 +104,7 @@ if (cover[0] !== 0x89) throw new Error('screenshot');
 writeFileSync(join(dir, 'screenshot.png'), cover);
 
 const bytes = await gif.encode(files, { preview: yurtsIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'tiny-yurts', 'tiny-yurts.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'tiny-yurts', 'tiny-yurts.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/tiny-yurts/tiny-yurts.gif —', bytes.length, 'bytes,',

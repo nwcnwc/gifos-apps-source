@@ -36,7 +36,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -159,7 +159,7 @@ if (process.env.Q1K3_COVER === 'draw' || !existsSync(shotPath)) {
 }
 
 const bytes = await gif.encode(files, { preview: q1k3Icon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'q1k3', 'q1k3.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'q1k3', 'q1k3.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/q1k3/q1k3.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

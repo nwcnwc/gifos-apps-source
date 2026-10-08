@@ -26,7 +26,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -167,7 +167,7 @@ const shot = screenshotPng();
 if (shot[0] !== 0x89) throw new Error('screenshot is not a PNG');
 writeFileSync(join(dir, 'screenshot.png'), shot);
 const bytes = await gif.encode(files, { preview: pokerIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'vintage-poker', 'vintage-poker.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'vintage-poker', 'vintage-poker.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/vintage-poker/vintage-poker.gif —', bytes.length, 'bytes');

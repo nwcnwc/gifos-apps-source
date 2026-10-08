@@ -31,7 +31,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -73,7 +73,7 @@ const files = {
   'COPYING-hextris.txt': read('vendor/COPYING-hextris.txt'),
 };
 {
-  const llms = join(dir, '..', '..', 'site', 'llms.txt');
+  const llms = join(dir, '..', '..', 'gifos-app', 'llms.txt');
   if (existsSync(llms)) files['llms.txt'] = readFileSync(llms, 'utf8');
 }
 for (const s of VENDOR_JS) files[s] = read(s);
@@ -134,7 +134,7 @@ const shot = screenshotPng();
 writeFileSync(join(dir, 'screenshot.png'), shot);
 
 const bytes = await gif.encode(files, { preview: hextrisIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'hextris', 'hextris.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'hextris', 'hextris.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/hextris/hextris.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

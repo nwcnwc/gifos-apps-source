@@ -12,7 +12,7 @@ import { pull, skipIfPacked } from './source.mjs';
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const cache = join(dir, '..', '.cache');
-const packs = join(dir, '..', '..', '..', 'site', 'apps', 'bible', 'packs');
+const packs = join(dir, '..', '..', '..', 'gifos-app', 'apps', 'bible', 'packs');
 mkdirSync(cache, { recursive: true });
 
 const cat = JSON.parse(readFileSync(join(dir, '..', 'data', 'ebible-pd.json'), 'utf8'));

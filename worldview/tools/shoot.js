@@ -23,7 +23,7 @@ const path = require('path');
 const BASE = process.env.BASE || 'http://127.0.0.1:8099';
 const LIVE = !!process.env.WV_LIVE;
 const OUT = path.join(__dirname, '..', 'screenshot.png');
-const GIF = path.join(__dirname, '..', '..', '..', 'site', 'apps', 'worldview', 'worldview.gif');
+const GIF = path.join(__dirname, '..', '..', '..', 'gifos-app', 'apps', 'worldview', 'worldview.gif');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {

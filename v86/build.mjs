@@ -27,7 +27,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -109,7 +109,7 @@ const shot = screenshotPng();
 writeFileSync(join(dir, 'screenshot.png'), shot);
 
 const bytes = await gif.encode(files, { preview: v86Icon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'v86', 'v86.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'v86', 'v86.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/v86/v86.gif —', (bytes.length / 1024 / 1024).toFixed(2), 'MB, from',

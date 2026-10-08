@@ -28,7 +28,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -120,7 +120,7 @@ const shot = screenshotPng();
 writeFileSync(join(dir, 'screenshot.png'), shot);
 
 const bytes = await gif.encode(files, { preview: shapezIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'shapez', 'shapez.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'shapez', 'shapez.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/shapez/shapez.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

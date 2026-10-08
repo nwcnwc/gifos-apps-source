@@ -30,7 +30,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -125,7 +125,7 @@ if (shotBuf[0] !== 0x89 || shotBuf[1] !== 0x50) throw new Error('screenshot is n
 if (shotBuf.length < 8000) throw new Error('screenshot.png looks empty');
 
 const bytes = await gif.encode(files, { preview: webampIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'webamp', 'webamp.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'webamp', 'webamp.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/webamp/webamp.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

@@ -35,7 +35,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -98,7 +98,7 @@ const shot = screenshotPng();
 writeFileSync(join(dir, 'screenshot.png'), shot);
 
 const bytes = await gif.encode(files, { preview: nxnCubeIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'nxn-cube', 'nxn-cube.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'nxn-cube', 'nxn-cube.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/nxn-cube/nxn-cube.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

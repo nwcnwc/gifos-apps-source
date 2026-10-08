@@ -42,7 +42,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -86,7 +86,7 @@ if (!existsSync(join(dir, 'help.md'))) throw new Error('help.md is missing');
 }
 
 const bytes = await gif.encode(files, { preview: pdfTablesIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'pdf-tables', 'pdf-tables.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'pdf-tables', 'pdf-tables.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/pdf-tables/pdf-tables.gif —', (bytes.length / 1e6).toFixed(2), 'MB from', Object.keys(files).length, 'files (pdf.js + SheetJS in-GIF, no network, no asset pin)');

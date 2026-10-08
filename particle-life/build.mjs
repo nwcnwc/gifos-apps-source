@@ -37,7 +37,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -207,7 +207,7 @@ for (const [n, s] of Object.entries(files)) {
 }
 
 const bytes = await gif.encode(files, { preview: particleLifeIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'particle-life', 'particle-life.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'particle-life', 'particle-life.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/particle-life/particle-life.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

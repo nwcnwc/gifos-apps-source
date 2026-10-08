@@ -60,7 +60,7 @@ import { gzipSync, gunzipSync, deflateRawSync, inflateRawSync } from 'node:zlib'
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const vendor = join(dir, 'vendor');
@@ -202,7 +202,7 @@ if (!files['LICENSE'].includes('Apache License')) throw new Error('packed LICENS
 if (!/Crown Copyright/.test(html)) throw new Error('packed HTML lost the Crown Copyright notice');
 
 const bytes = await gif.encode(files, { preview: cyberChefIcon(), accent: manifest.accent });
-const outDir = join(dir, '..', '..', 'site', 'apps', 'cyberchef');
+const outDir = join(dir, '..', '..', 'gifos-app', 'apps', 'cyberchef');
 mkdirSync(outDir, { recursive: true });
 const gifPath = join(outDir, 'cyberchef.gif');
 writeFileSync(gifPath, bytes);

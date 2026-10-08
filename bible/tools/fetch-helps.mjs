@@ -10,7 +10,7 @@ import { pull, markFrozen, clearFrozen, skipIfPacked } from './source.mjs';
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const cache = join(dir, '..', '.cache', 'helps');
-const packs = join(dir, '..', '..', '..', 'site', 'apps', 'bible', 'packs');
+const packs = join(dir, '..', '..', '..', 'gifos-app', 'apps', 'bible', 'packs');
 const credits = join(dir, '..', 'data', 'credits.json');
 const force = process.argv.includes('--force');
 const reintake = process.argv.includes('--reintake');

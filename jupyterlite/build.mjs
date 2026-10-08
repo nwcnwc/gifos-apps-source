@@ -40,7 +40,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -223,7 +223,7 @@ const shot = screenshotPng();
 writeFileSync(join(dir, 'screenshot.png'), shot);
 
 const bytes = await gif.encode(files, { preview: jupyterliteIcon(), accent: manifest.accent });
-const outDir = join(dir, '..', '..', 'site', 'apps', 'jupyterlite');
+const outDir = join(dir, '..', '..', 'gifos-app', 'apps', 'jupyterlite');
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'jupyterlite.gif'), bytes);
 

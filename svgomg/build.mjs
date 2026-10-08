@@ -38,7 +38,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -171,7 +171,7 @@ const shot = screenshotPng();
 writeFileSync(join(dir, 'screenshot.png'), shot);
 
 const bytes = await gif.encode(files, { preview: svgomgIcon(), accent: manifest.accent });
-const outDir = join(dir, '..', '..', 'site', 'apps', 'svgomg');
+const outDir = join(dir, '..', '..', 'gifos-app', 'apps', 'svgomg');
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'svgomg.gif'), bytes);
 

@@ -32,7 +32,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -72,7 +72,7 @@ if (/placeholder build/.test(files['clips-data.js'])) {
 }
 
 const bytes = await gif.encode(files, { preview: soundItOutIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'sound-it-out', 'sound-it-out.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'sound-it-out', 'sound-it-out.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/sound-it-out/sound-it-out.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

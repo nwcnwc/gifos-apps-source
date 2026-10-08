@@ -32,7 +32,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -134,7 +134,7 @@ if (!/MIN_USD\s*=\s*3/.test(files['app.js'])) throw new Error('the $3 minimum is
 }
 
 const bytes = await gif.encode(files, { preview: tipIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'tip-creators', 'tip-creators.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'tip-creators', 'tip-creators.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/tip-creators/tip-creators.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

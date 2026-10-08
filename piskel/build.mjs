@@ -36,7 +36,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -84,7 +84,7 @@ if (/<\/script/i.test(files['vendor/piskel.js'])) {
 }
 
 const bytes = await gif.encode(files, { preview: piskelIcon(), accent: manifest.accent });
-const outDir = join(dir, '..', '..', 'site', 'apps', 'piskel');
+const outDir = join(dir, '..', '..', 'gifos-app', 'apps', 'piskel');
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'piskel.gif'), bytes);
 console.log('wrote site/apps/piskel/piskel.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

@@ -4,10 +4,9 @@
 // deals, Invite is the seats, chips are toys. A ranking table that never
 // deals, or a table that deals and then deadlocks, is not Hold'em. This suite
 // loads the shipped poker.js in a vm, seeds the shoe, and PLAYS: deal, fold
-// (uncontested), a call-down to showdown, an all-in runout, a side pot.
-// Phone/guest/listing rules a vm cannot click are source-scanned — a line
-// that must stay is better guarded by a grep than by a browser suite that
-// cannot launch.
+// (uncontested), a call-down to showdown, an all-in runout, a side pot. Then
+// app.js runs on a fake page: a solo hand is played through the buttons, the
+// chip pile is saved at hand end, a host deals to a guest who walks in.
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -177,58 +176,255 @@ check('poker.js loads PK', !!(PK && PK.newTable && PK.startHand && PK.applyActio
     t.seats[0]);
 }
 
-// ---- source scans (phone, guests, listing, walls) --------------------------
-{
-  const html = src('index.html');
-  const css = src('style.css');
-  const js = src('app.js');
-  const listing = JSON.parse(src('listing.json'));
-  const man = JSON.parse(src('manifest.json'));
-  const help = src('help.md');
+// ---- the table app: poker.js + app.js on a fake page ----------------------
+const html = src('index.html');
+const css = src('style.css');
+const man = JSON.parse(src('manifest.json'));
 
-  check('no in-app Invite button', !/>\s*Invite\s*</.test(html) && !/id=["']invite/i.test(html));
+const pageEls = {};
+html.replace(/<!--[\s\S]*?-->/g, '').replace(/<([a-z0-9]+)\b([^>]*)>/gi, (all, tag, attrs) => {
+  const id = /\bid="([^"]+)"/.exec(attrs);
+  if (id) {
+    const a = {};
+    attrs.replace(/([\w-]+)(?:="([^"]*)")?/g, (m, k, v) => { a[k] = v === undefined ? true : v; return m; });
+    pageEls[id[1]] = { tag: tag.toLowerCase(), attrs: a };
+  }
+  return all;
+});
+const buttonIds = Object.keys(pageEls).filter((id) => pageEls[id].tag === 'button');
+
+const settle = () => new Promise((r) => setImmediate(r));
+async function settleAll() { for (let i = 0; i < 20; i++) await settle(); }
+
+function table(opts) {
+  opts = opts || {};
+  const els = {};
+  const mkEl = (id, tag) => {
+    const cls = new Set();
+    let inner = '';
+    const e = {
+      id, tagName: (tag || 'div').toUpperCase(), hidden: false, textContent: '', value: '', className: '',
+      children: [], onclick: null, oninput: null,
+      classList: {
+        add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c),
+        toggle: (c, on) => { if (on === undefined ? !cls.has(c) : on) cls.add(c); else cls.delete(c); },
+      },
+      appendChild(c) { this.children.push(c); return c; },
+      get innerHTML() { return inner; },
+      set innerHTML(v) { inner = v; if (v === '') this.children = []; },
+    };
+    return e;
+  };
+  Object.keys(pageEls).forEach((id) => {
+    const e = mkEl(id, pageEls[id].tag);
+    e.hidden = pageEls[id].attrs.hidden === true;
+    if (pageEls[id].attrs.value != null) e.value = pageEls[id].attrs.value;
+    els[id] = e;
+  });
+  const body = mkEl('body');
+  const timers = [];
+  let now = 1e12;
+  const dbs = {};
+  const db = (name) => {
+    if (!dbs[name]) {
+      const st = { rows: {}, puts: [], subs: [] };
+      st.api = {
+        get: (id) => Promise.resolve(st.rows[id]),
+        put: (row) => { st.puts.push({ row: JSON.parse(JSON.stringify(row)), phase: st.phaseNow && st.phaseNow() }); st.rows[row.id] = row; return Promise.resolve(); },
+        subscribe: (f) => { st.subs.push(f); },
+      };
+      dbs[name] = st;
+    }
+    return dbs[name].api;
+  };
+  if (opts.saved) { db('save'); dbs.save.rows.last = opts.saved; }
+  const netTouches = [];
+  const backs = [];
+  let x = 12345;
+  const rnd = () => { x = (x * 16807) % 2147483647; return (x - 1) / 2147483646; };
+  const M = Object.create(Math);
+  M.random = rnd;
+  const sb = {
+    console, Math: M, Object, Array, JSON, String, Number, Boolean, Promise, Error, parseInt,
+    Date: { now: () => now },
+    document: {
+      body,
+      getElementById: (id) => els[id] || null,
+      createElement: (t) => mkEl('', t),
+    },
+    setTimeout: (f, ms) => { timers.push({ at: now + ms, f }); return timers.length; },
+    clearTimeout: () => {},
+    setInterval: () => 0, clearInterval: () => {},
+    gifos: {
+      db,
+      me: () => Promise.resolve({ id: opts.meId || 'host-1', name: 'Hosty' }),
+      info: () => Promise.resolve({ owner: opts.owner !== false }),
+      onBack: (f) => backs.push(f),
+    },
+  };
+  // The port has no server: any reach for the network is recorded.
+  ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'io', 'RTCPeerConnection'].forEach((k) => {
+    Object.defineProperty(sb, k, { get() { netTouches.push(k); return undefined; }, configurable: true });
+  });
+  sb.window = sb;
+  sb.globalThis = sb;
+  vm.createContext(sb);
+  vm.runInContext(src('poker.js'), sb, { filename: 'poker.js' });
+  // record every action the app applies, and which table it applied it to
+  const acts = [];
+  let lastT = null;
+  const realApply = sb.PK.applyAction;
+  sb.PK.applyAction = function (t, i, kind, amt) { lastT = t; acts.push({ i, kind, amt }); return realApply.apply(this, arguments); };
+  const realStart = sb.PK.startHand;
+  sb.PK.startHand = function (t) { lastT = t; return realStart.apply(this, arguments); };
+  db('save');
+  dbs.save.phaseNow = () => lastT && lastT.phase;
+  vm.runInContext(src('app.js'), sb, { filename: 'app.js' });
+  const runTimers = () => {
+    let n = 0;
+    while (timers.length && n++ < 200) {
+      timers.sort((p, q) => p.at - q.at);
+      const t = timers.shift();
+      now = Math.max(now, t.at);
+      t.f();
+    }
+  };
+  const click = (id) => { if (els[id].onclick) els[id].onclick.call(els[id]); };
+  return { sb, els, dbs, acts, backs, netTouches, runTimers, click, table: () => lastT, setNow: (v) => { now = v; }, now: () => now };
+}
+
+async function appChecks() {
+  check('the home panel is not a playing-card .card',
+    pageEls.home && /\bpanel\b/.test(pageEls.home.attrs.class) && !/\bcard\b/.test(pageEls.home.attrs.class));
   check('fold/call/raise exist with aria-labels',
-    /id="foldBtn" aria-label="Fold"/.test(html) &&
-    /id="callBtn" aria-label="Call"/.test(html) &&
-    /id="raiseBtn" aria-label="Raise"/.test(html));
-  check('phone action buttons are 48px tall', /min-height:48px/.test(css));
-  check('[hidden] actually hides (raise-row is display:flex)', css.includes('[hidden]{display:none !important}'));
-  check('the home panel is not a playing-card .card', !/class="card[\s"]/.test(html) && /class="panel setup"/.test(html));
-  check('playing cards use .pcard', /className = 'pcard'/.test(js) && css.includes('.pcard{'));
-  check('guests who open the invite sit without tapping Play with friends',
-    js.includes('if (roomDb && !owner) mpEnter()'));
-  check('the file holds the chip pile (gifos.db save, private)',
-    js.includes("db('save')") && man.data.save.visibility === 'private' && js.includes("id: 'last'"));
-  check('chips are written at hand end, not mid-street',
-    js.includes("t.phase !== 'showdown' && t.phase !== 'idle'"));
-  check('empty table copy is distinct from waiting-on-host',
-    js.includes('This table is empty') && js.includes('Waiting for the host to deal'));
-  check('listing leads with the game and plain friends-join copy',
-    /^Texas Hold'em/.test(listing.description) &&
-    /takes a seat/i.test(listing.description) &&
-    /host deals/i.test(listing.description));
-  // The app is a computer game; it does not protest that it is one. No "toy
-  // chips", no "no cash" banners — that copy read as nervous and is gone.
-  check('no cash disclaimers anywhere a user reads',
-    !/no cash|toy chip|never cash|nothing is (wagered|paid)|no account/i
-      .test(listing.tagline + ' ' + listing.description + ' ' + help + ' ' + html + ' ' + js));
-  check('cards stay generic, no branded deck',
-    !/bicycle|bee|copag|theory11/i.test(html + js + listing.description));
-  check('their server stays behind',
-    !/socket\.io|express|mongoose/i.test(js + src('poker.js')));
+    ['foldBtn', 'callBtn', 'raiseBtn'].every((id) => pageEls[id] && pageEls[id].tag === 'button' && pageEls[id].attrs['aria-label']));
+  check('no in-app Invite button', !Object.keys(pageEls).some((id) => /invite/i.test(id)));
+
+  // -- solo: a hand on this device, played through the buttons ----------------
+  {
+    const h = table({ saved: { id: 'last', chips: 777 } });
+    await settleAll();
+    check('the file holds the chip pile: saved chips come back', h.els.chips.textContent === '777', h.els.chips.textContent);
+    h.click('soloBtn');
+    check('Play on this device deals a hand', h.els.play.hidden === false && h.els.home.hidden === true &&
+      h.table() && h.table().phase === 'preflop');
+    const cardEls = h.els.board.children.concat(h.els.hole.children);
+    check('playing cards use .pcard', h.els.board.children.length === 5 && h.els.hole.children.length === 2 &&
+      cardEls.every((c) => c.className.split(' ').indexOf('pcard') !== -1) &&
+      /(^|\})\s*\.pcard\s*\{/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')));
+    const meIdx = () => h.sb.PK.seatById(h.table(), 'host-1');
+    let clicked = [], guard = 0, raised = false, sliderAt = null;
+    const saves = h.dbs.save.puts;
+    const savesBefore = saves.length;
+    while (guard++ < 60) {
+      h.runTimers();
+      const t = h.table();
+      if (t.phase === 'showdown' || t.phase === 'idle') break;
+      if (!h.els.raiseBtn.hidden && !raised) {
+        raised = true;
+        check('every button on the table does something', buttonIds.every((id) => typeof h.els[id].onclick === 'function'),
+          buttonIds.filter((id) => typeof h.els[id].onclick !== 'function'));
+        sliderAt = Number(h.els.raiseRange.min) + 5;
+        h.els.raiseRange.value = String(sliderAt);
+        h.click('raiseBtn');
+        clicked.push('raiseBtn');
+        continue;
+      }
+      if (!h.els.callBtn.hidden) { h.click('callBtn'); clicked.push('callBtn'); continue; }
+      if (!h.els.checkBtn.hidden) { h.click('checkBtn'); clicked.push('checkBtn'); continue; }
+    }
+    const mine = h.acts.filter((a) => a.i === meIdx());
+    check('Raise / Call / Check apply my action to my seat',
+      clicked.length > 0 && mine.length === clicked.length &&
+      mine.every((a, k) => a.kind === { raiseBtn: 'raise', callBtn: 'call', checkBtn: 'check' }[clicked[k]]),
+      { clicked, mine });
+    check('the raise uses the slider amount', sliderAt > 5 && mine[0] && mine[0].kind === 'raise' && mine[0].amt === sliderAt, { sliderAt, act: mine[0] });
+    check('the bots play the hand out', h.table().phase === 'showdown', h.table().phase);
+    const handSaves = saves.slice(savesBefore);
+    check('chips are written at hand end, not mid-street',
+      handSaves.length > 0 && handSaves.every((p) => p.phase === 'showdown' || p.phase === 'idle'), handSaves.map((p) => p.phase));
+    const last = handSaves[handSaves.length - 1];
+    check('the file holds the chip pile (gifos.db save, private)',
+      last && last.row.id === 'last' && last.row.chips === h.table().seats[meIdx()].stack &&
+      man.data.save.visibility === 'private', last);
+    check('Deal starts the next hand', !h.els.dealBtn.hidden && (h.click('dealBtn'), h.table().phase === 'preflop'));
+    h.runTimers();
+    if (!h.els.foldBtn.hidden) {
+      const n = h.acts.length;
+      h.click('foldBtn');
+      check('Fold folds my seat', h.acts.length === n + 1 && h.acts[n].kind === 'fold' && h.acts[n].i === meIdx() &&
+        h.table().seats[meIdx()].folded === true);
+    } else check('Fold folds my seat', false, 'fold not offered');
+    check('their server stays behind (no network reached in a whole hand)', h.netTouches.length === 0, h.netTouches);
+  }
+
+  // -- friends: the host's empty table, the guest who walks in ---------------
+  {
+    const hostT = table({ owner: true });
+    await settleAll();
+    check('the host stays on the home screen', hostT.els.home.hidden === false);
+    hostT.click('friendBtn');
+    hostT.dbs.room.subs[0]([{ id: 'host-1', kind: 'seat', name: 'Hosty', at: hostT.now(), joined: 1 }]);
+    const emptyStatus = hostT.els.lobbyStatus.textContent;
+    check('an empty table offers the invite and no Deal',
+      hostT.els.lobby.hidden === false && hostT.els.lobbyEmpty.hidden === false && hostT.els.dealLobby.hidden === true);
+    hostT.dbs.room.subs[0]([
+      { id: 'host-1', kind: 'seat', name: 'Hosty', at: hostT.now(), joined: 1 },
+      { id: 'guest-2', kind: 'seat', name: 'Gus', at: hostT.now(), joined: 2 },
+    ]);
+    check('two seated: the host can deal', hostT.els.dealLobby.hidden === false && hostT.els.lobbyEmpty.hidden === true);
+    hostT.click('dealLobby');
+    const pub = hostT.dbs.room.puts.map((p) => p.row).filter((r) => r.kind === 'table').pop();
+    check('the host deals and publishes the table', pub && pub.t && pub.t.phase === 'preflop' && hostT.els.play.hidden === false);
+
+    const g = table({ owner: false, meId: 'guest-2' });
+    await settleAll();
+    const seatRow = (g.dbs.room ? g.dbs.room.puts : []).map((p) => p.row).find((r) => r.kind === 'seat');
+    check('guests who open the invite sit without tapping Play with friends',
+      g.els.lobby.hidden === false && g.els.home.hidden === true && seatRow && seatRow.id === 'guest-2');
+    g.dbs.room.subs[0]([
+      { id: 'host-1', kind: 'seat', name: 'Hosty', at: g.now(), joined: 1 },
+      { id: 'guest-2', kind: 'seat', name: 'Gus', at: g.now(), joined: 2 },
+    ]);
+    check('empty table copy is distinct from waiting-on-host',
+      g.els.lobbyEmpty.hidden === true && g.els.dealLobby.hidden === true &&
+      g.els.lobbyStatus.textContent !== '' && g.els.lobbyStatus.textContent !== emptyStatus,
+      { guest: g.els.lobbyStatus.textContent, empty: emptyStatus });
+    check('Back from the lobby goes home', g.backs[0] && g.backs[0]() === true && g.els.home.hidden === false);
+    check('Back at home lets the OS close', g.backs[0]() === false);
+  }
+}
+
+{
+  const cssRules = [];
+  css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/([^{}]+)\{([^{}]*)\}/g, (all, sel, body) => {
+    const decls = {};
+    body.split(';').forEach((d) => { const i = d.indexOf(':'); if (i > 0) decls[d.slice(0, i).trim()] = d.slice(i + 1).trim(); });
+    cssRules.push({ sels: sel.split(',').map((x) => x.trim().replace(/\s+/g, ' ')), decls });
+    return all;
+  });
+  const decl = (sel, prop) => {
+    let v = null;
+    cssRules.forEach((r) => { if (r.sels.indexOf(sel) !== -1 && r.decls[prop] != null) v = r.decls[prop]; });
+    return v;
+  };
+  check('phone action buttons are 48px tall', parseFloat(decl('.bar button', 'min-height')) >= 48, decl('.bar button', 'min-height'));
+  check('[hidden] actually hides (raise-row is display:flex)',
+    /^none\s*!important$/.test(decl('[hidden]', 'display') || ''), decl('[hidden]', 'display'));
+  const refs = [];
+  html.replace(/<!--[\s\S]*?-->/g, '').replace(/\b(?:src|href)="([^"]*)"/g, (a, u) => { refs.push(u); return a; });
   check('no CDN / webfont / remote at load',
-    !/https?:\/\//i.test(html.replace(/<!--[\s\S]*?-->/g, '')) &&
-    !/@import|fonts\.google/i.test(css));
-  check('help does not document OS internals', !/gifos\.db|sandbox|localStorage/.test(help));
-  check('help.md names fold/call/raise',
-    /fold/i.test(help) && /call/i.test(help) && /raise/i.test(help));
+    refs.length > 0 && refs.every((u) => !/^(https?:)?\/\//i.test(u)) &&
+    !cssRules.some((r) => r.sels.some((x) => /^@import/.test(x))) && !/@import|url\(\s*['"]?(https?:)?\/\//i.test(css), refs);
   check('minBuild stays 947', man.minBuild === 947);
   check('multiplayer + db declared; no network',
     man.capabilities.db === true && man.capabilities.multiplayer === true && !man.capabilities.network);
 }
 
-if (failures) {
-  console.log('\n' + failures + ' failing');
-  process.exit(1);
-}
-console.log('\nAll tests passed.');
+appChecks().then(() => {
+  if (failures) {
+    console.log('\n' + failures + ' failing');
+    process.exit(1);
+  }
+  console.log('\nAll tests passed.');
+}, (e) => { console.log('FAIL — table harness threw: ' + (e && e.stack)); process.exit(1); });

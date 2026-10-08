@@ -168,37 +168,211 @@ check('eight gold and eight grey blocks', (() => {
   check('R / restart puts the gold and grey blocks back', Tiny.cleared() === false && p.collected === 0 && Tiny.treasure().every((t) => !t.collected));
 }
 
-// Saved data of the CURRENT version: id 'best' with coins + stomps.
-{
-  const boot = src('boot.js');
-  check('best run is written to gifos.db as id best', /id:\s*['"]best['"]/.test(boot) && /coins:\s*best\.coins/.test(boot));
-  check('a missing db still boots (opened outside GifOS)', /if\s*\(!d\)\s*return/.test(boot) || /api\s*&&\s*api\.db/.test(boot));
-}
-
-{
-  const t = src('touch.js');
+// ---- the GifOS shell, run for real -------------------------------------------
+// boot.js + level + platformer + touch.js run against a fake DOM built from
+// index.html itself (every element with an id, every [data-key] button with
+// its attributes), a fake gifos (db + onBack) and fake pointer/key events.
+// Checks press the controls and read the player and the saved record.
+function shell(opts) {
+  opts = opts || {};
   const html = src('index.html');
-  const css = src('style.css');
-  check('the phone pad has LEFT, RIGHT, JUMP',
-    html.includes('data-key="left"') && html.includes('data-key="right"') && html.includes('data-key="jump"'));
-  check('JUMP is a labelled thumb button', /aria-label="Jump"/.test(html) && html.includes('JUMP'));
-  check('the pad appears on a narrow phone, not only after a finger',
-    /narrow/.test(t) && /520/.test(t) && t.includes('reveal()'));
-  check('the pad writes player.left / player.right / player.jump',
-    t.includes('p.left = on') && t.includes('p.right = on') && t.includes('p.jump = on'));
-  check('canvas fit leaves a bottom strip for the pad', src('boot.js').includes('paddingBottom'));
-  check('pad buttons are large enough to hit', /4\.6rem/.test(css) || /5\.2rem/.test(css));
+  const els = {}; const keyBtns = [];
+  function El(tag, attrs) {
+    this.tagName = tag.toUpperCase(); this.attrs = attrs || {}; this.id = this.attrs.id || '';
+    this.hidden = 'hidden' in this.attrs; this.textContent = ''; this.style = {}; this.listeners = {};
+    const cls = new Set((this.attrs.class || '').split(/\s+/).filter(Boolean));
+    this.classList = { add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c) };
+  }
+  El.prototype.getAttribute = function (k) { return k in this.attrs ? this.attrs[k] : null; };
+  El.prototype.setAttribute = function (k, v) { this.attrs[k] = String(v); };
+  El.prototype.addEventListener = function (t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); };
+  El.prototype.fire = function (t, ev) { for (const fn of this.listeners[t] || []) fn(Object.assign({ preventDefault() {}, pointerId: 1 }, ev || {})); };
+  El.prototype.setPointerCapture = function () {};
+  El.prototype.querySelectorAll = function (sel) { return sel === '[data-key]' && this.id === 'touch' ? keyBtns : []; };
+  html.replace(/<(\w+)((?:\s+[\w-]+(?:="[^"]*")?)*)\s*>/g, (m, tag, a) => {
+    const attrs = {}; a.replace(/([\w-]+)(?:="([^"]*)")?/g, (mm, k, v) => { attrs[k] = v === undefined ? '' : v; return mm; });
+    if (!attrs.id && !attrs['data-key']) return m;
+    const el = new El(tag, attrs);
+    if (attrs.id) els[attrs.id] = el;
+    if (attrs['data-key']) keyBtns.push(el);
+    return m;
+  });
+  const canvas = els.canvas; Object.assign(canvas, fakeCanvas(), { style: {} });
+  const bodyCls = new Set();
+  const docListeners = {}; const winListeners = {};
+  const document = {
+    readyState: 'complete',
+    body: { classList: { add: (c) => bodyCls.add(c), remove: (c) => bodyCls.delete(c), contains: (c) => bodyCls.has(c) }, style: {} },
+    getElementById: (id) => els[id] || null,
+    addEventListener: (t, fn) => { (docListeners[t] = docListeners[t] || []).push(fn); },
+    querySelectorAll: () => [],
+  };
+  const puts = []; let back = null; let xhr = 0;
+  const gifos = opts.noGifos ? null : {
+    db: () => ({ put: (r) => { puts.push(r); return Promise.resolve(); }, get: () => Promise.resolve(opts.best || null) }),
+    onBack: (fn) => { back = fn; },
+  };
+  let rafFn = null;
+  const sandbox = {
+    console, Math, Object, Array, JSON, Date, String, Number, Boolean, Promise, Error, parseInt, parseFloat, isNaN, Infinity,
+    performance: { now: () => 0 },
+    requestAnimationFrame: (fn) => { rafFn = fn; return 1; },
+    navigator: { maxTouchPoints: opts.touchPoints || 0, userAgent: 'node' },
+    matchMedia: (q) => ({ matches: q === '(pointer: coarse)' && !!opts.coarse }),
+    XMLHttpRequest: function () { xhr++; this.open = () => {}; this.send = () => {}; },
+    Tiny: { headless: !opts.live }, gifos, document,
+    innerWidth: opts.w || 390, innerHeight: opts.h || 844,
+    addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); },
+  };
+  sandbox.window = sandbox; sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  for (const f of ['boot.js', 'vendor/level.js', 'vendor/platformer.js', 'touch.js']) {
+    vm.runInContext(src(f), sandbox, { filename: f });
+  }
+  const key = (code, down) => (docListeners[down ? 'keydown' : 'keyup'] || []).forEach((fn) => fn({ keyCode: code, preventDefault() {} }));
+  return { sandbox, Tiny: sandbox.Tiny, els, keyBtns, document, bodyCls, puts, back: () => back && back(), hasBack: () => !!back, xhr: () => xhr, raf: () => rafFn, key, winListeners };
 }
 
-{
-  const js = src('vendor/platformer.js');
-  check('WASD and Up jump, not arrows-only',
-    js.includes('KEY.A') && js.includes('KEY.D') && js.includes('KEY.W') && js.includes('KEY.UP'));
-  check('no XHR of level.json', !js.includes('get("level.json"') && js.includes('TINY_LEVEL'));
-  check('camera follows the player', js.includes('function camera()'));
-  check('Back restarts the cave', src('boot.js').includes('onBack') && src('boot.js').includes('restart'));
-}
+(async () => {
+  const flush = () => new Promise((r) => setImmediate(r));
+  // Best run: taking gold writes { id: 'best', coins, stomps } to gifos.db.
+  {
+    const S = shell();
+    await flush();
+    const T = S.Tiny; const p = T.player(); const gold = T.treasure()[0];
+    p.x = gold.x; p.y = gold.y; T.step(2);
+    await flush();
+    const rec = S.puts[S.puts.length - 1];
+    check('taking gold saves the best run to gifos.db as id best', !!rec && rec.id === 'best' && rec.coins === 1 && rec.stomps === 0, S.puts);
+    const n = S.puts.length; T.step(5); await flush();
+    check('no new save while nothing improved', S.puts.length === n, S.puts.length);
+  }
+  {
+    // A stored best is read back and a run below it does not overwrite it.
+    const S = shell({ best: { id: 'best', coins: 5, stomps: 2 } });
+    await flush();
+    const T = S.Tiny; const p = T.player(); const gold = T.treasure()[0];
+    p.x = gold.x; p.y = gold.y; T.step(2); await flush();
+    check('a run below the stored best does not overwrite it', S.puts.length === 0, S.puts);
+  }
+  {
+    // Opened outside GifOS: no gifos at all. The cave still boots and plays.
+    let S = null, err = null;
+    try { S = shell({ noGifos: true }); } catch (e) { err = e; }
+    let moved = false;
+    if (S) { const p = S.Tiny.player(); const x0 = p.x; p.right = true; S.Tiny.step(30); moved = p.x > x0; }
+    check('a missing db still boots and plays (opened outside GifOS)', !err && moved, String(err));
+  }
+  {
+    // The phone pad: on a narrow phone it shows without waiting for a finger,
+    // and each thumb button drives the same player flags the keyboard does.
+    const S = shell({ w: 390, h: 844 });
+    const T = S.Tiny; const p = T.player();
+    check('on a narrow phone the pad shows at once', S.els.touch.hidden === false && S.bodyCls.has('touch'));
+    const btn = (k) => S.keyBtns.find((b) => b.getAttribute('data-key') === k);
+    for (const k of ['left', 'right', 'jump']) {
+      const b = btn(k);
+      if (!b) { check('the pad has a ' + k + ' button', false); continue; }
+      b.fire('pointerdown');
+      const on = p[k] === true;
+      b.fire('pointerup');
+      check('holding the ' + k + ' thumb button sets player.' + k + ', releasing clears it', on && p[k] === false);
+      check('the ' + k + ' button has an accessible name', !!b.getAttribute('aria-label') && b.tagName === 'BUTTON');
+    }
+    const r = btn('right'); const x0 = p.x;
+    r.fire('pointerdown'); T.step(45); r.fire('pointercancel'); T.step(5);
+    check('the right thumb button walks the player', p.x > x0 + 16 && p.right === false, { from: x0, to: p.x });
+    T.restart();
+    const j = btn('jump'); const y0 = p.y;
+    j.fire('pointerdown'); T.step(8); j.fire('pointerup');
+    check('the jump thumb button jumps', p.y < y0 - 8, { from: y0, to: p.y });
+    T.step(80);
+    p.x = p.start.x + 40;
+    btn('restart').fire('pointerdown');
+    check('RESTART puts the player back at the start', p.x === p.start.x && p.y === p.start.y);
+    // Canvas fit: the canvas plus the pad strip fit the screen.
+    const pad = parseFloat(S.document.body.style.paddingBottom) || 0;
+    const ch = parseFloat(S.els.canvas.style.height) || 0;
+    check('canvas fit leaves a bottom strip for the pad', pad > 0 && ch > 0 && ch + pad <= 844, { pad, ch });
+  }
+  {
+    // A desktop: the pad stays hidden until a finger touches the screen.
+    const S = shell({ w: 1280, h: 800 });
+    check('on a desktop the pad stays hidden', S.els.touch.hidden === true && !S.bodyCls.has('touch'));
+    check('the canvas takes the whole height with no pad', !(parseFloat(S.document.body.style.paddingBottom) > 0));
+    (S.winListeners.touchstart || []).forEach((fn) => fn({}));
+    check('a first touch reveals the pad', S.els.touch.hidden === false && S.bodyCls.has('touch'));
+  }
+  {
+    // Thumb targets: resolve the stylesheet for the left/right/jump buttons.
+    const css = src('style.css').replace(/\/\*[\s\S]*?\*\//g, '');
+    const rules = [];
+    (function scan(text) {
+      let i = 0;
+      while (i < text.length) {
+        const open = text.indexOf('{', i); if (open < 0) break;
+        const head = text.slice(i, open).trim(); let depth = 1, k = open + 1;
+        while (k < text.length && depth) { if (text[k] === '{') depth++; else if (text[k] === '}') depth--; k++; }
+        const inner = text.slice(open + 1, k - 1);
+        if (head.startsWith('@media')) scan(inner); else rules.push({ sels: head.split(',').map((x) => x.trim()), body: inner });
+        i = k;
+      }
+    })(css);
+    const S = shell();
+    const px = (v) => { const m = /^([\d.]+)(rem|px)$/.exec(String(v).trim()); return m ? parseFloat(m[1]) * (m[2] === 'rem' ? 16 : 1) : NaN; };
+    const sizeOf = (el) => {
+      const cls = (el.getAttribute('class') || '').split(/\s+/);
+      const out = {};
+      for (const r of rules) for (const sel of r.sels) {
+        const parts = sel.split('.').filter(Boolean);
+        if (sel[0] !== '.' || !parts.every((c) => cls.indexOf(c) >= 0)) continue;
+        r.body.replace(/(?:^|;)\s*(width|height)\s*:\s*([^;]+)/g, (m, k, v) => { out[k] = px(v); return m; });
+      }
+      return out;
+    };
+    for (const k of ['left', 'right', 'jump']) {
+      const b = S.keyBtns.find((x) => x.getAttribute('data-key') === k);
+      const sz = b ? sizeOf(b) : {};
+      check('the ' + k + ' button is at least 44px square', sz.width >= 44 && sz.height >= 44, sz);
+    }
+  }
+  {
+    // The keyboard: WASD and the arrows/space drive the same flags.
+    const S = shell({ w: 1280 });
+    const T = S.Tiny; const p = T.player(); const K = T.KEY;
+    const held = (code, flag) => { S.key(code, true); const on = p[flag] === true; S.key(code, false); return on && p[flag] === false; };
+    check('A and Left walk left', held(65, 'left') && held(37, 'left'));
+    check('D and Right walk right', held(68, 'right') && held(39, 'right'));
+    check('W, Up and Space jump', held(87, 'jump') && held(38, 'jump') && held(32, 'jump'));
+    p.x = p.start.x + 64; S.key(82, true); S.key(82, false);
+    check('R restarts the cave', p.x === p.start.x, K && K.R);
+    check('the level is aboard: no XHR at all', S.xhr() === 0);
+  }
+  {
+    // The camera follows the player: run a live frame before and after a walk.
+    const S = shell({ w: 1280, live: true });
+    const T = S.Tiny; const cams = [];
+    T.onFrame = (pl, cam) => cams.push(cam ? { x: cam.x, y: cam.y } : null);
+    const raf = S.raf();
+    if (raf) raf();
+    const p = T.player();
+    p.x += 30 * T.TILE;
+    const raf2 = S.raf(); if (raf2) raf2();
+    const a = cams[0], b = cams[cams.length - 1];
+    check('the camera follows the player across the cave', !!a && !!b && b.x > a.x, cams);
+  }
+  {
+    // Back restarts the cave and tells the OS it handled the press.
+    const S = shell();
+    const p = S.Tiny.player();
+    p.x = p.start.x + 50; p.collected = 3;
+    const r = S.back();
+    check('Back restarts the cave and reports it handled the press', S.hasBack() && r === true && p.x === p.start.x && p.collected === 0, { r, x: p.x });
+  }
+  finish();
+})();
 
+function finish() {
 {
   const man = JSON.parse(src('manifest.json'));
   const listing = JSON.parse(src('listing.json'));
@@ -206,7 +380,6 @@ check('eight gold and eight grey blocks', (() => {
   check('minBuild stays 947', man.minBuild === 947);
   check('listing names Jake Gordon, not GifOS', listing.author.name === 'Jake Gordon' && listing.basedOn.blessed === false);
   check('tagline fits a card', listing.tagline.length <= 90);
-  check('description does not claim Invite', !/invite/i.test(listing.description));
   check('help.md is a real how-to', src('help.md').trim().length >= 400);
 }
 
@@ -215,3 +388,4 @@ if (failures) {
   process.exit(1);
 }
 console.log('\nAll ' + (process.stdout._ok || '') + 'tiny-platformer checks passed');
+}

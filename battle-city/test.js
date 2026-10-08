@@ -13,9 +13,8 @@
 // So this suite PLAYS it. game.js is a plain IIFE over `root`, and its whole
 // simulation is deterministic given the inputs, so the sim runs headless in a
 // vm at a fixed 16ms step — no browser, no servers, nothing to go stale. The
-// browser-only half (input, layout) is checked by reading boot.js, because the
-// rules it has to keep are one-liners and a dead browser suite is worse than a
-// source scan that cannot lie about whether the line is there.
+// browser-only half (input, layout) is RUN too: boot.js boots over a small DOM
+// built from the app's own index.html, and the pad is pressed.
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -318,38 +317,264 @@ function fresh(two, stage) {
     phases.map((p) => p.step + ':' + p.painted));
 
   // The explosions used to be a stroked circle that grew past a whole tile and
-  // spilled onto the border chrome. The field is clipped now; keep it clipped.
-  const src = fs.readFileSync(path.join(APP, 'game.js'), 'utf8');
-  check('the playfield is clipped so effects cannot paint over the chrome',
-    /ctx\.clip\(\)/.test(src));
-}
-
-// ---- the shell: what a finger and a small screen need ------------------------
-{
-  const boot = fs.readFileSync(path.join(APP, 'boot.js'), 'utf8');
-  const css = fs.readFileSync(path.join(APP, 'style.css'), 'utf8');
-
-  // A tap is shorter than a frame: press and release both land between two
-  // ticks, and the tank never sees the direction at all. The pad and the menu
-  // are both unusable without a minimum hold.
-  check('a tapped direction is held past the release', /MIN_HOLD/.test(boot) && /holdUntil/.test(boot));
-
-  // An integer-only scale threw away half a phone: 390x844 floors to 1x.
-  check('the board is not scaled by whole steps only',
-    !/Math\.floor\(Math\.min\(w \/ 256, h \/ 240\)\)/.test(boot) && /Math\.floor\(scale \* 4\) \/ 4/.test(boot));
-  check('the pad gets its own strip, and the board is fitted above it',
-    /padH/.test(boot) && /paddingBottom/.test(boot));
-
-  // A 45%-black control on a black page is not a control.
-  const btn = (css.match(/#touch button \{[\s\S]*?\}/) || [''])[0];
-  check('the pad buttons have a visible rim', /border:\s*[1-9]/.test(btn), btn);
-
-  // index.html must still load every script the shell needs, in order.
-  const html = fs.readFileSync(path.join(APP, 'index.html'), 'utf8');
-  for (const f of ['stages.js', 'sound.js', 'game.js', 'net.js', 'boot.js']) {
-    check('index.html loads ' + f, html.includes('src="' + f + '"'));
+  // spilled onto the border chrome. Render a frame through a ctx that keeps
+  // the transform and the clip, with and without a big explosion at the
+  // field's corner: every pixel the explosion adds must land inside the field.
+  function rasterCtx() {
+    let st = { tx: 0, ty: 0, clip: null }; const stack = []; let path = null; const painted = [];
+    const isect = (a, b) => { if (!b) return a; const x0 = Math.max(a.x, b.x), y0 = Math.max(a.y, b.y), x1 = Math.min(a.x + a.w, b.x + b.w), y1 = Math.min(a.y + a.h, b.y + b.h); return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null; };
+    const api = {
+      canvas: { width: 256, height: 240 },
+      save() { stack.push(Object.assign({}, st)); }, restore() { st = stack.pop() || { tx: 0, ty: 0, clip: null }; },
+      translate(x, y) { st.tx += x; st.ty += y; }, setTransform() { st.tx = 0; st.ty = 0; },
+      beginPath() { path = null; }, rect(x, y, w, h) { path = { x: x + st.tx, y: y + st.ty, w, h }; },
+      clip() { st.clip = path ? (isect(path, st.clip) || { x: 0, y: 0, w: 0, h: 0 }) : st.clip; },
+      fillRect(x, y, w, h) { const r = isect({ x: x + st.tx, y: y + st.ty, w, h }, st.clip); if (r) painted.push(r.x + ',' + r.y + ',' + r.w + ',' + r.h); },
+      measureText: () => ({ width: 0 }),
+    };
+    return { ctx: new Proxy(api, { get: (t, k) => (k in t ? t[k] : () => {}), set: (t, k, v) => { t[k] = v; return true; } }), painted };
+  }
+  {
+    const g = fresh(false, 0);
+    const base = rasterCtx(); BC.render(base.ctx, g);
+    g.fx.push({ x: 0, y: 0, t: 200, big: true }, { x: 192, y: 192, t: 200, big: true });   // at the widest step, in two corners
+    const boom = rasterCtx(); BC.render(boom.ctx, g);
+    const before = new Set(base.painted);
+    const added = boom.painted.filter((r) => !before.has(r)).map((r) => r.split(',').map(Number));
+    const F = { x: 16, y: 16, w: 208, h: 208 };
+    const outside = added.filter(([x, y, w, h]) => x < F.x || y < F.y || x + w > F.x + F.w || y + h > F.y + F.h);
+    check('the playfield is clipped so effects cannot paint over the chrome',
+      added.length > 0 && outside.length === 0, { added: added.length, outside });
   }
 }
 
-console.log(failures ? `${failures} FAILURES` : 'ALL PASS');
-process.exit(failures ? 1 : 0);
+// ---- the shell: what a finger and a small screen need ------------------------
+// boot.js is RUN: the page's own index.html over a small DOM, its scripts in
+// page order, the page clock driven by the frames.
+// ---- a small DOM, built from the app's own index.html -----------------------
+// Elements carry ids, classes, data-*, hidden, value/checked, listeners and a
+// no-op 2D context; scripts named by <script src> run in one vm context in
+// page order. Enough to boot an app and click it; nothing is painted.
+function fakeDom(htmlText, opts) {
+  opts = opts || {};
+  const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+  const byId = new Map();
+  const noopCtx = () => new Proxy({ measureText: () => ({ width: 0 }), getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(Math.max(0, w * h * 4)) }), createLinearGradient: () => ({ addColorStop() {} }), createRadialGradient: () => ({ addColorStop() {} }), createPattern: () => ({}) },
+    { get: (t, k) => (k in t ? t[k] : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
+  const all = (n) => { const out = []; const w = (x) => { for (const k of x.children) { out.push(k); w(k); } }; w(n); return out; };
+  const matches = (x, sel) => {
+    sel = sel.trim();
+    if (sel === '*') return true;
+    if (sel[0] === '#') return x.id === sel.slice(1);
+    const m = /^([\w-]+)?(?:\.([\w-]+))?(?:\[([\w-]+)(?:="([^"]*)")?\])?$/.exec(sel);
+    if (!m || (!m[1] && !m[2] && !m[3])) return false;
+    return (!m[1] || x.tagName === m[1].toUpperCase()) && (!m[2] || x.classList.contains(m[2])) &&
+      (!m[3] || (m[3] in x.attrs && (m[4] === undefined || x.attrs[m[3]] === m[4]) && !(m[3] === 'type' && m[4] !== undefined && x.type !== m[4])));
+  };
+  const query = (root, sel) => { const parts = sel.split(/\s+/); let set = [root]; for (const p of parts) { const next = []; for (const s of set) for (const d of all(s)) if (matches(d, p) && !next.includes(d)) next.push(d); set = next; } return set; };
+  const mk = (tag, attrs, parent) => {
+    const dataset = {};
+    for (const k in attrs) if (k.startsWith('data-')) dataset[k.slice(5).replace(/-(\w)/g, (_, c) => c.toUpperCase())] = attrs[k];
+    let html = '';
+    const e = {
+      tagName: tag.toUpperCase(), nodeName: tag.toUpperCase(), attrs, parent, parentNode: parent, children: [], childNodes: null, listeners: {}, dataset,
+      id: attrs.id || '', hidden: 'hidden' in attrs, disabled: 'disabled' in attrs, value: attrs.value || '', checked: 'checked' in attrs, type: attrs.type || '',
+      textContent: '', title: attrs.title || '', className: attrs.class || '', style: {}, width: +(attrs.width || 300), height: +(attrs.height || 150),
+      captured: [], rect: opts.rect ? Object.assign({}, opts.rect) : { left: 0, top: 0, width: 100, height: 100 },
+      classList: { set: new Set((attrs.class || '').split(/\s+/).filter(Boolean)), add(...c) { c.forEach((x) => this.set.add(x)); }, remove(...c) { c.forEach((x) => this.set.delete(x)); }, contains(c) { return this.set.has(c); }, toggle(c, on) { const want = on === undefined ? !this.set.has(c) : !!on; if (want) this.set.add(c); else this.set.delete(c); return want; } },
+      addEventListener(ev, fn) { (this.listeners[ev] = this.listeners[ev] || []).push(fn); },
+      removeEventListener(ev, fn) { this.listeners[ev] = (this.listeners[ev] || []).filter((f) => f !== fn); },
+      dispatch(type, init) { const ev = Object.assign({ type, target: this, currentTarget: this, preventDefault() { ev.defaultPrevented = true; }, stopPropagation() {}, pointerId: 1, clientX: 0, clientY: 0, button: 0 }, init || {}); for (const fn of (this.listeners[type] || []).slice()) fn.call(this, ev); const on = this['on' + type]; if (typeof on === 'function') on.call(this, ev); return ev; },
+      click() { return this.dispatch('click'); },
+      focus() {}, blur() {}, select() {},
+      setPointerCapture(id) { this.captured.push(id); }, releasePointerCapture() {}, hasPointerCapture() { return true; },
+      getBoundingClientRect() { const r = this.rect; return { left: r.left, top: r.top, width: r.width, height: r.height, right: r.left + r.width, bottom: r.top + r.height, x: r.left, y: r.top }; },
+      getContext: () => e._ctx || (e._ctx = noopCtx()),
+      getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
+      setAttribute(k, v) { this.attrs[k] = String(v); if (k === 'id') { this.id = v; byId.set(v, this); } },
+      removeAttribute(k) { delete this.attrs[k]; },
+      hasAttribute(k) { return k in this.attrs; },
+      querySelector(sel) { return query(this, sel)[0] || null; },
+      querySelectorAll(sel) { return query(this, sel); },
+      appendChild(c) { this.children.push(c); c.parent = c.parentNode = this; return c; },
+      append(...cs) { cs.forEach((c) => (typeof c === 'object' ? this.appendChild(c) : null)); },
+      insertBefore(c) { return this.appendChild(c); },
+      removeChild(c) { this.children = this.children.filter((x) => x !== c); return c; },
+      remove() { if (this.parent) this.parent.removeChild(this); },
+      replaceChildren(...cs) { this.children = []; this.append(...cs); },
+      closest(sel) { let n = this; while (n && n.tagName) { if (matches(n, sel)) return n; n = n.parent; } return null; },
+      contains(o) { let n = o; while (n) { if (n === this) return true; n = n.parent; } return false; },
+      scrollIntoView() {},
+      get firstChild() { return this.children[0] || null; },
+      get innerHTML() { return html; }, set innerHTML(v) { html = String(v); this.children = []; },
+      get offsetWidth() { return this.rect.width; }, get offsetHeight() { return this.rect.height; },
+      get clientWidth() { return this.rect.width; }, get clientHeight() { return this.rect.height; },
+    };
+    if (e.id) byId.set(e.id, e);
+    return e;
+  };
+  const docEl = mk('html', {}, null);
+  let cur = docEl;
+  let body = null, head = null;
+  const scripts = [];
+  const re = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
+  let m;
+  while ((m = re.exec(htmlText))) {
+    if (!m[2]) continue;
+    const tag = m[2].toLowerCase();
+    if (m[1]) { let n = cur; while (n && n.tagName !== tag.toUpperCase()) n = n.parent; if (n && n.parent) cur = n.parent; continue; }
+    if (tag === 'html') continue;
+    const attrs = {};
+    for (const a of m[3].matchAll(/([^\s=/]+)(?:\s*=\s*("([^"]*)"|'([^']*)'|[^\s>]+))?/g)) attrs[a[1].toLowerCase()] = a[3] != null ? a[3] : a[4] != null ? a[4] : (a[2] || '');
+    const node = mk(tag, attrs, cur);
+    cur.children.push(node);
+    if (tag === 'body') body = node;
+    if (tag === 'head') head = node;
+    if (tag === 'script' || tag === 'style' || tag === 'textarea' || tag === 'title') {
+      const end = htmlText.indexOf('</' + tag, re.lastIndex);
+      const inner = htmlText.slice(re.lastIndex, end < 0 ? htmlText.length : end);
+      if (tag === 'script') scripts.push(attrs.src ? { src: attrs.src } : { inline: inner });
+      else node.textContent = inner;
+      re.lastIndex = end < 0 ? htmlText.length : end;
+      continue;
+    }
+    if (!VOID.has(tag) && !/\/\s*$/.test(m[3])) cur = node;
+    else continue;
+    // simple text content for leaf-ish elements
+    const close = htmlText.indexOf('<', re.lastIndex);
+    const txt = htmlText.slice(re.lastIndex, close < 0 ? htmlText.length : close).trim();
+    if (txt) node.textContent = txt;
+  }
+  body = body || mk('body', {}, docEl);
+  head = head || mk('head', {}, docEl);
+  const docListeners = {}, winListeners = {};
+  const rafs = [];
+  const store = new Map();
+  const document = {
+    documentElement: docEl, body, head, hidden: false, visibilityState: 'visible', readyState: 'complete',
+    getElementById: (id) => byId.get(id) || null,
+    querySelector: (sel) => query(docEl, sel)[0] || null,
+    querySelectorAll: (sel) => query(docEl, sel),
+    getElementsByTagName: (t) => query(docEl, t),
+    createElement: (tag) => mk(tag, {}, null),
+    createElementNS: (ns, tag) => mk(tag, {}, null),
+    createTextNode: (t) => ({ textContent: t }),
+    createDocumentFragment: () => mk('fragment', {}, null),
+    addEventListener: (ev, fn) => { (docListeners[ev] = docListeners[ev] || []).push(fn); },
+    removeEventListener: (ev, fn) => { docListeners[ev] = (docListeners[ev] || []).filter((f) => f !== fn); },
+    dispatch(type, init) { const ev = Object.assign({ type, preventDefault() { ev.defaultPrevented = true; }, stopPropagation() {} }, init || {}); for (const fn of (docListeners[type] || []).slice()) fn(ev); return ev; },
+  };
+  const win = {
+    document, console, Math, JSON, Date, Promise, Object, Array, String, Number, Boolean, RegExp, Error, TypeError, Map, Set, WeakMap, Symbol, Uint8Array, Uint8ClampedArray, Int16Array, Float32Array, Float64Array, Uint32Array, Int32Array, Uint16Array, ArrayBuffer, DataView, parseInt, parseFloat, isNaN, isFinite, encodeURIComponent, decodeURIComponent, TextEncoder, TextDecoder, Infinity, NaN,
+    setTimeout: opts.setTimeout || setTimeout, clearTimeout: opts.clearTimeout || clearTimeout, setInterval: opts.setInterval || (() => 0), clearInterval: () => {},
+    requestAnimationFrame: (fn) => { rafs.push(fn); return rafs.length; }, cancelAnimationFrame: () => {},
+    performance: { now: () => Date.now() },
+    matchMedia: (q) => ({ matches: !!(opts.media && opts.media[q]), addEventListener() {}, addListener() {} }),
+    localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) },
+    navigator: { userAgent: 'node', maxTouchPoints: 0, vibrate() {} },
+    location: { href: 'about:blank', hash: '', search: '' },
+    innerWidth: 800, innerHeight: 600, devicePixelRatio: 1,
+    addEventListener: (ev, fn) => { (winListeners[ev] = winListeners[ev] || []).push(fn); },
+    removeEventListener: (ev, fn) => { winListeners[ev] = (winListeners[ev] || []).filter((f) => f !== fn); },
+    dispatch(type, init) { const ev = Object.assign({ type, preventDefault() { ev.defaultPrevented = true; }, stopPropagation() {} }, init || {}); for (const fn of (winListeners[type] || []).slice()) fn(ev); return ev; },
+    Image: function () { return mk('img', {}, null); },
+    getComputedStyle: () => ({ getPropertyValue: () => '' }),
+  };
+  Object.assign(win, opts.globals || {});
+  win.window = win; win.self = win; win.globalThis = win;
+  const vmc = require('vm').createContext(win);
+  return {
+    win, document, scripts, rafs, vmc,
+    frame(ts) { const fns = rafs.splice(0); for (const fn of fns) fn(ts); return fns.length; },
+    run(code, filename) { return require('vm').runInContext(code, vmc, { filename: filename || 'inline.js' }); },
+  };
+}
+
+function bootPage(view, order) {
+  const clock = { t: 1e6 };
+  class PageDate extends Date { static now() { return clock.t; } }
+  const timers = [];
+  const dom = fakeDom(fs.readFileSync(path.join(APP, 'index.html'), 'utf8'), {
+    globals: { Date: PageDate, performance: { now: () => clock.t }, Math: seededMath(0x5AFE),
+      btoa: (x) => Buffer.from(x, 'binary').toString('base64'), atob: (x) => Buffer.from(x, 'base64').toString('binary'),
+      setTimeout: (fn, ms) => { timers.push({ at: clock.t + (ms || 0), fn }); return timers.length; }, setInterval: () => 0 } });
+  Object.assign(dom.win, view || {});
+  const srcs = order || dom.scripts.filter((s) => s.src).map((s) => s.src);
+  let game = null, error = null;
+  try {
+    for (const f of srcs) {
+      dom.run(fs.readFileSync(path.join(APP, f), 'utf8'), f);
+      if (f === 'game.js' && dom.win.BattleCity) { const c0 = dom.win.BattleCity.create; dom.win.BattleCity.create = (o) => (game = c0(o)); }
+    }
+  } catch (e) { error = e; }
+  const step = (n) => { for (let i = 0; i < (n || 1); i++) { clock.t += 16; for (const t of timers.splice(0).filter((x) => { if (x.at <= clock.t) return true; timers.push(x); return false; })) t.fn(); dom.frame(clock.t); } };
+  return { dom, error, srcs, step, game: () => game, clock };
+}
+const settle = () => new Promise((r) => setImmediate(r));
+(async () => {
+  {
+    const p = bootPage();
+    await settle(); await settle();
+    try { p.step(2); } catch (e) { p.error = p.error || e; }
+    check('index.html loads every script the shell needs, in order: the page boots and paints',
+      !p.error && !!p.game() && (p.dom.win.BC_STAGES || []).length === 35 && !!p.dom.win.BCSound && !!p.dom.win.BCNet && p.dom.rafs.length === 1,
+      p.error && String(p.error));
+    for (const f of ['stages.js', 'sound.js', 'game.js', 'net.js']) {
+      const q = bootPage(null, p.srcs.filter((x) => x !== f));
+      await settle(); await settle();
+      let painted = false; try { q.step(2); painted = q.dom.rafs.length === 1 && (q.dom.win.BC_STAGES || []).length === 35; } catch (e) {}
+      check('…and without ' + f + ' it does not', !!q.error || !painted);
+    }
+  }
+  try {
+    // A tap is shorter than a frame: press and release land between two ticks.
+    const p = bootPage();
+    await settle(); await settle();
+    p.dom.document.dispatch('touchstart');
+    const g = p.game();
+    p.dom.document.getElementById('t-start').dispatch('pointerdown');
+    p.dom.document.getElementById('t-start').dispatch('pointerup');
+    for (let i = 0; i < 300 && g.phase !== 'play'; i++) p.step(1);
+    g.bullets.length = 0;
+    g.map.bricks.fill(false); g.map.steels.fill(false); g.map.rivers.fill(false);
+    g.tanks.filter((t) => t !== g.players[0]).forEach((t) => { t.alive = false; });
+    const right = p.dom.document.querySelectorAll('button[data-dir]').find((b) => b.getAttribute('data-dir') === 'right');
+    const before = g.players[0].direction;
+    right.dispatch('pointerdown'); right.dispatch('pointerup');   // the whole tap, between two frames
+    p.step(1);
+    check('a tapped direction is held past the release (the tank turns)', g.phase === 'play' && before !== 'right' && g.players[0].direction === 'right', { phase: g.phase, before, after: g.players[0].direction });
+    p.step(20);
+    const x1 = g.players[0].x; p.step(10);
+    check('…and then lets go (a tap is a nudge, not a held stick)', g.players[0].x === x1, { x1, x: g.players[0].x });
+  } catch (e) { check('the pad can be tapped in a booted page', false, String(e)); }
+  try {
+    // An integer-only scale threw away half a phone: 390x844 floors to 1x.
+    const p = bootPage({ innerWidth: 390, innerHeight: 844 });
+    await settle();
+    const c = p.dom.document.getElementById('game');
+    const w0 = parseFloat(c.style.width);
+    check('the board is not scaled by whole steps only (a phone gets more than 1x, in quarter steps)', w0 > 256 * 1.25 && Number.isInteger((w0 / 256) * 4), c.style.width);
+    check('…and with no pad shown the board owns the screen', p.dom.document.body.style.paddingBottom === '0px', p.dom.document.body.style.paddingBottom);
+    p.dom.document.dispatch('touchstart');
+    const pad = parseFloat(p.dom.document.body.style.paddingBottom), h1 = parseFloat(c.style.height);
+    check('the pad gets its own strip, and the board is fitted above it',
+      pad > 0 && h1 + pad <= 844 && p.dom.document.getElementById('touch').hidden === false, { pad, h1 });
+    // …and on a short screen, where the height decides the scale
+    const q = bootPage({ innerWidth: 800, innerHeight: 600 });
+    await settle();
+    q.dom.document.dispatch('touchstart');
+    const qc = q.dom.document.getElementById('game');
+    const qpad = parseFloat(q.dom.document.body.style.paddingBottom), qh = parseFloat(qc.style.height);
+    check('…on a short screen too: board plus pad fit the height', qpad > 0 && qh + qpad <= 600, { qpad, qh });
+  } catch (e) { check('the board is fitted in a booted page', false, String(e)); }
+  // TEXT-CHECK: a visible rim is paint; only a browser draws it. The parsed
+  // stylesheet is read for the pad buttons' border width.
+  {
+    const css = fs.readFileSync(path.join(APP, 'style.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const decl = {};
+    for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) if (m[1].split(',').some((x) => x.trim() === '#touch button')) for (const d of m[2].split(';')) { const i = d.indexOf(':'); if (i > 0) decl[d.slice(0, i).trim()] = d.slice(i + 1).trim(); }
+    check('the pad buttons have a visible rim', /^[1-9]/.test(decl.border || decl['border-width'] || ''), decl);
+  }
+  console.log(failures ? `${failures} FAILURES` : 'ALL PASS');
+  process.exit(failures ? 1 : 0);
+})().catch((e) => { console.error(e); process.exit(2); });

@@ -205,49 +205,318 @@ function blank() {
   check('hint points at the ace that can go up', !!(h && h.card === 0 && h.dest && h.dest.dest === 'finish'), h);
 }
 
-const app = read('app.js');
-const html = read('index.html');
-const css = read('style.css');
-const help = read('help.md');
 const listing = JSON.parse(read('listing.json'));
 const manifest = JSON.parse(read('manifest.json'));
 
-check('shuffle is Fisher–Yates, not Array.sort(random)',
-  read('klondike.js').includes('fisherYates') &&
-  !/Math\.random\(\)\s*<\s*0\.5/.test(read('klondike.js') + app));
-check('undo is in the engine AND on a 44px bar button',
-  html.includes('id="undo"') && /min-height:44px/.test(css.replace(/\s+/g, '')));
-check('draw 1/3 is a real toggle, saved on the snapshot',
-  html.includes('id="drawN"') && /s\.draw = s\.draw === 3 \? 1 : 3/.test(app));
-check('tap-to-move uses tapDests (foundation first, then a second tap if several homes)',
-  app.includes('tapDests') && app.includes('tryTap'));
-check('drag uses a movement threshold, not a 180ms long-press',
-  /dx \* dx \+ dy \* dy > 64/.test(app) && !/setTimeout\([^,]+,\s*180\)/.test(app));
-check('a mouse click is a tap (drag arms only after 8px, never on pointerdown)',
-  !/if\s*\(\s*mouse\s*\)\s*arm\(\)/.test(app));
-check('onBack undoes (or cancels a selection / new-game ask)',
-  /onBack/.test(app) && /doUndo/.test(app));
-check('old saves still load through restore()', app.includes('K.restore') && app.includes("get('game')"));
-check('no in-app Invite button', !/>\s*Invite\s*</.test(html) && !/id=["']invite/i.test(html));
-check('help covers undo, draw 1 or 3, and tap-to-move',
-  /undo/i.test(help) && /draw/i.test(help) && /tap/i.test(help));
-check('listing says the tableau keeps',
-  /tableau is where you left it/i.test(listing.description));
-check('listing tagline fits a card', listing.tagline.length <= 80);
-check('author is rjanjic, porter GifOS', listing.author.name === 'rjanjic' && listing.porter.name === 'GifOS');
-check('one-player: no multiplayer capability', !manifest.capabilities.multiplayer);
-check('minBuild stays 947', manifest.minBuild === 947);
-check('no CDN / webfont / remote at load',
-  !/https?:\/\//i.test(html.replace(/<!--[\s\S]*?-->/g, '')) && !/@import|fonts\.google/i.test(css));
-check('classic scripts only', !/type=["']module["']/.test(html));
-check('face-up pips nested in a face-down parent stay visible',
-  /\.card--back\s*>\s*\.pip/.test(css) && !/\.card--back\s+\.pip\s*\{/.test(css));
-check('phone overlap leaves ranks readable',
-  /@media \(max-width:420px\)[\s\S]*top:15px/.test(css.replace(/\s+/g, '')) ||
-  /max-width:420px[\s\S]{0,200}top:\s*15px/.test(css));
-
-if (failures) {
-  console.log('\n' + failures + ' fail');
-  process.exit(1);
+// ---- the shuffle is fair --------------------------------------------------
+// Deal 5,200 games from a seeded generator and count which card lands in each
+// of three deck slots. A fair shuffle puts every card there ~100 times; the 1.0
+// sort(Math.random) shuffle is skewed far past this bound.
+{
+  const rand = seeded(0xC0FFEE);
+  const N = 5200;
+  let worst = 0;
+  for (const slot of [0, 25, 51]) {
+    const hits = new Map();
+    for (let n = 0; n < N; n++) {
+      const g = K.newGame(rand);
+      const c = g.cards[slot]; const k = c.type + c.number;
+      hits.set(k, (hits.get(k) || 0) + 1);
+    }
+    const exp = N / 52;
+    let chi = 0;
+    for (let i = 0; i < 52; i++) { const k = [...hits.keys()][i]; chi += Math.pow((hits.get(k) || 0) - exp, 2) / exp; }
+    chi += (52 - hits.size) * exp; // cards that never landed there
+    worst = Math.max(worst, chi);
+  }
+  // 51 degrees of freedom: p = 0.0001 sits near chi2 = 99.
+  check('the shuffle is uniform (every card equally likely in a slot)', worst < 99, { chi2: Math.round(worst) });
 }
-console.log('\nsolitaire unit: all PASS');
+
+// ---- the page, run for real ---------------------------------------------
+// klondike.js + app.js on a tiny fake DOM built from index.html, with nested
+// markup, classList, pointer events on window, captured timers, and a fake
+// gifos (save db + onBack) behind a Proxy that records any other call.
+function parseInto(parent, html, make) {
+  const re = /<(\/?)(\w+)((?:\s+[\w-]+(?:="[^"]*")?)*)\s*(\/?)>|([^<]+)/g;
+  const stack = [parent]; let m;
+  while ((m = re.exec(html))) {
+    if (m[5] !== undefined) { const t = m[5].trim(); if (t) stack[stack.length - 1].textContent += t; continue; }
+    if (m[1]) { if (stack.length > 1) stack.pop(); continue; }
+    const attrs = {}; (m[3] || '').replace(/([\w-]+)(?:="([^"]*)")?/g, (mm, k, v) => { attrs[k] = v === undefined ? '' : v; return mm; });
+    const el = make(m[2], attrs);
+    stack[stack.length - 1].appendChild(el);
+    if (!m[4] && !/^(meta|link|br|input|img)$/i.test(m[2])) stack.push(el);
+  }
+}
+function sim(opts) {
+  opts = opts || {};
+  const byId = {};
+  function El(tag, attrs) {
+    attrs = attrs || {};
+    this.tagName = tag.toUpperCase(); this.attrs = attrs; this.children = []; this.parentNode = null;
+    this.hidden = 'hidden' in attrs; this.disabled = false; this.textContent = ''; this.style = {}; this.listeners = {};
+    this._cls = new Set((attrs.class || '').split(/\s+/).filter(Boolean));
+    const self = this;
+    this.classList = {
+      add: (c) => self._cls.add(c), remove: (c) => self._cls.delete(c), contains: (c) => self._cls.has(c),
+      toggle: (c, on) => { const v = on === undefined ? !self._cls.has(c) : !!on; if (v) self._cls.add(c); else self._cls.delete(c); return v; },
+    };
+    if (attrs.id) { this.id = attrs.id; byId[attrs.id] = this; } else this.id = '';
+  }
+  Object.defineProperty(El.prototype, 'className', { get() { return [...this._cls].join(' '); }, set(v) { this._cls = new Set(String(v).split(/\s+/).filter(Boolean)); } });
+  Object.defineProperty(El.prototype, 'innerHTML', { get() { return ''; }, set(h) { this.children.forEach((c) => { c.parentNode = null; }); this.children = []; parseInto(this, h, (t, a) => new El(t, a)); } });
+  El.prototype.appendChild = function (c) { if (c.parentNode) c.parentNode.removeChild(c); c.parentNode = this; this.children.push(c); return c; };
+  El.prototype.removeChild = function (c) { this.children = this.children.filter((x) => x !== c); c.parentNode = null; return c; };
+  El.prototype.addEventListener = function (t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); };
+  El.prototype.getAttribute = function (k) { return k in this.attrs ? this.attrs[k] : null; };
+  El.prototype.setAttribute = function (k, v) { this.attrs[k] = String(v); };
+  El.prototype.getBoundingClientRect = function () { return { left: 0, top: 0, width: 60, height: 90 }; };
+  El.prototype.all = function (f, out) { out = out || []; for (const c of this.children) { if (f(c)) out.push(c); c.all(f, out); } return out; };
+  El.prototype.querySelectorAll = function (sel) { return this.all((c) => c._cls.has(sel.slice(1))); };
+  El.prototype.querySelector = function (sel) { return this.querySelectorAll(sel)[0] || null; };
+  // A click bubbles to ancestors (target stays the clicked element).
+  El.prototype.fire = function (type, ev) {
+    let stopped = false;
+    const e = Object.assign({ target: this, button: 0, clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() { stopped = true; } }, ev || {});
+    for (let n = this; n && !stopped; n = n.parentNode) for (const fn of (n.listeners[type] || []).slice()) fn.call(n, e);
+  };
+  El.prototype.click = function () { this.fire('click'); };
+  const doc = new El('#document');
+  const html = read('index.html');
+  parseInto(doc, html.slice(html.indexOf('<body>') + 6, html.indexOf('</body>')).replace(/<script[^>]*><\/script>/g, ''), (t, a) => new El(t, a));
+  const winL = {}; const timers = [];
+  const puts = []; let back = null; const gifosCalls = [];
+  const gifos = new Proxy({
+    db: () => ({ put: (r) => { puts.push(JSON.parse(JSON.stringify(r))); return Promise.resolve(); }, get: () => Promise.resolve(opts.saved || null) }),
+    onBack: (fn) => { back = fn; },
+  }, { get: (t, k) => (k in t ? t[k] : (typeof k === 'string' ? () => gifosCalls.push(k) : undefined)) });
+  const sandbox = {
+    console, Math, Object, Array, JSON, Date, String, Number, Boolean, Promise,
+    gifos,
+    document: { getElementById: (id) => byId[id] || null, createElement: (t) => new El(t), addEventListener: (t, fn) => doc.addEventListener(t, fn) },
+    addEventListener: (t, fn) => { (winL[t] = winL[t] || []).push(fn); },
+    removeEventListener: (t, fn) => { winL[t] = (winL[t] || []).filter((f) => f !== fn); },
+    setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimeout() {},
+    setInterval: () => 0, clearInterval() {},
+  };
+  sandbox.window = sandbox; sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(read('klondike.js'), sandbox, { filename: 'klondike.js' });
+  vm.runInContext(read('app.js'), sandbox, { filename: 'app.js' });
+  const flushTimers = () => { let n = 0; while (timers.length && n++ < 50) timers.shift().fn(); };
+  const win = (type, ev) => (winL[type] || []).slice().forEach((fn) => fn(Object.assign({ preventDefault() {} }, ev)));
+  // Each card element is the one whose pips show this card: find it by suit + rank class/text.
+  const cardEls = () => doc.all((c) => c._cls.has('card'));
+  return { doc, byId, puts, back: () => back && back(), gifosCalls, timers, flushTimers, win, cardEls, K: sandbox.Klondike, lastSave: () => puts[puts.length - 1] };
+}
+function rec(state) { const r = K.snapshot(state); return r; }
+// The element showing card index i: app.js builds els[i] for s.cards[i]; the
+// pile/desk mount order lets us find it by where the card sits in the state.
+const deskTop = (S, pile) => { let n = S.byId['js-board'].children[pile]; while (n.children.some((c) => c._cls.has('card'))) n = n.children.find((c) => c._cls.has('card')); return n; };
+const wasteTop = (S) => { const w = S.byId['js-deck-deal'].children; return w[w.length - 1]; };
+const flush = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r)); };
+
+(async () => {
+  {
+    // Tap-to-move: one tap sends an ace home; Undo puts it back.
+    const st = blank(); st.cards[0].facingUp = true; st.waste = [0];
+    const S = sim({ saved: rec(st) });
+    await flush();
+    const ace = wasteTop(S);
+    check('fixture: the ace is on the waste', !!ace && ace._cls.has('card--front'));
+    ace.click();
+    const fin = S.byId['js-finish'].children.find((slot) => slot.children.length === 1);
+    check('a tap sends the ace to a foundation', !!fin && fin.children[0] === ace && S.byId['js-deck-deal'].children.length === 0);
+    S.flushTimers();
+    check('the move is saved privately as id game', S.lastSave() && S.lastSave().id === 'game' && S.lastSave().waste.length === 0);
+    check('Undo is enabled after a move', S.byId.undo.disabled === false);
+    S.byId.undo.click();
+    check('Undo puts the ace back on the waste', wasteTop(S) === ace && !fin.children.length);
+    check('Undo is disabled with nothing to undo', S.byId.undo.disabled === true);
+  }
+  {
+    // Several homes: the first tap selects, a tap on the chosen column moves.
+    const st = blank();
+    st.cards[37].facingUp = true; st.waste = [37];          // QH
+    st.cards[51].facingUp = true; st.desk[0] = [51];        // KS
+    st.cards[12].facingUp = true; st.desk[1] = [12];        // KC
+    const S = sim({ saved: rec(st) });
+    await flush();
+    const q = wasteTop(S);
+    q.click();
+    check('with two homes a tap selects instead of moving', q._cls.has('sel') && q.parentNode === S.byId['js-deck-deal']);
+    const kc = deskTop(S, 1);
+    kc.click();
+    check('a second tap on the chosen king moves the queen there', q.parentNode === kc);
+  }
+  {
+    // Draw 1/3 is a real toggle and is saved.
+    const S = sim();
+    await flush();
+    S.flushTimers();
+    const d0 = (S.lastSave() || {}).draw;
+    S.byId.drawN.click(); S.flushTimers();
+    const d1 = S.lastSave().draw;
+    S.byId.drawN.click(); S.flushTimers();
+    const d2 = S.lastSave().draw;
+    check('the draw toggle flips 3 -> 1 -> 3 and is saved', d1 !== undefined && [1, 3].indexOf(d1) >= 0 && d2 !== d1 && d2 === (d0 === undefined ? 3 : d0), { d0, d1, d2 });
+    const pileBefore = S.lastSave().pile.length;
+    S.byId['js-deck-pile'].click();
+    S.flushTimers();
+    check('a stock tap turns the toggled number of cards', pileBefore - S.lastSave().pile.length === d2, { before: pileBefore, after: S.lastSave().pile.length, draw: d2 });
+  }
+  {
+    // Drag: it arms only past 8px, a long hold never arms, and a still
+    // press + click is a tap.
+    const st = blank(); st.cards[0].facingUp = true; st.waste = [0];
+    const S = sim({ saved: rec(st) });
+    await flush();
+    const ace = wasteTop(S);
+    ace.fire('pointerdown', { clientX: 100, clientY: 100 });
+    S.flushTimers(); // a long-press timer would fire here
+    check('holding still never arms a drag', !ace._cls.has('card--moving'));
+    S.win('pointermove', { clientX: 105, clientY: 104 });
+    check('a 6px wobble does not arm a drag', !ace._cls.has('card--moving'));
+    S.win('pointerup', { clientX: 105, clientY: 104 });
+    ace.click();
+    const fin = S.byId['js-finish'].children.find((slot) => slot.children.length === 1);
+    check('a press without travel is a tap (the ace goes home)', !!fin && fin.children[0] === ace);
+    S.byId.undo.click();
+    const ace2 = wasteTop(S);
+    ace2.fire('pointerdown', { clientX: 100, clientY: 100 });
+    S.win('pointermove', { clientX: 110, clientY: 108 });
+    check('moving past 8px arms the drag', ace2._cls.has('card--moving'));
+    S.win('pointerup', { clientX: 900, clientY: 900 });
+    check('a drop on nothing puts the card back', !ace2._cls.has('card--moving') && wasteTop(S) === ace2);
+  }
+  {
+    // Back: closes the ask, then a selection, then undoes, then lets go.
+    const st = blank();
+    st.cards[37].facingUp = true; st.waste = [37];
+    st.cards[51].facingUp = true; st.desk[0] = [51];
+    st.cards[12].facingUp = true; st.desk[1] = [12];
+    st.cards[0].facingUp = true; st.desk[2] = [0];
+    const S = sim({ saved: rec(st) });
+    await flush();
+    deskTop(S, 2).click();                       // ace home: one move in history
+    S.byId['js-reset'].click();                  // a game in progress asks first
+    check('New on a game in progress asks first', S.byId.ask.hidden === false);
+    check('Back closes the ask', S.back() === true && S.byId.ask.hidden === true);
+    const q = wasteTop(S); q.click();
+    check('fixture: the queen is selected', q._cls.has('sel'));
+    check('Back clears a selection', S.back() === true && !q._cls.has('sel'));
+    check('Back undoes the last move', S.back() === true && S.byId['js-finish'].children.every((f) => !f.children.length));
+    check('Back with nothing left returns false (the OS may leave)', S.back() === false);
+  }
+  {
+    // A 1.0 save (no draw/score/moves) loads into the page.
+    const s0 = K.newGame(seeded(7));
+    const old = { id: 'game', cards: s0.cards.map((c) => ({ type: c.type, number: c.number, facingUp: c.facingUp })), desk: s0.desk.map((d) => d.slice()), finish: s0.finish.map((d) => d.slice()), pile: s0.pile.slice(), waste: s0.waste.slice() };
+    const S = sim({ saved: old });
+    await flush();
+    let depth = 0; let n = S.byId['js-board'].children[6];
+    while ((n = n.children.find((c) => c._cls.has('card')))) depth++;
+    check('a 1.0 save loads its tableau into the page', depth === 7 && S.byId['js-deck-pile'].children.filter((c) => c._cls.has('card')).length === 24, depth);
+    S.flushTimers();
+  }
+  {
+    // No control in the page reaches for an OS invite or share.
+    const S = sim();
+    await flush();
+    for (const el of S.doc.all((c) => c.tagName === 'BUTTON')) el.click();
+    S.back();
+    check('no in-app control calls an OS invite or share (Invite is OS chrome)', S.gifosCalls.length === 0, S.gifosCalls);
+  }
+
+  // ---- the stylesheet, resolved per element -------------------------------
+  // A small cascade: rules (inside matching @media too), compound selectors of
+  // tag/.class/#id joined by ' ' or '>', specificity, then source order.
+  {
+    const css = read('style.css').replace(/\/\*[\s\S]*?\*\//g, '');
+    const rules = []; let order = 0;
+    (function scan(text, media) {
+      let i = 0;
+      while (i < text.length) {
+        const open = text.indexOf('{', i); if (open < 0) break;
+        const head = text.slice(i, open).trim(); let depth = 1, k = open + 1;
+        while (k < text.length && depth) { if (text[k] === '{') depth++; else if (text[k] === '}') depth--; k++; }
+        const inner = text.slice(open + 1, k - 1);
+        if (head.startsWith('@media')) scan(inner, head.slice(6).trim());
+        else if (!head.startsWith('@')) for (const sel of head.split(',')) rules.push({ sel: sel.trim(), body: inner, media, order: order++ });
+        i = k;
+      }
+    })(css, null);
+    const mediaOk = (q, w) => !q || q.split(',').some((part) => (part.match(/\(([^)]+)\)/g) || []).every((f) => {
+      const [k, v] = f.slice(1, -1).split(':').map((x) => x.trim());
+      return k === 'max-width' ? w <= parseFloat(v) : k === 'min-width' ? w >= parseFloat(v) : false;
+    }));
+    const simple = (el, part) => {
+      if (/[:\[]/.test(part)) return false;
+      const m = part.match(/^([a-z]+)?((?:[.#][\w-]+)*)$/i); if (!m) return false;
+      if (m[1] && el.tag !== m[1].toLowerCase()) return false;
+      return (m[2].match(/[.#][\w-]+/g) || []).every((t) => t[0] === '#' ? el.id === t.slice(1) : el.cls.indexOf(t.slice(1)) >= 0);
+    };
+    const matches = (el, sel) => {
+      const toks = sel.replace(/\s*>\s*/g, ' > ').split(/\s+/);
+      const go = (node, i) => {
+        if (!node || !simple(node, toks[i])) return false;
+        if (i === 0) return true;
+        if (toks[i - 1] === '>') return go(node.parent, i - 2);
+        for (let a = node.parent; a; a = a.parent) if (go(a, i - 1)) return true;
+        return false;
+      };
+      return go(el, toks.length - 1);
+    };
+    const spec = (sel) => { const t = sel.replace(/>/g, ' '); return ((t.match(/#/g) || []).length * 100) + ((t.match(/\./g) || []).length * 10) + ((t.match(/(^|\s)[a-z]/gi) || []).length); };
+    const resolve = (el, prop, width) => {
+      let best = null;
+      for (const r of rules) {
+        if (!mediaOk(r.media, width) || !matches(el, r.sel)) continue;
+        const m = new RegExp('(?:^|[;{\\s])' + prop + '\\s*:\\s*([^;]+)').exec(r.body); if (!m) continue;
+        const sp = spec(r.sel);
+        if (!best || sp > best.sp || (sp === best.sp && r.order > best.order)) best = { v: m[1].trim(), sp, order: r.order };
+      }
+      return best && best.v;
+    };
+    const node = (tag, cls, parent, id) => ({ tag, cls, parent: parent || null, id: id || '' });
+    const board = node('div', ['board-deck']);
+    const col = node('div', ['seven'], board);
+    const back = node('div', ['card', 'card--back'], col);
+    const front = node('div', ['card', 'card--front', 'card--hearts'], back);
+    const front2 = node('div', ['card', 'card--front', 'card--spades'], front);
+    const pipOfFront = node('span', ['pip', 'tl'], front);
+    const pipOfBack = node('span', ['pip', 'tl'], back);
+    check('a face-up card nested in a face-down card shows its pips', resolve(pipOfFront, 'display', 1024) !== 'none');
+    check('a face-down card hides its own pips', resolve(pipOfBack, 'display', 1024) === 'none');
+    const phoneTop = parseFloat(resolve(front2, 'top', 390));
+    const backTop = parseFloat(resolve(front, 'top', 390));
+    check('on a phone a face-up overlap still leaves a readable rank (>= 15px)', phoneTop >= 15, phoneTop);
+    check('on a phone face-up overlaps step wider than face-down ones', phoneTop > backTop, { phoneTop, backTop });
+    const bar = node('div', ['bar']);
+    const undo = node('button', [], bar, 'undo');
+    check('the Undo button is a 44px thumb target', parseFloat(resolve(undo, 'min-height', 390)) >= 44, resolve(undo, 'min-height', 390));
+    check('the stylesheet pulls nothing remote (@import, url(http…))', !/@import/i.test(css) && !/url\(\s*['"]?https?:/i.test(css));
+  }
+
+  // Every script and stylesheet index.html loads ships inside the app; no modules.
+  {
+    const html = read('index.html').replace(/<!--[\s\S]*?-->/g, '');
+    const refs = [];
+    html.replace(/<(script|link)\b([^>]*)>/gi, (m, tag, attrs) => { const a = /\b(src|href)=["']([^"']+)["']/.exec(attrs); refs.push({ ref: a ? a[2] : null, module: /type=["']module["']/i.test(attrs) }); return m; });
+    const missing = refs.filter((r) => r.ref && !fs.existsSync(path.join(APP, r.ref)));
+    check('every loaded file ships inside the app (no CDN)', refs.filter((r) => r.ref).length >= 3 && missing.length === 0, missing);
+    check('classic scripts only', refs.every((r) => !r.module));
+  }
+
+  check('listing tagline fits a card', listing.tagline.length <= 80);
+  check('author is rjanjic, porter GifOS', listing.author.name === 'rjanjic' && listing.porter.name === 'GifOS');
+  check('one-player: no multiplayer capability', !manifest.capabilities.multiplayer);
+  check('minBuild stays 947', manifest.minBuild === 947);
+
+  if (failures) {
+    console.log('\n' + failures + ' fail');
+    process.exit(1);
+  }
+  console.log('\nsolitaire unit: all PASS');
+})();

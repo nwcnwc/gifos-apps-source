@@ -20,7 +20,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
 const read = (p) => readFileSync(join(dir, p), 'utf8');
@@ -59,7 +59,7 @@ for (const [n, s] of Object.entries(files)) {
 const shot = screenshotPng();
 writeFileSync(join(dir, 'screenshot.png'), shot);
 const bytes = await gif.encode(files, { preview: onoffIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'onoff', 'onoff.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'onoff', 'onoff.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/onoff/onoff.gif —', bytes.length, 'bytes,', (bytes.length/1024).toFixed(0), 'KB');

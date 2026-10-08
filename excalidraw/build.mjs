@@ -35,7 +35,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -81,7 +81,7 @@ if (!html.includes('href="vendor/excalidraw.css"')) throw new Error('index.html 
 if (!html.includes('href="style.css"')) throw new Error('index.html does not load style.css');
 
 const bytes = await gif.encode(files, { preview: excalidrawIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'excalidraw', 'excalidraw.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'excalidraw', 'excalidraw.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/excalidraw/excalidraw.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

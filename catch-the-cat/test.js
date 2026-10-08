@@ -73,6 +73,8 @@ function makeClock() {
 }
 
 // ---- one collection, shared by every client, exactly like the host's --------
+// Every write any client makes, in every scenario in this file.
+const ALL_WRITES = [];
 function makeRoom() {
   const rows = new Map();
   const subs = [];
@@ -83,7 +85,9 @@ function makeRoom() {
     rows, puts, snapshot,
     handle(by) {
       return {
-        put(rec) { puts.push({ by, wrote: rec.id }); rows.set(rec.id, JSON.parse(JSON.stringify(rec))); notify(); return Promise.resolve(rec); },
+        put(rec) { puts.push({ by, wrote: rec.id }); ALL_WRITES.push({ by, op: 'put', wrote: rec.id }); rows.set(rec.id, JSON.parse(JSON.stringify(rec))); notify(); return Promise.resolve(rec); },
+        delete(id) { ALL_WRITES.push({ by, op: 'delete', wrote: id }); rows.delete(id); notify(); return Promise.resolve(); },
+        clear() { ALL_WRITES.push({ by, op: 'clear', wrote: '*' }); rows.clear(); notify(); return Promise.resolve(); },
         getAll() { return Promise.resolve(snapshot()); },
         subscribe(cb) { subs.push(cb); cb(snapshot()); },
       };
@@ -391,12 +395,16 @@ const wait = () => new Promise((r) => setImmediate(r));
       a.tally().wins === 1 && b.tally().wins === 0, [a.tally().wins, b.tally().wins]);
   }
 
-  // ------------------------------------------------------------ the source rule
+  // ------------------------------------------------------------ the row rule
+  // Every write every client made in every scenario above, race and co-op,
+  // joins, quits and rejoins: each one is a put of the writer's OWN row. No
+  // client ever deleted, cleared or wrote another player's row.
   {
-    const src = NET;
-    const puts = src.match(/db\(\)\.put\(/g) || [];
-    check('there is exactly one writer of a row', puts.length === 1, puts);
-    check('...and it writes our own id', /function publish\(\)[\s\S]*?var row = mineRow\(\);/.test(src));
+    check('the clients wrote rows at all (the rule below is not vacuous)', ALL_WRITES.length > 20, ALL_WRITES.length);
+    check('every write in every scenario is a put', ALL_WRITES.every((w) => w.op === 'put'),
+      ALL_WRITES.filter((w) => w.op !== 'put'));
+    check('...and it writes our own id', ALL_WRITES.every((w) => w.by === w.wrote),
+      ALL_WRITES.filter((w) => w.by !== w.wrote));
   }
 
   console.log(failures ? '\nFAIL ' + failures : '\nALL GREEN');

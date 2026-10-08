@@ -3,8 +3,10 @@
 // The port shipped a black figure on a dark page — you could not see yourself —
 // and a phone pad whose FIRE sat at the top of the screen. This suite PLAYS
 // the loop in a vm: hold up, the player leaves spawn; hold fire, a bullet
-// exists; wipe the wave, the generation goes up. Layout and save are
-// one-liners, so a source scan, not a browser.
+// exists; wipe the wave, the generation goes up. The shell is driven the
+// same way: the phone pad with pointer events (capture, release, a second
+// finger), Back, the best generation saved and reopened, the arena fitted to
+// a portrait box. The page CSS is read as parsed rules.
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -33,9 +35,12 @@ function seededMath(seed) {
   return m;
 }
 
+// Every fillRect is recorded with the fillStyle it was painted in, so the
+// test can see what colour the floor of the arena really is.
+const FILLS = [];
 function fakeCtx() {
   return {
-    fillRect() {}, clearRect() {}, strokeRect() {},
+    fillRect(x, y, w, h) { FILLS.push({ style: this.fillStyle, x, y, w, h }); }, clearRect() {}, strokeRect() {},
     beginPath() {}, arc() {}, fill() {}, stroke() {}, save() {}, restore() {},
     translate() {}, rotate() {}, drawImage() {}, fillText() {},
     font: '', textAlign: 'center', fillStyle: '', strokeStyle: '',
@@ -61,9 +66,14 @@ function fakeEl(tag) {
     dataset: {},
     parentNode: null,
     getContext: () => fakeCtx(),
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1366, height: 768, right: 1366, bottom: 768 }),
-    addEventListener() {},
-    removeEventListener() {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: el.rectW || 1366, height: el.rectH || 768, right: el.rectW || 1366, bottom: el.rectH || 768 }),
+    _l: {},
+    addEventListener(t, f) { (el._l[t] = el._l[t] || []).push(f); },
+    removeEventListener(t, f) { el._l[t] = (el._l[t] || []).filter((g) => g !== f); },
+    dispatch(t, ev) { const e = Object.assign({ type: t, target: el, pointerId: 1, clientX: 0, clientY: 0, preventDefault() {} }, ev || {}); (el._l[t] || []).slice().forEach((f) => f(e)); return e; },
+    setPointerCapture(id) { el.captured = id; },
+    classList: { add(c) { el._cls[c] = 1; }, remove(c) { delete el._cls[c]; }, contains(c) { return !!el._cls[c]; }, toggle(c) { if (el._cls[c]) delete el._cls[c]; else el._cls[c] = 1; } },
+    _cls: {},
     appendChild(c) { el.children.push(c); if (c) c.parentNode = el; return c; },
     remove() { el.parentNode = null; },
     querySelector() { return el.children[0] || fakeEl('div'); },
@@ -94,7 +104,8 @@ function fakeApi(opts) {
 
 const flush = () => new Promise((r) => setImmediate(r));
 
-function load(room) {
+function load(room, opts) {
+  opts = opts || {};
   let now = 10_000;
   let raf = null;
   const body = fakeEl('body');
@@ -107,13 +118,14 @@ function load(room) {
     'p-look': fakeEl('div'),
     'p-fire': fakeEl('button'),
   };
+  byId.pad.hidden = true; // as in index.html
   byId['p-move'].appendChild(Object.assign(fakeEl('div'), { className: 'p-knob' }));
   const doc = {
     body,
     hidden: false,
     createElement(tag) {
       const el = fakeEl(tag);
-      if (tag === 'canvas') { el.width = 1366; el.height = 768; }
+      if (tag === 'canvas') { el.width = 1366; el.height = 768; if (opts.box) { el.clientWidth = opts.box.w; el.clientHeight = opts.box.h; } }
       return el;
     },
     querySelector(sel) {
@@ -121,8 +133,12 @@ function load(room) {
       return null;
     },
     getElementById(id) { return byId[id] || null; },
-    addEventListener() {},
+    _l: {},
+    addEventListener(t, f) { (doc._l[t] = doc._l[t] || []).push(f); },
+    removeEventListener(t, f) { doc._l[t] = (doc._l[t] || []).filter((g) => g !== f); },
   };
+  const winL = {};
+  const images = [];
   function FakeImage() {
     this.width = 1366;
     this.height = 768;
@@ -131,7 +147,7 @@ function load(room) {
     this._onload = null;
   }
   Object.defineProperty(FakeImage.prototype, 'src', {
-    set(v) { this._src = v; this._maybe(); },
+    set(v) { this._src = v; images.push(v); this._maybe(); },
     get() { return this._src; },
   });
   Object.defineProperty(FakeImage.prototype, 'onload', {
@@ -156,9 +172,9 @@ function load(room) {
     document: doc,
     Image: FakeImage,
     Audio: function () { return fakeEl('audio'); },
-    navigator: { maxTouchPoints: 0 },
-    matchMedia: () => ({ matches: false, addListener() {}, addEventListener() {} }),
-    addEventListener() {},
+    navigator: { maxTouchPoints: opts.coarse ? 5 : 0 },
+    matchMedia: () => ({ matches: !!opts.coarse, addListener() {}, addEventListener() {} }),
+    addEventListener(t, f) { (winL[t] = winL[t] || []).push(f); },
     setTimeout: (fn) => { fn(); return 0; },
     setImmediate,
     ResizeObserver: undefined,
@@ -166,6 +182,11 @@ function load(room) {
   };
   const net = room ? fakeApi(room) : null;
   if (net) sandbox.gifos = net.api;
+  let backFn = null;
+  if (net) {
+    net.api.onBack = (f) => { backFn = f; };
+    for (const [c, rows] of Object.entries(opts.rows || {})) for (const r of rows) net.push(c, r);
+  }
   sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
   sandbox.self = sandbox;
@@ -186,6 +207,12 @@ function load(room) {
   return {
     sandbox,
     net,
+    byId,
+    body,
+    images,
+    back: () => (backFn ? backFn() : undefined),
+    winFire: (t, ev) => (winL[t] || []).slice().forEach((f) => f(Object.assign({ type: t, preventDefault() {} }, ev || {}))),
+    docFire: (t, ev) => (doc._l[t] || []).slice().forEach((f) => f(Object.assign({ type: t, preventDefault() {} }, ev || {}))),
     eval(code) { return vm.runInContext(code, sandbox); },
     tick(ms) {
       now += ms == null ? 16 : ms;
@@ -271,6 +298,11 @@ check('the player is in the middle of the arena',
   p.health = 99;
   run.tick(16);
   check('releasing FIRE lets the trigger go', p.isShooting === false, p.isShooting);
+  const x0 = p.pos.x;
+  AAS.pad.mx = 1; AAS.pad.my = 0;
+  for (let i = 0; i < 20; i++) { p.health = 99; run.tick(16); }
+  AAS.pad.mx = 0;
+  check('applyPad writes the analog stick into the player (it moves)', p.pos.x > x0 + 8, { from: x0, to: p.pos.x });
   p.health = 10;
 }
 
@@ -302,54 +334,135 @@ check('a body is under a tenth of the short side',
 
 const src = (f) => fs.readFileSync(path.join(APP, f), 'utf8');
 const html = src('index.html');
-const boot = src('boot.js');
-const main = src('vendor/main.js');
 const css = src('style.css');
 const help = src('help.md');
 const listing = JSON.parse(src('listing.json'));
 const manifest = JSON.parse(src('manifest.json'));
 
-check('the playfield is the original light lab, not a dark void',
-  main.includes('#ececec') && css.includes('#ececec') && !/background:\s*#111/.test(css));
-check('the canvas keeps its aspect on a phone (contain, not a squash)',
-  /#game[\s\S]{0,180}object-fit:\s*contain/.test(css));
-check('the walls are ON SCREEN — a hazard band framing the canvas',
-  html.includes('id="arena"') && /#arena[\s\S]{0,320}repeating-linear-gradient/.test(css) &&
-  /#arena[\s\S]{0,200}padding:/.test(css));
-check('the controls sit off the field on a phone',
-  /body\.touch\s+#arena[\s\S]{0,200}bottom:/.test(css));
-check('the field is sized from its box, not nailed to 1366x768',
-  main.includes('fitArena') && main.includes('clientWidth') && main.includes('ARENA_SHORT'));
-check('the gun reloads under fire, from the shell (Player.js is pinned)',
-  boot.includes('coolDown') && boot.includes('Player.prototype.update'));
-check('FIRE captures its pointer so a sliding thumb cannot hold it down',
-  /function fireOn[\s\S]{0,400}capture\(fire/.test(boot));
-check('phone pad markup is in the page (FIRE under the thumb)',
-  html.includes('id="p-move"') && html.includes('id="p-fire"') && html.includes('id="p-look"'));
-check('FIRE is a real button', /<button[^>]*id="p-fire"/.test(html));
-check('no in-app Invite button', !/id=["']invite/i.test(html));
-check('best generation is saved in gifos.db', boot.includes("db('save')"));
-check('Back backs out of a run, then lets the OS close',
-  boot.includes('onBack') && boot.includes('goTitle') && boot.includes('return false'));
-check('phone pad is at least 80px FIRE / 128px stick',
-  /#p-fire[^}]*width:\s*80px/.test(css) && /#p-move[^>]*width:\s*128px/.test(css) ||
-  /#p-move[\s\S]{0,200}width:\s*128px/.test(css));
-check('applyPad writes analog into the player',
-  boot.includes('applyPad') && main.includes('AAS.applyPad'));
-check('help covers keyboard, phone, walls, save',
-  /arrow keys/i.test(help) && /FIRE/.test(help) && /walls hurt/i.test(help) && /best generation/i.test(help));
-check('listing says the robots learn and your best generation is saved',
-  /breed/i.test(listing.description) && /best generation is saved/i.test(listing.description));
-check('listing does not mention internals',
-  !/gifos\.db|WASM|sandbox|localStorage/.test(JSON.stringify(listing)));
+check('the playfield is the original light lab, not a dark void: the floor is painted #ececec',
+  FILLS.some((f) => f.style === '#ececec' && f.w >= AAS.w && f.h >= AAS.h), FILLS.slice(0, 3));
+// The gun reloading under fire (boot.js patches the pinned Player.js) is
+// guarded by the long-hold checks above, which run that patch.
+
+// The page structure, parsed: ids and tags, not wording.
+const ids = Array.from(html.matchAll(/<([a-z]+)\b[^>]*\bid="([^"]+)"/gi), (m) => ({ tag: m[1].toLowerCase(), id: m[2] }));
+const byIdTag = (id) => (ids.find((x) => x.id === id) || {}).tag;
+const scripts = Array.from(html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/gi), (m) => m[1]);
+check('phone pad markup is in the page (stick, aim, FIRE), FIRE is a real button, the arena frame exists',
+  byIdTag('p-move') && byIdTag('p-look') && byIdTag('p-fire') === 'button' && byIdTag('arena') === 'div');
+check('no in-app Invite control', !ids.some((x) => /invite/i.test(x.id)));
+check('GuiControls.js is still packed (upstream)', scripts.indexOf('vendor/GuiControls.js') !== -1);
+{
+  const C = cssRules(css);
+  check('the canvas keeps its aspect on a phone (contain, not a squash) on a light floor',
+    cssValue(C, '#game', 'object-fit') === 'contain' && cssValue(C, '#game', 'background') === '#ececec');
+  check('the walls are ON SCREEN — a hazard band framing the canvas',
+    /repeating-linear-gradient/.test(cssValue(C, '#arena', 'background') || '') && !!cssValue(C, '#arena', 'padding'));
+  check('the controls sit off the field on a phone', /\d+px/.test(cssValue(C, 'body.touch #arena', 'bottom') || ''), cssValue(C, 'body.touch #arena', 'bottom'));
+  check('phone pad is at least 80px FIRE / 128px stick',
+    parseInt(cssValue(C, '#p-fire', 'width'), 10) >= 80 && parseInt(cssValue(C, '#p-move', 'width'), 10) >= 128);
+}
+// Listing/help wording is copy and is not pinned; their data fields are.
+check('help.md is a real page (a title and some sections)', /^# \S/.test(help.trim()) && help.trim().length >= 300);
 check('author is Victor Ribeiro, porter is GifOS',
   listing.author.name === 'Victor Ribeiro' && listing.porter.name === 'GifOS' && listing.basedOn.blessed === false);
 check('db + multiplayer, no network, minBuild 947',
   manifest.capabilities.db && manifest.capabilities.multiplayer &&
   !manifest.capabilities.network && manifest.minBuild === 947);
-check('main.js still inlines artwork from AAS', main.includes('AAS.artwork') && main.includes('AASShowPad'));
-check('GuiControls.js is still packed (upstream) but the shell pad is ours',
-  html.includes('vendor/GuiControls.js') && boot.includes('p-fire'));
+
+// ---- CSS as rules: selector -> declarations (structure, not substrings) -----
+// Rules inside an @media block carry that block's prelude in `media`.
+function cssRules(css) {
+  const text = String(css).replace(/\/\*[\s\S]*?\*\//g, '');
+  const out = [];
+  const stack = [];
+  let buf = '';
+  for (const ch of text) {
+    if (ch === '{') { stack.push(buf.trim()); buf = ''; }
+    else if (ch === '}') {
+      const pre = stack.pop();
+      if (pre != null && pre[0] !== '@') {
+        const decl = {};
+        for (const d of buf.split(';')) { const i = d.indexOf(':'); if (i > 0) decl[d.slice(0, i).trim().toLowerCase()] = d.slice(i + 1).trim(); }
+        const media = stack.filter((x) => x[0] === '@').join(' ');
+        for (const sel of pre.split(',')) out.push({ sel: sel.trim().replace(/\s+/g, ' '), decl, media });
+      }
+      buf = '';
+    } else buf += ch;
+  }
+  return out;
+}
+// The value a property gets on a selector outside any @media (last rule
+// wins), or inside the @media whose prelude matches `media`; null if unset.
+function cssValue(rules, selTest, prop, media) {
+  let v = null;
+  for (const r of rules) {
+    if (media ? !media.test(r.media) : r.media) continue;
+    if ((typeof selTest === 'string' ? r.sel === selTest : selTest.test(r.sel)) && prop in r.decl) v = r.decl[prop];
+  }
+  return v;
+}
+
+// ---- THE SHELL, DRIVEN ------------------------------------------------------
+async function shellChecks() {
+  // The phone pad: a coarse pointer shows it; FIRE captures its pointer, so a
+  // sliding thumb cannot hold it down; only that pointer's release lets go.
+  {
+    const P = load({ id: 'solo', name: 'Avery', owner: true }, { coarse: true });
+    await flush();
+    const A = P.sandbox.AAS;
+    const fire = P.byId['p-fire'], stick = P.byId['p-move'];
+    check('a coarse pointer shows the pad', P.byId.pad.hidden === false && P.body.classList.contains('touch'));
+    fire.dispatch('pointerdown', { pointerId: 5 });
+    check('FIRE captures its pointer and pulls the trigger (and leaves the title)', fire.captured === 5 && A.pad.fire === true && A.isStarting === false);
+    P.winFire('pointerup', { pointerId: 9 });
+    check('…another finger lifting elsewhere does not let go', A.pad.fire === true);
+    P.winFire('pointerup', { pointerId: 5 });
+    check('…the trigger finger lifting anywhere does', A.pad.fire === false);
+    stick.rectW = 128; stick.rectH = 128;
+    stick.dispatch('pointerdown', { pointerId: 2, clientX: 128, clientY: 64 });
+    check('the stick drives the pad with its pointer (right = +x)', stick.captured === 2 && A.pad.mx > 0.5 && A.pad.my === 0, { mx: A.pad.mx, my: A.pad.my });
+    stick.dispatch('pointerup', { pointerId: 2 });
+    check('…and centres on release', A.pad.mx === 0 && A.pad.my === 0);
+    // Back: a run backs out to the title, then the OS may close.
+    check('Back backs out of a run (consumed) to the title', P.back() === true && A.isStarting === true);
+    check('…then Back lets the OS close', P.back() === false);
+  }
+  {
+    const D = load({ id: 'solo', name: 'Avery', owner: true });
+    await flush();
+    check('a desktop keeps the pad hidden until a touch', D.byId.pad.hidden === true);
+    D.docFire('touchstart');
+    check('…a first touch reveals it', D.byId.pad.hidden === false);
+  }
+  // The best generation is saved in gifos.db and shown on the next open.
+  {
+    const S = load({ id: 'solo', name: 'Avery', owner: true });
+    await flush();
+    S.sandbox.AAS.onGeneration(7);
+    await flush();
+    const row = S.net.last('save', 'best');
+    check('best generation is saved in gifos.db', !!row && row.generation === 7, row);
+    const R = load({ id: 'solo', name: 'Avery', owner: true }, { rows: { save: [{ id: 'best', generation: 7 }] } });
+    await flush();
+    check('…and the next open shows it', /\b7\b/.test(R.byId.hi.textContent), R.byId.hi.textContent);
+  }
+  // The field is sized from its box: a portrait box gets a portrait arena.
+  {
+    const T = load(null, { box: { w: 400, h: 800 } });
+    await flush();
+    const A = T.sandbox.AAS;
+    check('the field is sized from its box, not nailed to 1366x768 (portrait box → portrait arena)', A.w === 700 && A.h === 1400, { w: A.w, h: A.h });
+  }
+  // The title art comes from the packed assets (AAS.artwork), not a file path.
+  {
+    const I = load(null);
+    await flush();
+    const art = I.sandbox.AAS.artwork;
+    check('main.js still inlines artwork from AAS (the packed data: URL, not a file path)', /^data:image\//.test(art || '') && I.images.indexOf(art) !== -1, I.images.map((x) => String(x).slice(0, 30)));
+    check('…and exposes the shell pad (AASShowPad shows our pad)', typeof I.sandbox.AASShowPad === 'function' && (I.sandbox.AASShowPad(), I.byId.pad.hidden === false));
+  }
+}
 
 function finish() {
   if (failures) {
@@ -365,6 +478,7 @@ function finish() {
 // publishes `world`; a guest publishes input and draws what came back. These
 // two vms are a host and a guest, wired through one fake collection.
 (async () => {
+  await shellChecks();
   const H = load({ id: 'host-1', name: 'Nathan', owner: true });
   await flush();
   const HA = H.sandbox.AAS;

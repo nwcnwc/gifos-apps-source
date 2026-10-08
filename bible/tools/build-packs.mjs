@@ -38,7 +38,7 @@ import { skipIfPacked } from './source.mjs';
 const dir = dirname(fileURLToPath(import.meta.url));
 const root = join(dir, '..', '..', '..');
 const cache = join(dir, '..', '.cache');
-const outDir = join(root, 'site', 'apps', 'bible', 'packs');
+const outDir = join(root, 'gifos-app', 'apps', 'bible', 'packs');
 
 const cat = JSON.parse(readFileSync(join(dir, '..', 'data', 'ebible-pd.json'), 'utf8'));
 const BOOKTAB = JSON.parse(readFileSync(join(dir, '..', 'data', 'books.json'), 'utf8'));

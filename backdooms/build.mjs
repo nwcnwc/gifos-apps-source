@@ -25,7 +25,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -141,7 +141,7 @@ for (const [n, s] of Object.entries(files)) {
 }
 
 const bytes = await gif.encode(files, { preview: backdoomsIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'backdooms', 'backdooms.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'backdooms', 'backdooms.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/backdooms/backdooms.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

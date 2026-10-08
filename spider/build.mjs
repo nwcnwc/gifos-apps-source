@@ -26,7 +26,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -117,7 +117,7 @@ for (const [n, s] of Object.entries(files)) {
 const shotPath = join(dir, 'screenshot.png');
 if (!existsSync(shotPath) || process.env.REWRITE_SHOT) writeFileSync(shotPath, screenshotPng());
 const bytes = await gif.encode(files, { preview: spiderIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'spider', 'spider.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'spider', 'spider.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/spider/spider.gif —', bytes.length, 'bytes');

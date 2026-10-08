@@ -32,7 +32,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -345,7 +345,7 @@ console.log('Model:');
 }
 
 const bytes = await gif.encode(files, { preview: financeIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'finance', 'finance.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'finance', 'finance.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/finance/finance.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

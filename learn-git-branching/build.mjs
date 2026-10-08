@@ -25,7 +25,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -83,7 +83,7 @@ const shot = screenshotPng();
 writeFileSync(join(dir, 'screenshot.png'), shot);
 
 const bytes = await gif.encode(files, { preview: gitIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'learn-git-branching', 'learn-git-branching.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'learn-git-branching', 'learn-git-branching.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/learn-git-branching/learn-git-branching.gif —',

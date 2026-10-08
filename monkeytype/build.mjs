@@ -29,7 +29,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -201,14 +201,14 @@ if (!existsSync(shotPath)) {
     .resize({ width: 1200, withoutEnlargement: true })
     .jpeg({ quality: 82, progressive: true, mozjpeg: true })
     .toBuffer();
-  const coverOut = join(dir, '..', '..', 'site', 'apps', 'monkeytype', 'cover.jpg');
+  const coverOut = join(dir, '..', '..', 'gifos-app', 'apps', 'monkeytype', 'cover.jpg');
   mkdirSync(dirname(coverOut), { recursive: true });
   writeFileSync(coverOut, cover);
   console.log('wrote site/apps/monkeytype/cover.jpg —', (cover.length / 1024).toFixed(0), 'KB');
 }
 
 const bytes = await gif.encode(files, { preview: monkeytypeIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'monkeytype', 'monkeytype.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'monkeytype', 'monkeytype.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/monkeytype/monkeytype.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

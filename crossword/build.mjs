@@ -27,7 +27,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -154,7 +154,7 @@ if (cover[0] !== 0x89) throw new Error('screenshot');
 writeFileSync(join(dir, 'screenshot.png'), cover);
 
 const bytes = await gif.encode(files, { preview: crosswordIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'crossword', 'crossword.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'crossword', 'crossword.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/crossword/crossword.gif —', bytes.length, 'bytes,',

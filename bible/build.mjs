@@ -43,11 +43,11 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const root = join(dir, '..', '..');
-const packsDir = join(root, 'site', 'apps', 'bible', 'packs');
+const packsDir = join(root, 'gifos-app', 'apps', 'bible', 'packs');
 const gif = globalThis.GifOS.gif;
 const read = (p) => readFileSync(join(dir, p), 'utf8');
 
@@ -208,7 +208,7 @@ if (shot && shot[0] === 0x89) writeFileSync(join(dir, 'screenshot.png'), shot);
 }
 
 const bytes = await gif.encode(files, { preview: bibleIcon(), accent: manifest.accent });
-const out = join(root, 'site', 'apps', 'bible', 'bible.gif');
+const out = join(root, 'gifos-app', 'apps', 'bible', 'bible.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/bible/bible.gif —', (bytes.length / 1048576).toFixed(1), 'MB from',

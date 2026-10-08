@@ -20,7 +20,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
 const read = (p) => readFileSync(join(dir, p), 'utf8');
@@ -63,7 +63,7 @@ if (existsSync(shotPath) && readFileSync(shotPath)[0] === 0x89) {
   writeFileSync(shotPath, shot);
 }
 const bytes = await gif.encode(files, { preview: deltaIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'delta', 'delta.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'delta', 'delta.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/delta/delta.gif —', bytes.length, 'bytes,', (bytes.length/1024).toFixed(0), 'KB');

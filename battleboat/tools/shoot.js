@@ -14,7 +14,7 @@ const path = require('path');
 
 const BASE = process.env.BASE || 'http://127.0.0.1:8099';
 const OUT = path.join(__dirname, '..', 'screenshot.png');
-const GIF = path.join(__dirname, '..', '..', '..', 'site', 'apps', 'battleboat', 'battleboat.gif');
+const GIF = path.join(__dirname, '..', '..', '..', 'gifos-app', 'apps', 'battleboat', 'battleboat.gif');
 const GIF_B64 = readFileSync(GIF).toString('base64');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

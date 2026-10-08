@@ -35,7 +35,7 @@ import { whisperIcon } from './icon.mjs';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const kokoroVendor = join(dir, '..', 'offline-tts-kokoro', 'vendor');
@@ -109,7 +109,7 @@ const files = {
 };
 
 const bytes = await gif.encode(files, { preview: whisperIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'offline-stt-whisper', 'offline-stt-whisper.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'offline-stt-whisper', 'offline-stt-whisper.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/offline-stt-whisper/offline-stt-whisper.gif —', (bytes.length / 1e6).toFixed(2), 'MB from', Object.keys(files).length, 'files (engine + tokenizer in-GIF; Whisper int8 models by optional asset pin)');

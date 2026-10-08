@@ -93,7 +93,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let shotTarget = page;
 
   if (USE_GIF) {
-    const gif = path.join(__dirname, '..', '..', '..', 'site', 'apps', 'retirement', 'retirement.gif');
+    const gif = path.join(__dirname, '..', '..', '..', 'gifos-app', 'apps', 'retirement', 'retirement.gif');
     if (!existsSync(gif)) throw new Error('build the GIF first: node apps/retirement/build.mjs');
     const b64 = readFileSync(gif).toString('base64');
     await page.goto(SITE + '/index.html');

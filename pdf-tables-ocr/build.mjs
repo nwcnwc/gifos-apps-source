@@ -53,7 +53,7 @@ import { dirname, join } from 'node:path';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -259,7 +259,7 @@ for (const m of indexHtml.matchAll(/\b(?:src|href)=["']([^"']+)["']/gi)) {
 }
 
 const bytes = await gif.encode(files, { preview: pdfOcrIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'pdf-tables-ocr', 'pdf-tables-ocr.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'pdf-tables-ocr', 'pdf-tables-ocr.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 const raw = Object.values(files).reduce((n, v) => n + (typeof v === 'string' ? Buffer.byteLength(v) : v.length), 0);

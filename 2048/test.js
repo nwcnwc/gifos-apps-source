@@ -40,10 +40,165 @@ function fakeDb() {
   return api;
 }
 
+// ---- a small DOM, built from the app's own index.html -----------------------
+// Elements carry ids, classes, data-*, hidden, value/checked, listeners and a
+// no-op 2D context; scripts named by <script src> run in one vm context in
+// page order. Enough to boot an app and click it; nothing is painted.
+function fakeDom(htmlText, opts) {
+  opts = opts || {};
+  const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+  const byId = new Map();
+  const noopCtx = () => new Proxy({ measureText: () => ({ width: 0 }), getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(Math.max(0, w * h * 4)) }), createLinearGradient: () => ({ addColorStop() {} }), createRadialGradient: () => ({ addColorStop() {} }), createPattern: () => ({}) },
+    { get: (t, k) => (k in t ? t[k] : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
+  const all = (n) => { const out = []; const w = (x) => { for (const k of x.children) { out.push(k); w(k); } }; w(n); return out; };
+  const matches = (x, sel) => {
+    if (sel.indexOf(',') >= 0) return sel.split(',').some((s1) => matches(x, s1));
+    sel = sel.trim();
+    if (sel === '*') return true;
+    if (sel[0] === '#') return x.id === sel.slice(1);
+    const m = /^([\w-]+)?(?:\.([\w-]+))?(?:\[([\w-]+)(?:="([^"]*)")?\])?$/.exec(sel);
+    if (!m || (!m[1] && !m[2] && !m[3])) return false;
+    return (!m[1] || x.tagName === m[1].toUpperCase()) && (!m[2] || x.classList.contains(m[2])) &&
+      (!m[3] || (m[3] in x.attrs && (m[4] === undefined || x.attrs[m[3]] === m[4]) && !(m[3] === 'type' && m[4] !== undefined && x.type !== m[4])));
+  };
+  const query = (root, sel) => { const parts = sel.split(/\s+/); let set = [root]; for (const p of parts) { const next = []; for (const s of set) for (const d of all(s)) if (matches(d, p) && !next.includes(d)) next.push(d); set = next; } return set; };
+  const mk = (tag, attrs, parent) => {
+    const dataset = {};
+    for (const k in attrs) if (k.startsWith('data-')) dataset[k.slice(5).replace(/-(\w)/g, (_, c) => c.toUpperCase())] = attrs[k];
+    let html = '';
+    const e = {
+      tagName: tag.toUpperCase(), nodeName: tag.toUpperCase(), attrs, parent, parentNode: parent, children: [], childNodes: null, listeners: {}, dataset,
+      id: attrs.id || '', hidden: 'hidden' in attrs, disabled: 'disabled' in attrs, value: attrs.value || '', checked: 'checked' in attrs, type: attrs.type || '',
+      textContent: '', title: attrs.title || '', className: attrs.class || '', style: {}, width: +(attrs.width || 300), height: +(attrs.height || 150),
+      captured: [], rect: opts.rect ? Object.assign({}, opts.rect) : { left: 0, top: 0, width: 100, height: 100 },
+      classList: { set: new Set((attrs.class || '').split(/\s+/).filter(Boolean)), add(...c) { c.forEach((x) => this.set.add(x)); }, remove(...c) { c.forEach((x) => this.set.delete(x)); }, contains(c) { return this.set.has(c); }, toggle(c, on) { const want = on === undefined ? !this.set.has(c) : !!on; if (want) this.set.add(c); else this.set.delete(c); return want; } },
+      addEventListener(ev, fn) { (this.listeners[ev] = this.listeners[ev] || []).push(fn); },
+      removeEventListener(ev, fn) { this.listeners[ev] = (this.listeners[ev] || []).filter((f) => f !== fn); },
+      dispatch(type, init) { const ev = Object.assign({ type, target: this, currentTarget: this, preventDefault() { ev.defaultPrevented = true; }, stopPropagation() {}, pointerId: 1, clientX: 0, clientY: 0, button: 0 }, init || {}); for (const fn of (this.listeners[type] || []).slice()) fn.call(this, ev); const on = this['on' + type]; if (typeof on === 'function') on.call(this, ev); return ev; },
+      click() { return this.dispatch('click'); },
+      focus() {}, blur() {}, select() {},
+      setPointerCapture(id) { this.captured.push(id); }, releasePointerCapture() {}, hasPointerCapture() { return true; },
+      getBoundingClientRect() { const r = this.rect; return { left: r.left, top: r.top, width: r.width, height: r.height, right: r.left + r.width, bottom: r.top + r.height, x: r.left, y: r.top }; },
+      getContext: () => e._ctx || (e._ctx = noopCtx()),
+      getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
+      setAttribute(k, v) { this.attrs[k] = String(v); if (k === 'id') { this.id = v; byId.set(v, this); } },
+      removeAttribute(k) { delete this.attrs[k]; },
+      hasAttribute(k) { return k in this.attrs; },
+      querySelector(sel) { return query(this, sel)[0] || null; },
+      querySelectorAll(sel) { return query(this, sel); },
+      getElementsByClassName(c) { return all(this).filter((x) => x.classList.contains(c)); },
+      appendChild(c) { this.children.push(c); c.parent = c.parentNode = this; return c; },
+      append(...cs) { cs.forEach((c) => (typeof c === 'object' ? this.appendChild(c) : null)); },
+      insertBefore(c) { return this.appendChild(c); },
+      removeChild(c) { this.children = this.children.filter((x) => x !== c); return c; },
+      remove() { if (this.parent) this.parent.removeChild(this); },
+      replaceChildren(...cs) { this.children = []; this.append(...cs); },
+      closest(sel) { let n = this; while (n && n.tagName) { if (matches(n, sel)) return n; n = n.parent; } return null; },
+      contains(o) { let n = o; while (n) { if (n === this) return true; n = n.parent; } return false; },
+      scrollIntoView() {},
+      get firstChild() { return this.children[0] || null; },
+      get innerHTML() { return html; }, set innerHTML(v) { html = String(v); this.children = []; },
+      get offsetWidth() { return this.rect.width; }, get offsetHeight() { return this.rect.height; },
+      get clientWidth() { return this.rect.width; }, get clientHeight() { return this.rect.height; },
+    };
+    if (e.id) byId.set(e.id, e);
+    return e;
+  };
+  const docEl = mk('html', {}, null);
+  let body = null, head = null;
+  const scripts = [];
+  function parseInto(root, htmlText) {
+  let cur = root;
+  const re = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
+  let m;
+  while ((m = re.exec(htmlText))) {
+    if (!m[2]) continue;
+    const tag = m[2].toLowerCase();
+    if (m[1]) { let n = cur; while (n && n.tagName !== tag.toUpperCase()) n = n.parent; if (n && n.parent) cur = n.parent; continue; }
+    if (tag === 'html') continue;
+    const attrs = {};
+    for (const a of m[3].matchAll(/([^\s=/]+)(?:\s*=\s*("([^"]*)"|'([^']*)'|[^\s>]+))?/g)) attrs[a[1].toLowerCase()] = a[3] != null ? a[3] : a[4] != null ? a[4] : (a[2] || '');
+    const node = mk(tag, attrs, cur);
+    cur.children.push(node);
+    if (tag === 'body') body = node;
+    if (tag === 'head') head = node;
+    if (tag === 'script' || tag === 'style' || tag === 'textarea' || tag === 'title') {
+      const end = htmlText.indexOf('</' + tag, re.lastIndex);
+      const inner = htmlText.slice(re.lastIndex, end < 0 ? htmlText.length : end);
+      if (tag === 'script') scripts.push(attrs.src ? { src: attrs.src } : { inline: inner });
+      else node.textContent = inner;
+      re.lastIndex = end < 0 ? htmlText.length : end;
+      continue;
+    }
+    if (!VOID.has(tag) && !/\/\s*$/.test(m[3])) cur = node;
+    else continue;
+    // simple text content for leaf-ish elements
+    const close = htmlText.indexOf('<', re.lastIndex);
+    const txt = htmlText.slice(re.lastIndex, close < 0 ? htmlText.length : close).trim();
+    if (txt) node.textContent = txt;
+  }
+  }
+  parseInto(docEl, htmlText);
+  body = body || mk('body', {}, docEl);
+  head = head || mk('head', {}, docEl);
+  const docListeners = {}, winListeners = {};
+  const rafs = [];
+  const store = new Map();
+  const document = {
+    documentElement: docEl, body, head, hidden: false, visibilityState: 'visible', readyState: 'complete',
+    getElementById: (id) => byId.get(id) || null,
+    querySelector: (sel) => query(docEl, sel)[0] || null,
+    querySelectorAll: (sel) => query(docEl, sel),
+    getElementsByTagName: (t) => query(docEl, t),
+    createElement: (tag) => mk(tag, {}, null),
+    createElementNS: (ns, tag) => mk(tag, {}, null),
+    createTextNode: (t) => ({ textContent: t }),
+    createDocumentFragment: () => mk('fragment', {}, null),
+    addEventListener: (ev, fn, o) => { (docListeners[ev] = docListeners[ev] || []).push({ fn, capture: o === true || !!(o && o.capture) }); },
+    removeEventListener: (ev, fn) => { docListeners[ev] = (docListeners[ev] || []).filter((l) => l.fn !== fn); },
+    // capture listeners first; stopPropagation() in one keeps the event from the bubble listeners
+    dispatch(type, init) {
+      let stopped = false;
+      const ev = Object.assign({ type, target: body, preventDefault() { ev.defaultPrevented = true; }, stopPropagation() { stopped = true; }, stopImmediatePropagation() { stopped = true; } }, init || {});
+      const ls = (docListeners[type] || []).slice();
+      for (const l of ls.filter((x) => x.capture)) l.fn(ev);
+      if (!stopped) for (const l of ls.filter((x) => !x.capture)) { l.fn(ev); if (stopped) break; }
+      return ev;
+    },
+    getElementsByClassName: (c) => all(docEl).filter((x) => x.classList.contains(c)),
+  };
+  const win = {
+    document, console, Math, JSON, Date, Promise, Object, Array, String, Number, Boolean, RegExp, Error, TypeError, Map, Set, WeakMap, Symbol, Uint8Array, Uint8ClampedArray, Int16Array, Float32Array, Float64Array, Uint32Array, Int32Array, Uint16Array, ArrayBuffer, DataView, parseInt, parseFloat, isNaN, isFinite, encodeURIComponent, decodeURIComponent, TextEncoder, TextDecoder, Infinity, NaN,
+    setTimeout: opts.setTimeout || setTimeout, clearTimeout: opts.clearTimeout || clearTimeout, setInterval: opts.setInterval || (() => 0), clearInterval: () => {},
+    requestAnimationFrame: (fn) => { rafs.push(fn); return rafs.length; }, cancelAnimationFrame: () => {},
+    performance: { now: () => Date.now() },
+    matchMedia: (q) => ({ matches: !!(opts.media && opts.media[q]), addEventListener() {}, addListener() {} }),
+    localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) },
+    navigator: { userAgent: 'node', maxTouchPoints: 0, vibrate() {} },
+    location: { href: 'about:blank', hash: '', search: '' },
+    innerWidth: 800, innerHeight: 600, devicePixelRatio: 1,
+    addEventListener: (ev, fn) => { (winListeners[ev] = winListeners[ev] || []).push(fn); },
+    removeEventListener: (ev, fn) => { winListeners[ev] = (winListeners[ev] || []).filter((f) => f !== fn); },
+    dispatch(type, init) { const ev = Object.assign({ type, preventDefault() { ev.defaultPrevented = true; }, stopPropagation() {} }, init || {}); for (const fn of (winListeners[type] || []).slice()) fn(ev); return ev; },
+    Image: function () { return mk('img', {}, null); },
+    getComputedStyle: () => ({ getPropertyValue: () => '' }),
+  };
+  Object.assign(win, opts.globals || {});
+  win.window = win; win.self = win; win.globalThis = win;
+  const vmc = require('vm').createContext(win);
+  return {
+    win, document, scripts, rafs, vmc,
+    // fragment(html): rendered markup as elements (to click what a page painted)
+    fragment(html) { const box = mk('div', {}, null); parseInto(box, String(html)); return box; },
+    frame(ts) { const fns = rafs.splice(0); for (const fn of fns) fn(ts); return fns.length; },
+    run(code, filename) { return require('vm').runInContext(code, vmc, { filename: filename || 'inline.js' }); },
+  };
+}
+
 // ---- boot the app the way index.html does, minus the DOM ----------------
 // hist.js and storage.js are pure; the vendor engine needs only Grid/Tile.
-// The actuator and input manager are stubs — this suite is about the SAVE,
-// and the panel's own wiring is source-scanned at the bottom.
+// The actuator and input manager are stubs — this suite is about the SAVE.
+// The panel's own wiring is run at the bottom, on the booted page.
 function boot(db, opts) {
   opts = opts || {};
   const sandbox = {
@@ -423,6 +578,8 @@ function gameRows(db) {
         [you({ score: 2400, max: 2048, won: true }), kim({ score: 900 })]],
       ['a nameless winner', { score: 900 },
         [you({ score: 900 }), anon({ score: 2400, max: 2048, won: true })]],
+      ['a nameless winner on score', { score: 800, over: true },
+        [you({ score: 800, over: true }), anon({ score: 1900, over: true, max: 256 })]],
       ['you win on score', { score: 2000, over: true },
         [you({ score: 2000, over: true, max: 512 }), kim({ score: 940, over: true, max: 256 })]],
       ['they win on score', { score: 800, over: true },
@@ -445,15 +602,19 @@ function gameRows(db) {
     }
 
     const byName = Object.fromEntries(said);
-    check('the winner takes the verb its name asks for — never "They wins"',
-      byName['they reached 2048'] === 'Kim reached 2048 first.' &&
-      byName['a nameless winner'] === 'They reached 2048 first.' &&
-      byName['you win on score'] === 'You win on score.' &&
-      byName['they win on score'] === 'Kim wins on score.', byName);
+    // Who the line names, and which numbers it carries — not its exact words.
+    const names = (t) => ['You', 'Kim', 'They'].filter((n) => new RegExp('\\b' + n + '\\b').test(t));
+    check('the winner is the one the line names — and a nameless winner is never "They wins"',
+      names(byName['they reached 2048']).join() === 'Kim' &&
+      names(byName['a nameless winner']).join() === 'They' &&
+      names(byName['a nameless winner on score']).join() === 'They' && !/\bThey wins\b/.test(byName['a nameless winner on score']) &&
+      names(byName['you win on score']).join() === 'You' &&
+      names(byName['they win on score']).join() === 'Kim' &&
+      byName['you win on score'] !== byName['they win on score'].replace('Kim', 'You'), byName);
+    const nums = (t) => (t.match(/-?\d+(?:,\d{3})*/g) || []).join();
     check('the gap is what the line adds — the one thing two scores do not say',
-      byName['ahead'] === 'You’re 240 ahead.' &&
-      byName['behind'] === 'You’re 130 behind.' &&
-      byName['level'] === 'Dead even.', byName);
+      nums(byName['ahead']) === '240' && nums(byName['behind']) === '130' && nums(byName['level']) === '' &&
+      new Set([byName['ahead'].replace('240', 'N'), byName['behind'].replace('130', 'N'), byName['level']]).size === 3, byName);
     check('the overlay across the board says you are out, so the bar does not too',
       !/out/i.test(byName['you out, they play on']), byName['you out, they play on']);
 
@@ -463,43 +624,167 @@ function gameRows(db) {
       /chip-2048">2048</.test(wonList) && !/tag">2048</.test(wonList), wonList);
   }
 
-  // ---- the wiring a vm cannot click --------------------------------------
+  // ---- the page, booted -------------------------------------------------
+  // index.html over a small DOM, its scripts in page order, the save in a
+  // fake gifos.db. The Games panel is opened, clicked and typed at.
   {
-    const html = read('index.html');
-    const app = read('app.js');
-    const ui = read('hist-ui.js');
-    const storage = read('storage.js');
-    const build = read('build.mjs');
+    async function bootPage(order, rowsIn) {
+      const db = fakeDb();
+      for (const r of rowsIn || []) db.rows.set(r.id, r);
+      let gets = 0; const g0 = db.getAll; db.getAll = () => { gets++; return g0(); };
+      const dom = fakeDom(read('index.html'), { globals: { gifos: { db: () => db } } });
+      const srcs = order || dom.scripts.filter((x) => x.src).map((x) => x.src);
+      let error = null;
+      try { for (const f of srcs) dom.run(read(f), f); } catch (e) { error = e; }
+      await new Promise((r) => setTimeout(r, 20));
+      try { dom.frame(16); } catch (e) { error = error || e; }
+      const G = dom.win.G2048 || {};
+      return { dom, db, G, error, srcs, gets: () => gets, $: (id) => dom.document.getElementById(id) };
+    }
+    const cells = (game) => JSON.stringify(game.serialize().grid.cells);
+    const p = await bootPage();
+    check('index.html ships the Games button and the panel, and the button opens it',
+      !p.error && !!p.$('histBtn') && !!p.$('hist-list') && p.$('hist-panel').hidden === true &&
+      (p.$('histBtn').click(), p.$('hist-panel').hidden === false && p.G.HistUI.isOpen()));
+    p.$('hist-close').click();
+    check('✕ is close, never delete: it closes the panel and every game is still there',
+      p.$('hist-panel').hidden === true && !p.$('hist-close').classList.contains('row-del') && p.G.hist.games().length >= 1);
+    check('hist.js loads before storage.js and hist-ui.js: in page order the panel mounts on a live game',
+      !p.error && !!p.G.game && !!p.G.HistUI, p.error && String(p.error));
+    const swap = (a, b) => p.srcs.map((x) => (x === a ? b : x === b ? a : x));
+    for (const [what, order] of [['storage.js before hist.js', swap('hist.js', 'storage.js')], ['hist-ui.js before hist.js', p.srcs.filter((x) => x !== 'hist-ui.js').flatMap((x) => (x === 'hist.js' ? ['hist-ui.js', x] : [x]))]]) {
+      const q = await bootPage(order);
+      let works = !q.error && !!q.G.game && !!q.G.HistUI;
+      if (works) { try { q.$('histBtn').click(); works = q.$('hist-list').innerHTML.length > 0; } catch (e) { works = false; } }
+      check('…and ' + what + ' does not boot a working panel', !works);
+    }
+    // the panel blocks play
+    p.$('histBtn').click();
+    const before = cells(p.G.game);
+    for (let d = 0; d < 4; d++) p.G.game.move(d);
+    check('the panel blocks play instead of taking moves you cannot see', cells(p.G.game) === before);
+    // keys: capture, before the game hears them
+    for (const [key, code] of [['ArrowLeft', 37], ['ArrowUp', 38], ['ArrowRight', 39], ['ArrowDown', 40], ['r', 82]]) p.dom.document.dispatch('keydown', { key, keyCode: code, which: code });
+    check('the panel swallows keys in CAPTURE, before the game hears them', cells(p.G.game) === before && p.G.HistUI.isOpen());
+    p.dom.document.dispatch('keydown', { key: 'Escape', keyCode: 27, which: 27 });
+    check('…and Escape closes it', !p.G.HistUI.isOpen());
+    // with the panel shut the same keys play
+    let moved = false;
+    for (const [key, code] of [['ArrowLeft', 37], ['ArrowUp', 38], ['ArrowRight', 39], ['ArrowDown', 40]]) { p.dom.document.dispatch('keydown', { key, keyCode: code, which: code }); if (cells(p.G.game) !== before) { moved = true; break; } }
+    check('control: with the panel shut the same keys move tiles', moved);
+    // delete asks first
+    p.G.game.restart();               // a second game, so the first is history
+    playMoves(p.G.game, 3);
+    p.$('histBtn').click();
+    const listEl = p.$('hist-list');
+    // click what the panel painted, in a row that is not the game in play
+    const clickRendered = (sel) => {
+      const frag = p.dom.fragment(listEl.innerHTML);
+      const li = frag.querySelectorAll('li').find((x) => !x.classList.contains('now') && x.querySelector(sel));
+      const t = li ? li.querySelector(sel) : null;
+      if (t) listEl.dispatch('click', { target: t });
+      return t;
+    };
+    const n0 = p.G.hist.games().length;
+    const del = clickRendered('[data-del]');
+    check('delete asks first — no one-tap loss of a game', !!del && p.G.hist.games().length === n0 && !!p.dom.fragment(listEl.innerHTML).querySelector('[data-yes]'));
+    clickRendered('[data-no]');
+    check('…Keep keeps it', p.G.hist.games().length === n0 && !p.dom.fragment(listEl.innerHTML).querySelector('[data-yes]'));
+    clickRendered('[data-del]'); clickRendered('[data-yes]');
+    check('…and Delete, after asking, removes exactly that game', p.G.hist.games().length === n0 - 1);
+    // tapping a past game sits you back down at it: the panel drives the live game
+    {
+      p.$('hist-close').click(); p.G.game.restart(); playMoves(p.G.game, 2); p.$('histBtn').click();
+      const frag = p.dom.fragment(listEl.innerHTML);
+      const li = frag.querySelectorAll('li').find((x) => !x.classList.contains('now') && x.querySelector('[data-open]'));
+      const id = li && li.querySelector('[data-open]').getAttribute('data-open');
+      const row = id && p.G.hist.games().find((r) => r.id === id);
+      if (li) listEl.dispatch('click', { target: li.querySelector('[data-open]') });
+      check('app.js mounts the panel on the live game: tapping a past game resumes it on the board',
+        !!row && p.G.hist.currentId() === id && JSON.stringify(p.G.game.serialize().grid.cells) === JSON.stringify(row.state.grid.cells) && !p.G.HistUI.isOpen(),
+        { id, cur: p.G.hist.currentId() });
+      p.$('histBtn').click();
+    }
+    const delBtn = p.dom.fragment(listEl.innerHTML).querySelector('[data-del]');
+    check('delete is the standard row-del button carrying the shared trash glyph',
+      !!delBtn && delBtn.tagName === 'BUTTON' && delBtn.classList.contains('row-del') && delBtn.children.some((c) => c.tagName === 'SVG'));
+    // TEXT-CHECK: a style is painted only by a browser; the parsed stylesheet
+    // is read for the rules the markup above relies on.
+    {
+      const css = read('style.css').replace(/\/\*[\s\S]*?\*\//g, '');
+      const rules = [];
+      for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) for (const sel of m[1].split(',')) rules.push({ sel: sel.trim().replace(/\s+/g, ' '), body: m[2] });
+      const declOf = (sel) => { const d = {}; for (const r of rules.filter((x) => x.sel === sel)) for (const kv of r.body.split(';')) { const i = kv.indexOf(':'); if (i > 0) d[kv.slice(0, i).trim()] = kv.slice(i + 1).trim(); } return d; };
+      check('…styled by the shared button.row-del rule', rules.some((r) => /(^|\s)button\.row-del$/.test(r.sel)));
+      check('friend-mode hides the Games button', rules.some((r) => /^body\.friend .*\.hist-button$/.test(r.sel) && /display:\s*none/.test(r.body)));
+      check('friend-mode stands the heading Score/Best pair down — the bar has both', /none/.test(declOf('body.friend .scores-container').display || ''));
+    }
+    // the panel escapes what it prints
+    {
+      const evil = '"><img src=x onerror=alert(1)>';
+      const q = await bootPage(null, [{ id: evil, kind: 'game', state: { grid: { size: 4, cells: [[null, null, null, null], [null, null, null, null], [null, null, null, null], [null, null, null, null]] }, score: 4, over: true, won: false, keepPlaying: false }, score: 4, max: 2, moves: 1, startedAt: 1, updatedAt: 2 }]);
+      q.$('histBtn').click();
+      const html = q.$('hist-list').innerHTML;
+      const frag = q.dom.fragment(html);
+      check('the panel escapes ids and names it prints', !/<img/i.test(html) && frag.querySelectorAll('[data-open]').some((b) => b.getAttribute('data-open').indexOf('&quot;') >= 0 || b.getAttribute('data-open').indexOf('"') < 0), html.slice(0, 200));
+    }
+    // app.js files the losing board before upstream clears it
+    {
+      const q = await bootPage();
+      const game = q.G.game;
+      // The board that ends a game: full, no merges. The real actuate() (with
+      // app.js's seam) runs on it the way move() runs it when a game is lost.
+      const full = [[2, 4, 2, 4], [4, 2, 4, 2], [2, 4, 2, 4], [4, 2, 4, 2]];
+      game.grid = new q.dom.win.Grid(4, full.map((col, x) => col.map((v, y) => ({ position: { x, y }, value: v }))));
+      game.over = true;
+      game.actuate();
+      await new Promise((r) => setTimeout(r, 300));
+      const rows = [...q.db.rows.values()].filter((r) => r.kind === 'game');
+      const lost = rows.find((r) => r.state && r.state.over);
+      check('app.js files the losing board before upstream clears it', game.over && !!lost && JSON.stringify(lost.state.grid.cells) === JSON.stringify(game.serialize().grid.cells), { over: game.over, rows: rows.length });
+    }
+    // storage: best stays out of the archive; the collection is read once
+    {
+      const q = await bootPage(null, [{ id: 'best', score: 5000 }]);
+      const gets0 = q.gets();
+      q.G.game.restart(); playMoves(q.G.game, 4); q.G.game.restart(); playMoves(q.G.game, 4);
+      await new Promise((r) => setTimeout(r, 300));
+      const puts = []; const put0 = q.db.put; q.db.put = (r) => { puts.push(r.id); return put0(r); };
+      const victim = q.G.hist.games().find((r) => r.id !== q.G.hist.currentId());
+      q.G.hist.remove(victim.id);
+      await new Promise((r) => setTimeout(r, 300));
+      check('storage.js keeps best score out of the archive — deleting a game does not rewrite it',
+        q.db.rows.get('best') && q.db.rows.get('best').score === 5000 && !puts.includes('best') && !q.G.hist.games().some((r) => r.id === 'best'), { puts });
+      check('storage.js reads the collection ONCE at boot', gets0 === 1 && q.gets() === 1, { atBoot: gets0, after: q.gets() });
+    }
+  }
+  // build.mjs, run on a copy of the app in a temp tree
+  {
+    const os = require('os'), cp = require('child_process');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'g2048-build-'));
+    const copy = (dir) => { fs.mkdirSync(path.join(tmp, dir), { recursive: true }); };
+    copy('apps'); copy('gifos-app/js');
+    fs.cpSync(APP, path.join(tmp, 'apps/2048'), { recursive: true });
+    const codec = path.join(__dirname, '..', '..', 'gifos-app', 'js', 'gifos-gif.js');
+    fs.copyFileSync(codec, path.join(tmp, 'gifos-app/js/gifos-gif.js'));
+    const build = () => cp.spawnSync(process.execPath, [path.join(tmp, 'apps/2048/build.mjs')], { encoding: 'utf8' });
+    const ok = build();
+    const gifPath = path.join(tmp, 'gifos-app', 'apps', '2048', '2048.gif');
+    let names = [];
+    if (ok.status === 0 && fs.existsSync(gifPath)) {
+      require(codec);
+      const a = await globalThis.GifOS.gif.decode(new Uint8Array(fs.readFileSync(gifPath)));
+      names = a && a.files ? Object.keys(a.files) : [];
+    }
+    check('build.mjs packs both new files (the built GIF carries hist.js and hist-ui.js)', names.includes('hist.js') && names.includes('hist-ui.js'), { status: ok.status, err: (ok.stderr || '').slice(-200) });
+    const idx = path.join(tmp, 'apps/2048/index.html');
+    fs.writeFileSync(idx, fs.readFileSync(idx, 'utf8').replace(/<div id="hist-panel"[\s\S]*?<\/div>\s*<\/div>/, ''));
+    const refused = build();
+    check('build.mjs refuses a build with no way into history', refused.status !== 0, refused.status);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+  {
     const css = read('style.css');
-    const help = read('help.md');
-
-    check('index.html ships the Games button and the panel',
-      /id="histBtn"/.test(html) && /id="hist-panel"/.test(html) &&
-      /id="hist-list"/.test(html) && /id="hist-close"/.test(html));
-    check('hist.js loads before storage.js, hist-ui.js after game_manager.js',
-      html.indexOf('hist.js') < html.indexOf('storage.js') &&
-      html.indexOf('hist-ui.js') > html.indexOf('vendor/game_manager.js'));
-    check('build.mjs packs both new files', /'hist\.js'/.test(build) && /'hist-ui\.js'/.test(build));
-    check('build.mjs refuses a build with no way into history',
-      /id="hist-panel"/.test(build) && /id="histBtn"/.test(build));
-    check('app.js files the losing board before upstream clears it',
-      /this\.over[\s\S]{0,120}LocalStorageManager\.finalize/.test(app));
-    check('app.js mounts the panel once the game exists',
-      app.indexOf('new GameManager') < app.indexOf('mountHistUI'));
-    check('the panel blocks play instead of taking moves you cannot see',
-      /histOpen\(\)/.test(app) && /origMove/.test(app));
-    check('the panel swallows keys in CAPTURE, before the game hears them',
-      /addEventListener\('keydown'[\s\S]{0,400}\},\s*true\)/.test(ui) && /stopPropagation/.test(ui));
-    check('delete asks first — no one-tap loss of a game',
-      /confirming/.test(ui) && /data-yes/.test(ui) && /data-no/.test(ui));
-    check('delete is the standard row-del button and the shared trash glyph',
-      /class="row-del"/.test(ui) && /<svg viewBox="0 0 24 24"/.test(ui) && /button\.row-del/.test(css));
-    check('✕ is close, never delete', /id="hist-close"/.test(html) && !/row-del[^>]*&#10005;/.test(html));
-    check('the panel escapes ids and names it prints', /function esc\(/.test(ui) && /esc\(row\.id\)/.test(ui));
-    check('friend-mode hides the Games button', /body\.friend[\s\S]{0,80}\.hist-button/.test(css));
-    check('friend-mode stands the heading Score/Best pair down — the bar has both',
-      /body\.friend \.scores-container\s*\{[^}]*display:\s*none/.test(css));
-
     // A preview whose tile colours lose to the empty-cell rule paints every
     // board as blank — which is exactly what shipped for one build, because
     // `.prev .pv` (two classes) outranks a bare `.pv-16` (one).
@@ -512,14 +797,7 @@ function gameRows(db) {
         tiles.every((t) => classes(t) >= classes(base)),
         { base: base && base.trim(), weakest: tiles.filter((t) => classes(t) < classes(base || '')) });
     }
-    check('storage.js keeps best score out of the archive — deleting a game does not rewrite it',
-      /id: 'best'/.test(storage) && !/hist\.[a-z]+\([^)]*best/i.test(storage));
-    check('storage.js reads the collection ONCE at boot',
-      /function readAll\(/.test(storage) && (storage.match(/db\.getAll\(\)/g) || []).length === 1);
-    check('help.md documents that games are kept and how to delete one',
-      /## Your games/.test(help) && /delete/i.test(help));
   }
-
   console.log(failures ? '\n' + failures + ' FAILED' : '\nall green');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

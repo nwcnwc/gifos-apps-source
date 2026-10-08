@@ -35,7 +35,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -199,7 +199,7 @@ if (shot[0] !== 0x89 || shot[1] !== 0x50) throw new Error('screenshot is not a P
 writeFileSync(join(dir, 'screenshot.png'), shot);
 
 const bytes = await gif.encode(files, { preview: pixelitIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'pixelit', 'pixelit.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'pixelit', 'pixelit.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/pixelit/pixelit.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',

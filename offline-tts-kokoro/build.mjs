@@ -39,7 +39,7 @@ import { kokoroTtsIcon } from './icon.mjs';
     }
   };
 }
-await import('../../site/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
+await import('../../gifos-app/js/gifos-gif.js'); // attaches globalThis.GifOS.gif
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -132,7 +132,7 @@ const files = {
 };
 
 const bytes = await gif.encode(files, { preview: kokoroTtsIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'offline-tts-kokoro', 'offline-tts-kokoro.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'offline-tts-kokoro', 'offline-tts-kokoro.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/offline-tts-kokoro/offline-tts-kokoro.gif —', (bytes.length / 1e6).toFixed(2), 'MB from', Object.keys(files).length, 'files (WebGPU engine + voices + self-test in-GIF; Kokoro fp16 weights by asset pin)');

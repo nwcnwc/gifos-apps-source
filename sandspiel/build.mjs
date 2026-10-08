@@ -28,7 +28,7 @@ import vm from 'node:vm';
     }
   };
 }
-await import('../../site/js/gifos-gif.js');
+await import('../../gifos-app/js/gifos-gif.js');
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const gif = globalThis.GifOS.gif;
@@ -256,7 +256,7 @@ const shot = screenshotPng();
 if (shot[0] !== 0x89) throw new Error('screenshot is not a PNG');
 writeFileSync(join(dir, 'screenshot.png'), shot);
 const bytes = await gif.encode(files, { preview: sandspielIcon(), accent: manifest.accent });
-const out = join(dir, '..', '..', 'site', 'apps', 'sandspiel', 'sandspiel.gif');
+const out = join(dir, '..', '..', 'gifos-app', 'apps', 'sandspiel', 'sandspiel.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
 console.log('wrote site/apps/sandspiel/sandspiel.gif —', bytes.length, 'bytes, from', Object.keys(files).length, 'files');
