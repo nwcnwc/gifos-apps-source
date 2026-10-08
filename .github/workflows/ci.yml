@@ -22,4 +22,9 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+      # gltf-viewer/test.js parses the page's inline scripts with acorn.
+      - name: Script parser
+        run: npm install --prefix "$RUNNER_TEMP/parser" --no-audit --no-fund acorn@8.18.0
       - run: node test-all.js
+        env:
+          NODE_PATH: ${{ runner.temp }}/parser/node_modules
