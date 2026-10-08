@@ -246,16 +246,20 @@
       try { URL.revokeObjectURL(currentUrl); } catch (e) {}
     }
     currentUrl = url;
+    // What the image shows now: the given url first, then the data: URL it
+    // is re-encoded to. pic/src saves THIS, never the temporary blob: url.
+    var shown = url;
     img.onload = function () {
       if (!alreadySrc) {
         srcDataUrl = encodeSrcFromImage(img);
         if (srcDataUrl && srcDataUrl !== url) {
           alreadySrc = true;
+          shown = srcDataUrl;
           img.src = srcDataUrl;
           return;
         }
       } else {
-        srcDataUrl = url;
+        srcDataUrl = shown;
       }
       loaded = true;
       showWork(true);

@@ -509,14 +509,33 @@
         M.invalidate();
       }
     });
-    var lastStatus = 0;
+    // The layer words refresh at most every 400 ms from the map's frame, and
+    // always once more when that window closes. Without the closing call a
+    // frame that landed inside the window had the last word: offline, with
+    // nothing that can ever draw, no later frame comes, and the row went on
+    // saying nothing at all instead of "Not in this file" (e2e-worldview, red
+    // 1 run in 3 on a slow box, on main as on the release candidate).
+    var statusTick = throttleTrailing(function () { UI.refreshStatus(); }, 400);
     M.onFrame(function () {
       UI.renderNet();
       UI.renderBusy();
-      var now = Date.now();
-      if (now - lastStatus > 400) { lastStatus = now; UI.refreshStatus(); }
+      statusTick();
     });
   }
+
+  // WV-THROTTLE
+  function throttleTrailing(fn, ms) {
+    var last = -1e15, timer = 0;
+    return function () {
+      var wait = ms - (Date.now() - last);
+      if (wait <= 0) {
+        if (timer) { clearTimeout(timer); timer = 0; }
+        last = Date.now(); fn(); return;
+      }
+      if (!timer) timer = setTimeout(function () { timer = 0; last = Date.now(); fn(); }, wait);
+    };
+  }
+  // END-WV-THROTTLE
 
   function boot() {
     D.init(window.WV_ASSETS);

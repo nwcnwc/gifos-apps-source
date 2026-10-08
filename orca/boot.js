@@ -35,10 +35,16 @@
   var hud = null;
   var bar = null;
 
+  // The grid's cells as one flat string. Never `'' + client.orca`: Orca has
+  // its own valueOf(glyph), so concatenation yields "0", not the grid.
+  function gridText() {
+    return client.orca.s;
+  }
+
   function snapshot() {
     return {
       id: 'grid',
-      orca: '' + client.orca,
+      orca: gridText(),
       w: client.orca.w,
       h: client.orca.h,
       f: client.orca.f,
@@ -52,6 +58,9 @@
   function apply(rec) {
     if (!rec || !rec.orca) return false;
     var w = rec.w || 1, h = rec.h || 1;
+    // A record whose cells do not fill w x h is not a grid (older builds
+    // saved "0" here): refuse it rather than load a broken canvas.
+    if (String(rec.orca).replace(/\r?\n/g, '').length !== w * h) return false;
     client.orca.load(w, h, rec.orca, rec.f || 0);
     if (rec.tilew && rec.tileh) {
       client.tile.w = rec.tilew;
@@ -79,7 +88,7 @@
     if (!db) return;
     db.put(snapshot()).catch(function () {});
     if (jamOn && room && me.id) {
-      var s = '' + client.orca;
+      var s = gridText();
       if (s !== lastPub) {
         jamRound += 1;
         lastPub = s;
@@ -333,7 +342,7 @@
     });
     if (!best || best.id === me.id) return;
     if ((best.round || 0) < jamRound) return;
-    if (best.orca === ('' + client.orca)) {
+    if (best.orca === gridText()) {
       jamRound = Math.max(jamRound, best.round || 0);
       return;
     }
@@ -349,8 +358,7 @@
     installChrome();
 
     function afterLoad(rec) {
-      if (rec && rec.orca) {
-        apply(rec);
+      if (rec && rec.orca && apply(rec)) {
         taught = !!rec.taught;
       } else {
         loadStarter();

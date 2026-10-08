@@ -64,13 +64,14 @@ body.friend #shareBtn { display: none; }
   flex: 0 0 auto;
 }
 #dock #playBtn { min-width: 88px; }
-#stampBtn {
+/* Two ids: `#dock button` (an id and a type) must not outrank Stamp's own look. */
+#dock #stampBtn {
   flex: 1.8 1 auto;
   background: #39d0c5; color: #082018; border-color: #2bb8ae;
   min-height: 56px; font-size: 18px; letter-spacing: 0.02em;
 }
-#stampBtn:disabled, #playBtn:disabled { opacity: 0.45; cursor: default; }
+#dock #stampBtn:disabled, #dock #playBtn:disabled { opacity: 0.45; cursor: default; }
 @media (max-width: 640px) {
-  #stampBtn { min-height: 64px; font-size: 20px; }
+  #dock #stampBtn { min-height: 64px; font-size: 20px; }
   #dock button { min-height: 56px; }
 }

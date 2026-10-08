@@ -299,7 +299,9 @@
     applying = true;
     var next = wantMode || (parsed.error ? 'code' : (parsed.empty ? 'tree' : mode));
     if (parsed.error) next = 'code';
-    if (next === 'code' && parsed.value !== undefined && !parsed.error) {
+    // Code mode shows two-space JSON, unless the caller chose the exact text
+    // (Compact, Format, Repair): re-indenting that would undo Compact.
+    if (next === 'code' && parsed.value !== undefined && !parsed.error && !parsed.keepText) {
       parsed = { value: parsed.value, text: JSON.stringify(parsed.value, null, 2), empty: parsed.empty };
     }
     try {
@@ -383,7 +385,7 @@
       setStatus(kind === 'repair' ? 'Could not repair — still not valid JSON' : 'Cannot ' + kind + ' until the text is valid JSON');
       return;
     }
-    applyParsed({ value: parsed.value, text: parsed.text }, mode);
+    applyParsed({ value: parsed.value, text: parsed.text, keepText: true }, mode);
     persistNow();
     if (root.JsonEditorMp) root.JsonEditorMp.publish();
     setStatus(kind === 'repair' && parsed.repaired ? 'Repaired' : (kind === 'compact' ? 'Compacted' : 'Formatted'));

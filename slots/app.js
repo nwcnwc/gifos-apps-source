@@ -167,8 +167,10 @@
   function playRoom(spin) {
     if (!spin || !spin.symbols) return;
     if (slot.busy) { pending = spin; return; }
-    applyingWho(spin);
+    // spinTo runs onSpinStart at once, and that hides #who for every spin:
+    // name the friend after it, or the name is gone in the same tick.
     slot.spinTo(spin.symbols, true);
+    applyingWho(spin);
   }
   function applyingWho(spin) {
     if (spin.by && spin.by === mp.me.id) {

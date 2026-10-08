@@ -15,6 +15,9 @@
   var sel = null;
   var hint = null;
   var overlayMode = null;
+  // The suit count a mid-game "Leave this deal?" will deal on confirm.
+  // Kept apart from overlayMode, which showOverlay sets to its mode name.
+  var askedSuits = null;
   var persistErr = '';
   var drag = null;
 
@@ -159,6 +162,7 @@
   }
   function hideOverlay() {
     overlayMode = null;
+    askedSuits = null;
     $('overlay').hidden = true;
   }
 
@@ -321,8 +325,8 @@
   };
   function askNew(suits) {
     if (board.moves > 0 && !board.gameWon) {
-      overlayMode = { kind: 'new', suits: suits };
       showOverlay('new', 'Leave this deal?', 'The tableau is saved until you confirm.');
+      askedSuits = suits;
       return;
     }
     dealNew(suits == null ? board.suits : suits);
@@ -338,7 +342,7 @@
   $('ov-no').onclick = hideOverlay;
   $('ov-yes').onclick = function () {
     var suits = board.suits;
-    if (overlayMode && overlayMode.kind === 'new' && overlayMode.suits) suits = overlayMode.suits;
+    if (overlayMode === 'new' && askedSuits) suits = askedSuits;
     dealNew(suits);
   };
 
