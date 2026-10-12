@@ -1,0 +1,20 @@
+{
+  "gifos": "1.0",
+  "appId": "pdf-read-aloud",
+  "name": "PDF Read Aloud",
+  "shortName": "Read Aloud",
+  "version": "1.0.0",
+  "minBuild": 947,
+  "description": "Open a PDF and hear it read aloud. The file stays on this device.",
+  "entry": "index.html",
+  "accent": [196, 92, 42],
+  "help": "help.md",
+  "capabilities": {
+    "db": true,
+    "wasm": true,
+    "ai": ["tts"]
+  },
+  "data": {
+    "save": { "visibility": "private" }
+  }
+}
