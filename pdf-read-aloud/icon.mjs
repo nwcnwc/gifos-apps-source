@@ -231,16 +231,21 @@ export function screenshotPng() {
   fillRect(put, px, py, pw, ph, 250, 248, 242);
   fillRect(put, px, py, pw, 10, 196, 92, 42);
   drawText(put, px + 36, py + 36, 'A PAGE, READ ALOUD', 3, 40, 32, 28);
+  // Scale-2 glyphs are 12 px wide: a line on this page holds 33 characters.
   const body = [
-    'A SHEET OF PAPER CAN BE HEARD AS WELL AS SEEN.',
-    'THIS NOTE IS TWO PAGES. IT LIVES IN THE APP.',
+    'A SHEET OF PAPER CAN BE HEARD',
+    'AS WELL AS SEEN.',
+    'THIS NOTE IS TWO PAGES.',
+    'IT LIVES IN THE APP.',
     'NOTHING HERE IS UPLOADED.',
-    'PRESS PLAY. THE VOICE READS ONE SENTENCE,',
-    'THEN THE NEXT. THE LINE YOU HEAR IS MARKED.',
+    'PRESS PLAY. THE VOICE READS',
+    'ONE SENTENCE, THEN THE NEXT.',
+    'THE LINE YOU HEAR IS MARKED.',
   ];
+  const MARKED = 4; // "Nothing here is uploaded." is the sentence being read
   for (let i = 0; i < body.length; i++) {
-    const y = py + 120 + i * 52;
-    if (i === 3) fillRect(put, px + 28, y - 10, 430, 40, 255, 196, 48);
+    const y = py + 120 + i * 48;
+    if (i === MARKED) fillRect(put, px + 28, y - 10, body[i].length * 12 + 14, 34, 255, 196, 48);
     drawText(put, px + 36, y, body[i], 2, 40, 32, 28);
   }
   drawText(put, px + pw / 2 - 8, py + ph - 36, '1', 2, 120, 110, 100);
@@ -248,7 +253,7 @@ export function screenshotPng() {
   fillRect(put, 0, H - 36, W, 36, 28, 24, 20);
   drawText(put, 20, H - 26, 'PAPER-AND-VOICE.PDF', 2, 217, 208, 198);
   drawText(put, 420, H - 26, 'PAGE 1 OF 2', 2, 183, 174, 164);
-  drawText(put, 680, H - 26, 'SENTENCE 4 OF 6', 2, 183, 174, 164);
+  drawText(put, 680, H - 26, 'SENTENCE 4 OF 7', 2, 183, 174, 164);
 
   const raw = Buffer.alloc((W * 4 + 1) * H);
   for (let y = 0; y < H; y++) {

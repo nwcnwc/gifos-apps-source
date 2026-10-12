@@ -90,14 +90,11 @@ if (!manifest.data || !manifest.data.save || manifest.data.save.visibility !== '
   throw new Error('save must be private');
 }
 
-if (!listing.basedOn || listing.basedOn.blessed !== false) {
-  throw new Error('basedOn.blessed must be false');
-}
-if (listing.basedOn.name !== 'PDF.js') throw new Error('basedOn.name must be PDF.js');
-if (!listing.porter || listing.porter.name !== 'GifOS') throw new Error('listing.porter must be GifOS');
-if (!listing.author || /gifos/i.test(listing.author.name)) {
-  throw new Error('author is Mozilla, never GifOS');
-}
+// GifOS's own app: pdf.js is a packed-in engine, credited in the description,
+// not a work this app ports.
+if (listing.author !== 'GifOS') throw new Error('author is GifOS');
+if (listing.basedOn || listing.porter) throw new Error('not a port: no basedOn or porter');
+if (!/pdf\.js/.test(listing.description)) throw new Error('the description credits pdf.js');
 if (listing.license !== 'Apache-2.0') throw new Error('listing.license must be Apache-2.0');
 if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/pdf-read-aloud') {
   throw new Error('listing.homepage must be the gifos tree');
