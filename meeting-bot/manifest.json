@@ -1,0 +1,33 @@
+{
+  "gifos": "1.0",
+  "appId": "meeting-bot",
+  "name": "Meeting Bot",
+  "shortName": "Meet Bot",
+  "version": "0.9.23",
+  "minBuild": 2723,
+  "description": "Sits in meetings for you. You control it from another device with the same name and password.",
+  "entry": "index.html",
+  "accent": [92, 160, 255],
+  "capabilities": {
+    "db": true,
+    "meet": true,
+    "remote": true
+  },
+  "launch": {
+    "mode": {
+      "label": "Start in this mode",
+      "detail": "run or control."
+    },
+    "name": {
+      "label": "Bot name",
+      "detail": "The name this bot uses. Together with the password it derives the secret admin meeting."
+    },
+    "password": {
+      "label": "Bot password",
+      "detail": "Never sent to a server. The same pair opens the admin meeting from another device."
+    }
+  },
+  "data": {
+    "save": { "visibility": "private" }
+  }
+}
