@@ -17,9 +17,8 @@ that screen.
 
 ## What happens to the money
 
-It goes to the people who build GifOS. GifOS's payment system takes the same
-3% cut here that it takes on any app — even from its own tip jar — because
-the numbers should work the same for everyone.
+It goes to the people who build GifOS. A PayPal tip is the whole amount;
+nothing is held back from it.
 
 ## What this app knows about you
 
@@ -41,8 +40,9 @@ in another app, a small tip here is the tour.
 
 ## If something goes wrong
 
-A payment you declined charges nothing — the app just offers to try again.
-If a payment window closed before you finished, nothing was charged either;
-press the button again. Payments are final: a tip cannot be refunded from
-inside GifOS, which is one more reason the approval screen always shows you
-the amount before anything happens.
+Saying no before a payment starts charges nothing — the app just offers to
+try again. If the PayPal window closed, or the wait was hidden, this app
+cannot tell whether PayPal charged you. If PayPal shows a charge, it was
+paid. Check your PayPal activity before trying again. Payments are final:
+a tip cannot be refunded from inside GifOS, which is one more reason the
+approval screen always shows you the amount before anything happens.

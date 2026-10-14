@@ -3,8 +3,10 @@
  * One call: gifos.charge() with an editable amount and no sku. The OS shows
  * its own approval sheet (verified author, amount, rail choice) — this app
  * never sees a card, a wallet, or a balance, and keeps no record of anything.
- * A decline comes back as DECLINED_BY_USER, which is a normal outcome here,
- * not an error: the person simply said not today.
+ * DECLINED_BY_USER is kept by name. On the current OS it is "No thanks"
+ * before any order. The released OS also used that name when it stopped
+ * looking after the PayPal window closed. Those two cannot be told apart
+ * here, so that name is never shown as "nothing was charged."
  */
 (function () {
   'use strict';
@@ -56,10 +58,16 @@
       sendBtn.hidden = true; note.hidden = true;
       paint();
     }).catch(function (err) {
-      var declined = /DECLINED_BY_USER/.test(String(err && err.message || err));
+      var msg = String(err && err.message || err || '');
+      // DECLINED_BY_USER on the current OS is "No thanks" before any order.
+      // The released OS also used that same name when it stopped looking
+      // after the PayPal window closed, which is a payment it had not
+      // checked. This app cannot tell those apart, so it does not claim
+      // the money was not taken.
+      var declined = /DECLINED_BY_USER/.test(msg);
       note.textContent = declined
-        ? 'No problem — nothing was charged.'
-        : 'That didn’t go through: ' + String(err && err.message || err);
+        ? 'GifOS did not record a payment. If you approved one in PayPal, that charge is real — check your PayPal activity before trying again.'
+        : msg;
       sendBtn.disabled = false;
       paint();
     });
