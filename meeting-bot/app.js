@@ -217,6 +217,13 @@
     }
   }
 
+  gifos.meet.onParticipants(function (ev) {
+    if (state.phase !== 'probe' || !ev || ev.meetingId !== state.probeId) return;
+    var people = ev.people || [];
+    for (var i = 0; i < people.length; i++) {
+      if (people[i] && people[i].bot && !people[i].me) state.probeBeat = state.probeBeat || { role: 'bot', op: 'beat' };
+    }
+  });
   gifos.meet.onChat(function (ev) {
     var text = String((ev && ev.text) || '');
     if (!adminEvent(ev)) {
@@ -312,7 +319,8 @@
     paint();
     return gifos.meet.join(state.admin.room, state.admin.password, state.name + ' probe', { bot: false, control: true }).then(function (sess) {
       state.probeId = sess.meetingId;
-      return new Promise(function (res) { setTimeout(res, 4500); });
+      // Long enough for the mesh to open and for one 3s heartbeat to cross it.
+      return new Promise(function (res) { setTimeout(res, 8000); });
     }).then(function () {
       var beatSeen = state.probeBeat;
       var id = state.probeId;
