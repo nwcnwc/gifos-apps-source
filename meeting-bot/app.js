@@ -319,8 +319,7 @@
     paint();
     return gifos.meet.join(state.admin.room, state.admin.password, state.name + ' probe', { bot: false, control: true }).then(function (sess) {
       state.probeId = sess.meetingId;
-      // Long enough for the mesh to open and for one 3s heartbeat to cross it.
-      return new Promise(function (res) { setTimeout(res, 8000); });
+      return new Promise(function (res) { setTimeout(res, 4500); });
     }).then(function () {
       var beatSeen = state.probeBeat;
       var id = state.probeId;
