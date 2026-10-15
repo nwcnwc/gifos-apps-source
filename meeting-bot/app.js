@@ -12,7 +12,8 @@
     lines: {},
     probeBeat: null,
     warned: {},
-    ctrlItems: []
+    ctrlItems: [],
+    people: {}
   };
 
   var warnEl = document.getElementById('warn');
@@ -35,7 +36,11 @@
   function workMeetings() {
     return Object.keys(state.meetings).filter(function (id) { return !state.meetings[id].control; }).map(function (id) {
       var m = state.meetings[id];
-      return { id: m.meetingId, room: m.room || '', link: m.link || '', rec: !!m.rec, cc: !!m.cc };
+      var people = (state.people[id] || []).filter(function (x) { return x && !x.me; });
+      return {
+        id: m.meetingId, room: m.room || '', link: m.link || '', rec: !!m.rec, cc: !!m.cc,
+        created: !!m.created, people: people.map(function (x) { return x.name || ''; })
+      };
     });
   }
   function paint() {
@@ -48,7 +53,9 @@
     ul.innerHTML = '';
     workMeetings().forEach(function (m) {
       var li = document.createElement('li');
-      li.textContent = m.id + '  ' + (m.link || m.room) + (m.rec ? '  ⏺ recording' : '') + (m.cc ? '  📝 transcribing' : '');
+      li.dataset.id = m.id;
+      li.textContent = m.id + '  ' + (m.link || m.room) + (m.rec ? '  ⏺ recording' : '') + (m.cc ? '  📝 transcribing' : '') +
+        (m.people.length ? '  with ' + m.people.join(', ') : '');
       ul.appendChild(li);
     });
     if (state.phase === 'control') renderCtrl(state.ctrlItems);
@@ -71,7 +78,8 @@
       title.innerHTML = '<b></b>';
       title.querySelector('b').textContent = m.id;
       var sub = document.createElement('div');
-      sub.textContent = m.link || m.room || '';
+      sub.className = 'link';
+      sub.textContent = (m.link || m.room || '') + (m.people && m.people.length ? '  with ' + m.people.join(', ') : '');
       var flags = document.createElement('div');
       flags.className = 'chips';
       flags.textContent = (m.rec ? '⏺ recording  ' : '') + (m.cc ? '📝 transcribing' : '');
@@ -144,65 +152,147 @@
     };
     state.lines[sess.meetingId] = state.lines[sess.meetingId] || [];
   }
+  // The bot's operations. RUN answers them for the admin meeting (handleCommand)
+  // and for whoever drives this page directly (window.MeetingBot). Each one
+  // resolves with a plain result or rejects with an Error.
+  function needWork(id) {
+    var m = state.meetings[id];
+    if (!m || m.control) throw new Error('No such meeting: ' + id);
+    return m;
+  }
+  function freshRoom() {
+    var abc = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    var u = new Uint8Array(16);
+    crypto.getRandomValues(u);
+    var out = '';
+    for (var i = 0; i < u.length; i++) out += abc[u[i] % abc.length];
+    return out;
+  }
+  function transcriptText(id) {
+    return (state.lines[id] || []).map(function (l) { return (l.by || '') + ': ' + (l.text || ''); }).join('\n');
+  }
+  var ops = {
+    list: function () { return Promise.resolve(workMeetings()); },
+    join: function (link, password) {
+      if (!link) return Promise.reject(new Error('join needs a meeting link.'));
+      return gifos.meet.join(link, password || '', state.name, { bot: true }).then(function (sess) {
+        // A bare room code is shown as the meeting's own invite link.
+        var shown = /[:\/#]/.test(link) ? link : (sess.link || link);
+        remember(sess, shown, false);
+        paint();
+        log('joined ' + sess.meetingId);
+        return { id: sess.meetingId, room: sess.room || '', link: shown };
+      });
+    },
+    // A new meeting this bot hosts: an unguessable 16-character open-room code.
+    create: function () {
+      return ops.join(freshRoom(), '').then(function (r) {
+        state.meetings[r.id].created = true;
+        paint();
+        return r;
+      });
+    },
+    leave: function (id) {
+      try { needWork(id); } catch (e) { return Promise.reject(e); }
+      return gifos.meet.leave(id).then(function () {
+        delete state.meetings[id];
+        delete state.people[id];
+        paint();
+        return { id: id, left: true };
+      });
+    },
+    record: function (id, on) {
+      try { needWork(id); } catch (e) { return Promise.reject(e); }
+      var call = on ? gifos.meet.startRecording(id) : gifos.meet.stopRecording(id);
+      return call.then(function () {
+        if (state.meetings[id]) state.meetings[id].rec = !!on;
+        paint();
+        return { id: id, rec: !!on };
+      });
+    },
+    transcribe: function (id, on) {
+      try { needWork(id); } catch (e) { return Promise.reject(e); }
+      return gifos.meet.transcribe(id, !!on).then(function (r) {
+        if (r && r.ok === false) throw new Error(r.error || 'Transcribing did not start.');
+        if (state.meetings[id]) state.meetings[id].cc = !!on;
+        paint();
+        return { id: id, cc: !!on };
+      });
+    },
+    say: function (id, text) {
+      try { needWork(id); } catch (e) { return Promise.reject(e); }
+      return gifos.meet.sendChat(id, text || '').then(function () { return { id: id, sent: true }; });
+    },
+    people: function (id) {
+      try { needWork(id); } catch (e) { return Promise.reject(e); }
+      return Promise.resolve((state.people[id] || []).map(function (p) {
+        return { id: p.id || '', name: p.name || '', bot: !!p.bot, me: !!p.me };
+      }));
+    },
+    transcript: function (id) {
+      if (!state.lines[id]) return Promise.reject(new Error('No such meeting: ' + id));
+      var lines = state.lines[id].map(function (l) { return { by: l.by, text: l.text, at: l.at }; });
+      return Promise.resolve({ id: id, lines: lines, text: transcriptText(id) });
+    },
+    recording: function (id) {
+      try { needWork(id); } catch (e) { return Promise.reject(e); }
+      return gifos.meet.stopRecording(id).catch(function () { return null; }).then(function () {
+        if (state.meetings[id]) state.meetings[id].rec = false;
+        paint();
+        return gifos.meet.getRecording(id);
+      }).then(function (rec) {
+        return {
+          id: id,
+          name: (rec && rec.name) || ('recording-' + id + '.webm'),
+          mime: (rec && rec.mime) || 'video/webm',
+          bytes: (rec && rec.bytes) || new ArrayBuffer(0)
+        };
+      });
+    }
+  };
+
   function handleCommand(msg) {
     var ref = msg.id || '';
+    var fail = function (e) { return reply({ op: 'err', ref: ref, text: String(e && e.message || e) }); };
+    var okItems = function (text) { return function () { return reply({ op: 'ok', ref: ref, text: text, items: workMeetings() }); }; };
+    var id = msg.meetingId;
     if (msg.op === 'list' || msg.op === 'status') return reply({ op: 'meetings', ref: ref, items: workMeetings() });
+    if (msg.op === 'create') {
+      return ops.create().then(function (r) {
+        return reply({ op: 'ok', ref: ref, text: 'created ' + r.id, meetingId: r.id, link: r.link, room: r.room, items: workMeetings() });
+      }).catch(fail);
+    }
     if (msg.op === 'join' && msg.link) {
-      return gifos.meet.join(msg.link, msg.password || '', state.name, { bot: true }).then(function (sess) {
-        remember(sess, msg.link, false);
-        paint();
-        return reply({ op: 'ok', ref: ref, text: 'joined ' + sess.meetingId, items: workMeetings() });
-      }).catch(function (e) { return reply({ op: 'err', ref: ref, text: String(e.message || e) }); });
+      return ops.join(msg.link, msg.password).then(function (r) {
+        return reply({ op: 'ok', ref: ref, text: 'joined ' + r.id, meetingId: r.id, link: r.link, room: r.room, items: workMeetings() });
+      }).catch(fail);
     }
-    if (msg.op === 'leave' && msg.meetingId && state.meetings[msg.meetingId] && !state.meetings[msg.meetingId].control) {
-      return gifos.meet.leave(msg.meetingId).then(function () {
-        delete state.meetings[msg.meetingId];
-        paint();
-        return reply({ op: 'ok', ref: ref, text: 'left ' + msg.meetingId, items: workMeetings() });
-      }).catch(function (e) { return reply({ op: 'err', ref: ref, text: String(e.message || e) }); });
+    if ((msg.op === 'leave' || msg.op === 'end') && id) return ops.leave(id).then(okItems('left ' + id)).catch(fail);
+    if (msg.op === 'record' && id) return ops.record(id, !!msg.on).then(okItems('record ' + (msg.on ? 'on' : 'off'))).catch(fail);
+    if (msg.op === 'transcribe' && id) return ops.transcribe(id, !!msg.on).then(okItems('transcribe ' + (msg.on ? 'on' : 'off'))).catch(fail);
+    if (msg.op === 'say' && id) {
+      return ops.say(id, msg.text).then(function () { return reply({ op: 'ok', ref: ref, text: 'sent' }); }).catch(fail);
     }
-    if (msg.op === 'record' && msg.meetingId) {
-      var call = msg.on ? gifos.meet.startRecording(msg.meetingId) : gifos.meet.stopRecording(msg.meetingId);
-      return call.then(function () {
-        if (state.meetings[msg.meetingId]) state.meetings[msg.meetingId].rec = !!msg.on;
-        paint();
-        return reply({ op: 'ok', ref: ref, text: 'record ' + (msg.on ? 'on' : 'off'), items: workMeetings() });
-      }).catch(function (e) { return reply({ op: 'err', ref: ref, text: String(e.message || e) }); });
+    if (msg.op === 'people' && id) {
+      return ops.people(id).then(function (people) { return reply({ op: 'people', ref: ref, meetingId: id, people: people }); }).catch(fail);
     }
-    if (msg.op === 'transcribe' && msg.meetingId) {
-      return gifos.meet.transcribe(msg.meetingId, !!msg.on).then(function () {
-        if (state.meetings[msg.meetingId]) state.meetings[msg.meetingId].cc = !!msg.on;
-        paint();
-        return reply({ op: 'ok', ref: ref, text: 'transcribe ' + (msg.on ? 'on' : 'off'), items: workMeetings() });
-      }).catch(function (e) { return reply({ op: 'err', ref: ref, text: String(e.message || e) }); });
-    }
-    if (msg.op === 'say' && msg.meetingId) {
-      return gifos.meet.sendChat(msg.meetingId, msg.text || '').then(function () {
-        return reply({ op: 'ok', ref: ref, text: 'sent' });
-      }).catch(function (e) { return reply({ op: 'err', ref: ref, text: String(e.message || e) }); });
-    }
-    if (msg.op === 'transcript' && msg.meetingId) {
-      var lines = state.lines[msg.meetingId] || [];
-      var text = lines.map(function (l) { return (l.by || '') + ': ' + (l.text || ''); }).join('\n');
-      var bytes = new TextEncoder().encode(text);
-      var xid = 'xf' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      var fname = 'transcript-' + msg.meetingId + '.txt';
-      return sendXferRetry(xid, fname, 'text/plain', bytes.buffer, 6).then(function () {
-        return reply({ op: 'xfer', ref: ref, xferId: xid, name: fname, mime: 'text/plain', meetingId: msg.meetingId });
-      }).catch(function (e) { return reply({ op: 'err', ref: ref, text: String(e.message || e) }); });
-    }
-    if (msg.op === 'recording' && msg.meetingId) {
-      return gifos.meet.stopRecording(msg.meetingId).catch(function () { return null; }).then(function () {
-        if (state.meetings[msg.meetingId]) state.meetings[msg.meetingId].rec = false;
-        return gifos.meet.getRecording(msg.meetingId);
-      }).then(function (rec) {
-        var xid = 'xr' + Date.now().toString(36);
-        var fname = (rec && rec.name) || ('recording-' + msg.meetingId + '.webm');
-        var mime = (rec && rec.mime) || 'video/webm';
-        return sendXferRetry(xid, fname, mime, (rec && rec.bytes) || new ArrayBuffer(0), 6).then(function () {
-          return reply({ op: 'xfer', ref: ref, xferId: xid, name: fname, mime: mime, meetingId: msg.meetingId });
+    if (msg.op === 'transcript' && id) {
+      return ops.transcript(id).then(function (t) {
+        var bytes = new TextEncoder().encode(t.text);
+        var xid = 'xf' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        var fname = 'transcript-' + id + '.txt';
+        return sendXferRetry(xid, fname, 'text/plain', bytes.buffer, 6).then(function () {
+          return reply({ op: 'xfer', ref: ref, xferId: xid, name: fname, mime: 'text/plain', meetingId: id, lines: t.lines.length });
         });
-      }).catch(function (e) { return reply({ op: 'err', ref: ref, text: String(e.message || e) }); });
+      }).catch(fail);
+    }
+    if (msg.op === 'recording' && id) {
+      return ops.recording(id).then(function (rec) {
+        var xid = 'xr' + Date.now().toString(36);
+        return sendXferRetry(xid, rec.name, rec.mime, rec.bytes, 6).then(function () {
+          return reply({ op: 'xfer', ref: ref, xferId: xid, name: rec.name, mime: rec.mime, meetingId: id });
+        });
+      }).catch(fail);
     }
     return reply({ op: 'err', ref: ref, text: 'Unknown command.' });
   }
@@ -211,15 +301,20 @@
     if ((msg.op === 'beat' || msg.op === 'meetings' || msg.op === 'ok') && (msg.meetings || msg.items)) {
       renderCtrl(msg.meetings || msg.items);
     }
-    if (msg.op === 'ok' || msg.op === 'err' || msg.op === 'meetings') log('← ' + (msg.text || msg.op));
+    if (msg.op === 'ok' || msg.op === 'err' || msg.op === 'meetings') log('← ' + (msg.text || msg.op) + (msg.link ? '  ' + msg.link : ''));
     if (msg.op === 'beat' && msg.instance && state.instance && msg.role === 'bot') {
       /* A controller just displays what the bot reports. */
     }
   }
 
   gifos.meet.onParticipants(function (ev) {
-    if (state.phase !== 'probe' || !ev || ev.meetingId !== state.probeId) return;
+    if (!ev || !ev.meetingId) return;
     var people = ev.people || [];
+    if (state.meetings[ev.meetingId]) {
+      state.people[ev.meetingId] = people.slice();
+      paint();
+    }
+    if (state.phase !== 'probe' || ev.meetingId !== state.probeId) return;
     for (var i = 0; i < people.length; i++) {
       if (people[i] && people[i].bot && !people[i].me) state.probeBeat = state.probeBeat || { role: 'bot', op: 'beat' };
     }
@@ -356,7 +451,18 @@
   };
   document.getElementById('mode-run').onchange = paint;
   document.getElementById('mode-control').onchange = paint;
-  document.getElementById('start').onclick = function () {
+  // Start in RUN or CONTROL. The Start button, window.MeetingBot.start and a
+  // granted go.start launch all come through here. Resolves when the bot is
+  // running (or controlling); rejects with the reason it did not start.
+  function start(opts) {
+    opts = opts || {};
+    if (opts.name != null) document.getElementById('bot-name').value = String(opts.name);
+    if (opts.password != null) document.getElementById('bot-pass').value = String(opts.password);
+    if (opts.mode === 'control') document.getElementById('mode-control').checked = true;
+    if (opts.mode === 'run') document.getElementById('mode-run').checked = true;
+    if (opts.override != null) document.getElementById('override').checked = !!opts.override;
+    if (opts.rules != null) rulesEl.value = String(opts.rules);
+    if (state.phase !== 'idle') return Promise.reject(new Error('Already started (' + state.phase + ').'));
     var name = document.getElementById('bot-name').value.trim();
     var password = document.getElementById('bot-pass').value;
     var chk = BotProto.strength(name, password);
@@ -366,26 +472,35 @@
       var guard = 0;
       while (!BotProto.strength(s.name, s.password).ok && guard++ < 8) s = BotProto.suggest();
       suggestEl.textContent = 'Suggestion: ' + s.name + ' / ' + s.password;
-      return;
+      return Promise.reject(new Error(chk.reason));
     }
     suggestEl.textContent = '';
     warn('');
     var mode = document.getElementById('mode-control').checked ? 'control' : 'run';
     document.getElementById('start').disabled = true;
     try { gifos.db('rules').put({ id: 'autojoin', text: rulesEl.value || '' }); } catch (e) {}
-    BotProto.derive(name, password).then(function (admin) {
+    return BotProto.derive(name, password).then(function (admin) {
       state.name = name;
       state.admin = admin;
       return mode === 'control' ? startControl() : startRun();
-    }).catch(function (e) {
+    }).then(function () {
+      document.getElementById('start').disabled = false;
+      if (state.phase === 'idle') throw new Error(warnEl.textContent || 'Did not start.');
+      return status();
+    }, function (e) {
       warn(String(e && e.message || e));
       state.phase = 'idle';
       paint();
-    }).then(function () {
       document.getElementById('start').disabled = false;
+      throw e;
     });
-  };
+  }
+  function status() {
+    return { phase: state.phase, name: state.name, meetings: workMeetings(), warning: warnEl.textContent || '' };
+  }
+  document.getElementById('start').onclick = function () { start().catch(function () {}); };
   document.getElementById('list-go').onclick = function () { sendCtrl({ op: 'list', id: qid() }); };
+  document.getElementById('create-go').onclick = function () { sendCtrl({ op: 'create', id: qid() }); };
   document.getElementById('join-go').onclick = function () {
     var link = document.getElementById('join-link').value.trim();
     if (!link) return;
@@ -404,6 +519,35 @@
     if (args.mode === 'control') document.getElementById('mode-control').checked = true;
     if (args.mode === 'run') document.getElementById('mode-run').checked = true;
     paint();
+    // go.start=1: the person approved this launch in the sheet, so start now.
+    if (args.start === '1' || args.start === 'true') start().catch(function () {});
   }).catch(function () {});
+  // Local control surface for an automated browser driving THIS page (see
+  // CONTROL.md). RUN-mode calls act on this bot directly; nothing here is
+  // reachable from outside the app frame.
+  function running() { if (state.phase !== 'run') throw new Error('The bot is not running. Call start({ mode: "run", ... }) first.'); }
+  function guard(fn) {
+    return function () {
+      var args = arguments;
+      try { running(); } catch (e) { return Promise.reject(e); }
+      return fn.apply(null, args);
+    };
+  }
+  window.MeetingBot = {
+    version: 1,
+    start: start,
+    status: status,
+    list: guard(ops.list),
+    create: guard(ops.create),
+    join: guard(ops.join),
+    leave: guard(ops.leave),
+    end: guard(ops.leave),
+    record: guard(ops.record),
+    transcribe: guard(ops.transcribe),
+    say: guard(ops.say),
+    people: guard(ops.people),
+    transcript: guard(ops.transcript),
+    recording: guard(ops.recording)
+  };
   paint();
 })();

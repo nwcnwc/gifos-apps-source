@@ -25,6 +25,10 @@
     "password": {
       "label": "Bot password",
       "detail": "Never sent to a server. The same pair opens the admin meeting from another device."
+    },
+    "start": {
+      "label": "Start right away",
+      "detail": "1 starts the bot (or the remote) as soon as you approve this launch."
     }
   },
   "data": {
