@@ -1,6 +1,5 @@
 // Pack meeting-bot into ../gifos-app/apps/meeting-bot/meeting-bot.gif, the store's
-// layout. Listing it is scripts/build-app-catalog.mjs (gifos repo); signing and
-// publishing are separate steps.
+// layout. Listing, signing and publishing are separate steps.
 import { icon } from './icon.mjs';
 import { deflateRawSync } from 'node:zlib';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';

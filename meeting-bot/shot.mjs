@@ -1,6 +1,6 @@
 // Render screenshot.png (the store cover) from the real page with a stand-in
 // gifos object: a RUN bot in two demo meetings, generic names only.
-// Needs Playwright: PLAYWRIGHT_DIR=<dir with playwright> node meeting-bot/shot.mjs
+// Needs Playwright: installed where Node finds it, or PLAYWRIGHT_DIR=<its folder>.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -8,8 +8,7 @@ import { dirname, join } from 'node:path';
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const pwDir = process.env.PLAYWRIGHT_DIR || join(dir, '..', '..', 'gifos', 'node_modules', 'playwright');
-const { chromium } = require(pwDir);
+const { chromium } = require(process.env.PLAYWRIGHT_DIR || 'playwright');
 
 const read = (p) => readFileSync(join(dir, p), 'utf8');
 const STUB = `
