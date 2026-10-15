@@ -1,4 +1,6 @@
-// Pack meeting-bot into dist/meeting-bot.gif. Does not write into gifos-app and does not publish.
+// Pack meeting-bot into ../gifos-app/apps/meeting-bot/meeting-bot.gif, the store's
+// layout. Listing it is scripts/build-app-catalog.mjs (gifos repo); signing and
+// publishing are separate steps.
 import { icon } from './icon.mjs';
 import { deflateRawSync } from 'node:zlib';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -42,6 +44,7 @@ if (manifest.capabilities.network) throw new Error('meeting-bot has no network p
 if (!listing.tagline || !listing.description) throw new Error('listing');
 const help = read('help.md');
 if (help.length < 400) throw new Error('help.md is too short');
+if (!/window\.MeetingBot/.test(read('CONTROL.md'))) throw new Error('CONTROL.md must document window.MeetingBot');
 for (const src of ['app.js', 'protocol.js', 'index.html']) {
   const text = read(src);
   if (/\bfetch\s*\(/.test(text) || /WebSocket/.test(text) || /\beval\s*\(/.test(text)) throw new Error(src + ' reaches the network');
@@ -53,10 +56,11 @@ const files = {
   'app.js': read('app.js'),
   'protocol.js': read('protocol.js'),
   'help.md': help,
+  'CONTROL.md': read('CONTROL.md'),
   'listing.json': JSON.stringify(listing)
 };
 const bytes = await gif.encode(files, { preview: icon(), accent: manifest.accent });
-const outDir = join(dir, 'dist');
+const outDir = join(dir, '..', '..', 'gifos-app', 'apps', 'meeting-bot');
 mkdirSync(outDir, { recursive: true });
 const out = join(outDir, 'meeting-bot.gif');
 writeFileSync(out, Buffer.from(bytes));

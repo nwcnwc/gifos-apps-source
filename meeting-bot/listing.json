@@ -9,5 +9,8 @@
   "categories": ["Utilities"],
   "tags": ["meeting", "bot", "transcript", "recording"],
   "license": "MIT",
-  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/meeting-bot"
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/meeting-bot",
+  "cover": "screenshot.png",
+  "coverCrop": { "top": 0 },
+  "screenshots": []
 }
