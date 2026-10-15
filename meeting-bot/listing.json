@@ -1,0 +1,16 @@
+{
+  "tagline": "A meeting bot you drive from another device.",
+  "description": "RUN puts the bot in meetings on this computer. CONTROL, on any other device, uses the same name and password to open the secret admin meeting and drive that bot.\n\nThe bot has no camera. Everyone sees a bot badge, and the usual recording and transcribing indicators. Transcripts and recordings stay on the bot's computer. Control downloads them from there, in pieces, over the meeting itself.\n\nOne bot of a given name should run at a time. A weak name and password is refused.",
+  "author": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "releaseDate": "2026-10-14",
+  "categories": ["Utilities"],
+  "tags": ["meeting", "bot", "transcript", "recording"],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/meeting-bot",
+  "cover": "screenshot.png",
+  "coverCrop": { "top": 0 },
+  "screenshots": []
+}

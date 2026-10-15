@@ -1,0 +1,72 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Meeting Bot</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font: 15px/1.45 system-ui, sans-serif; background: #101018; color: #eceef8; }
+  main { max-width: 760px; margin: 0 auto; padding: 20px 18px 48px; }
+  h1 { font-size: 1.35rem; margin: 0 0 .2rem; }
+  h2 { font-size: 1rem; margin: 1.2rem 0 .4rem; }
+  .lead { color: #a8adc4; margin: 0 0 1rem; }
+  fieldset { border: 1px solid #2c2c44; border-radius: 10px; margin: 0 0 12px; padding: 12px; }
+  legend { padding: 0 6px; color: #c9d4ff; }
+  label { display: block; margin: 8px 0; }
+  input[type="text"], input[type="password"], textarea {
+    width: 100%; box-sizing: border-box; margin-top: 4px; padding: 8px 10px;
+    border-radius: 8px; border: 1px solid #3a3a55; background: #181826; color: inherit; font: inherit;
+  }
+  textarea { min-height: 88px; resize: vertical; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  button, .btn {
+    padding: 8px 14px; border-radius: 8px; border: 1px solid #5ca0ff; background: #1c3f73; color: #fff;
+    font: inherit; cursor: pointer;
+  }
+  button.ghost { background: transparent; border-color: #3a3a55; }
+  #warn { margin: 10px 0; padding: 10px 12px; border-radius: 8px; background: #3a2a12; color: #ffd89a; display: none; }
+  #warn.show { display: block; }
+  #suggest { color: #b7f0c8; }
+  .meet { border: 1px solid #2c2c44; border-radius: 8px; padding: 8px 10px; margin: 6px 0; }
+  .meet b { color: #d7e8ff; }
+  #phase { color: #9ecbff; min-height: 1.2em; }
+  #ignored, #log, #xfer { white-space: pre-wrap; color: #c8c8dc; font-size: .92rem; }
+  .chips { color: #ffd23c; font-size: .85rem; }
+</style>
+<main>
+  <h1>Meeting Bot</h1>
+  <p class="lead">RUN is this computer's bot. CONTROL drives that bot from here, with the same name and password.</p>
+  <div id="warn"></div>
+  <p id="suggest"></p>
+  <fieldset>
+    <legend>Launch</legend>
+    <div class="row">
+      <label><input type="radio" name="mode" id="mode-run" value="run" checked> RUN — be the bot</label>
+      <label><input type="radio" name="mode" id="mode-control" value="control"> CONTROL — drive the bot</label>
+    </div>
+    <label>Bot name <input id="bot-name" type="text" autocomplete="off" maxlength="40"></label>
+    <label>Password <input id="bot-pass" type="password" autocomplete="off"></label>
+    <label id="rules-label">Auto-join links (one per line)
+      <textarea id="rules" placeholder="https://…/run.html#v=…"></textarea>
+    </label>
+    <label><input type="checkbox" id="override"> Start anyway if another bot is already running</label>
+    <p><button id="start" type="button">Start</button> <button id="fill" class="ghost" type="button">Suggest a name</button></p>
+    <p id="phase"></p>
+  </fieldset>
+  <section id="runbox" hidden>
+    <h2>This bot</h2>
+    <ul id="run-meetings"></ul>
+  </section>
+  <section id="ctrl" hidden>
+    <h2>Control</h2>
+    <p><button id="list-go" type="button">Refresh list</button> <button id="create-go" type="button">Create a meeting</button></p>
+    <div id="ctrl-meetings"></div>
+    <label>Join a meeting <input id="join-link" type="text" placeholder="Paste a meeting link"></label>
+    <p><button id="join-go" type="button">Join</button></p>
+    <h2>Downloaded</h2>
+    <div id="xfer"></div>
+  </section>
+  <h2>Activity</h2>
+  <div id="log"></div>
+  <div id="ignored"></div>
+</main>
+<script src="protocol.js"></script>
+<script src="app.js"></script>
