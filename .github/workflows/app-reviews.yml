@@ -2,9 +2,9 @@
 name: Review
 
 on:
-  pull_request:
-    paths:
-      - '*/reviews/**'
+  # Manual-only CI (Nathan, 2026-10-14): no push/pull_request/schedule triggers.
+  # Run with: gh workflow run app-reviews.yml
+  workflow_dispatch:
 
 permissions:
   contents: read
