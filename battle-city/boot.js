@@ -95,6 +95,9 @@
       touchOn = true;
       document.body.classList.add('touch');
       wrap.hidden = false;
+      /* START and PAUSE share one slot; pick one now, not on the next frame,
+         or both are drawn stacked until it comes (forever if frames stall). */
+      syncPad();
       fit(); /* the pad now owns the bottom strip — re-fit the board above it */
       document.removeEventListener('touchstart', reveal);
     }
