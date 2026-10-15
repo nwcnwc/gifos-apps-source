@@ -46,3 +46,4 @@ cannot tell whether PayPal charged you. If PayPal shows a charge, it was
 paid. Check your PayPal activity before trying again. Payments are final:
 a tip cannot be refunded from inside GifOS, which is one more reason the
 approval screen always shows you the amount before anything happens.
+Questions about a payment: support@gifos.app.
