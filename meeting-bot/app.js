@@ -130,11 +130,19 @@
     var msg = Object.assign({ v: 1, role: 'bot', instance: state.instance, id: qid() }, extra || {});
     return gifos.meet.sendChat(state.adminId, BotProto.encode(msg));
   }
+  // Resolves true when the command went out; a failure is said in the log.
   function sendCtrl(msg) {
     msg = Object.assign({ v: 1, role: 'controller', instance: state.instance }, msg || {});
     if (!msg.id) msg.id = qid();
+    if (!state.adminId) {
+      log('! ' + msg.op + ': not connected to the admin meeting yet.');
+      return Promise.resolve(false);
+    }
     log('→ ' + msg.op + (msg.meetingId ? ' ' + msg.meetingId : ''));
-    return gifos.meet.sendChat(state.adminId, BotProto.encode(msg));
+    return gifos.meet.sendChat(state.adminId, BotProto.encode(msg)).then(function () { return true; }, function (e) {
+      log('! ' + msg.op + ': ' + String(e && e.message || e));
+      return false;
+    });
   }
   function sendXferRetry(id, name, mime, bytes, left) {
     return gifos.meet.sendXfer(state.adminId, { id: id, name: name, mime: mime, bytes: bytes }).catch(function (e) {
@@ -496,7 +504,10 @@
     });
   }
   function status() {
-    return { phase: state.phase, name: state.name, meetings: workMeetings(), warning: warnEl.textContent || '' };
+    return {
+      phase: state.phase, connected: !!state.adminId, name: state.name,
+      meetings: state.phase === 'run' ? workMeetings() : state.ctrlItems.slice(), warning: warnEl.textContent || ''
+    };
   }
   document.getElementById('start').onclick = function () { start().catch(function () {}); };
   document.getElementById('list-go').onclick = function () { sendCtrl({ op: 'list', id: qid() }); };

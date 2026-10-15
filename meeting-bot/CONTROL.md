@@ -39,12 +39,12 @@ Every method returns a Promise. A failure rejects with an `Error` whose message 
 | Method | Resolves with | Notes |
 |---|---|---|
 | `start({ mode, name, password, override?, rules? })` | `status()` | `mode` is `'run'` or `'control'`. A weak name and password pair rejects, for example "Password needs at least 10 characters." If a bot with this pair is already running, it rejects with the duplicate warning unless `override: true`. `rules` is the auto-join list, one link per line. RUN takes about 5 s, because it first listens for a running duplicate. |
-| `status()` | `{ phase, name, meetings, warning }` | Synchronous. `phase` is `'idle'`, `'probe'`, `'run'` or `'control'`. |
+| `status()` | `{ phase, connected, name, meetings, warning }` | Synchronous. `phase` is `'idle'`, `'probe'`, `'run'` or `'control'`. `connected` turns true once the admin meeting is joined. Wait for it before you send commands. In CONTROL, `meetings` is the last list the bot reported. |
 | `create()` | `{ id, room, link }` | Hosts a new meeting with an unguessable 16-character room code. `link` is the invite to give people. |
 | `join(link, password?)` | `{ id, room, link }` | `link` is a meeting link or a room code. `password` is the room password, if it has one. |
 | `list()` | `[{ id, room, link, rec, cc, created, people }]` | The work meetings, without the admin meeting. `people` holds the names of everyone except the bot. |
 | `people(id)` | `[{ id, name, bot, me }]` | Who is in the meeting now. `me` is the bot itself. |
-| `transcribe(id, on)` | `{ id, cc }` | Turns writing everyone down on or off. Everyone sees 📝 transcribing on the bot's tile. If that indicator cannot be shown, the call rejects. |
+| `transcribe(id, on)` | `{ id, cc }` | Turns writing everyone down on or off. Everyone sees 📝 transcribing on the bot's tile. If that indicator cannot be shown, the call rejects. The bot writes down each person who is unmuted, credited to that person. People join muted, so a person has to unmute to be written down. The bot never writes down its own computer's microphone. |
 | `record(id, on)` | `{ id, rec }` | Turns recording on or off. Everyone sees ⏺ recording on the bot's tile. |
 | `say(id, text)` | `{ id, sent: true }` | Posts one chat message into the meeting, up to 2000 characters. |
 | `transcript(id)` | `{ id, lines: [{ by, text, at }], text }` | Every line so far. `text` has one `Name: words` line per entry. `at` is ms since epoch. |
@@ -69,7 +69,9 @@ The page also shows the same state for people. `#phase` reads Running or Control
 
 ## 3. Launch link
 
-Add `go.` keys to a `?run=` link. The link fills in the form. It starts the app only when it asks to, and only after the person approves the launch in the Abilities sheet. A link alone never starts the bot.
+Add `go.` keys to a `?run=` link. The link fills in the form. It starts the app only when it asks to, and only after the person approves the launch in the sheet. A link alone never starts the bot.
+
+The sheet is titled "Meeting Bot is about to open on something". Press **Yes, do that** (`#perm-go`) to approve. **Just open it** (`#perm-plain`) opens the app with nothing filled in.
 
 ```
 <origin>/?run=meeting-bot&go.mode=run&go.name=<name>&go.password=<password>&go.start=1
@@ -81,7 +83,7 @@ Add `go.` keys to a `?run=` link. The link fills in the form. It starts the app 
 | `go.name`, `go.password` | the bot's name and password |
 | `go.start` | `1` presses Start as soon as the launch is approved |
 
-A password in a URL can end up in shell history and logs. On a shared machine, prefer `start()` from the local API.
+The sheet shows every value the link carries, the password included. A password in a URL can also end up in shell history and logs. On a shared machine, prefer `start()` from the local API.
 
 ## 4. Remote protocol (admin meeting)
 
