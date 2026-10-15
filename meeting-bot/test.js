@@ -25,6 +25,22 @@ check('help covers both modes', /RUN/.test(help) && /CONTROL/.test(help) && help
 check('app does not fetch or open a socket', !/\bfetch\s*\(/.test(app) && !/WebSocket/.test(app) && !/\beval\s*\(/.test(app));
 check('page has the launch form and the control panel', /id="mode-run"/.test(html) && /id="mode-control"/.test(html) && /id="rules"/.test(html) && /id="ctrl"/.test(html));
 
+const control = fs.readFileSync(path.join(APP, 'CONTROL.md'), 'utf8');
+check('launch key start for headless runs', !!(manifest.launch && manifest.launch.start));
+check('listing has cover art on disk', listing.cover === 'screenshot.png' && fs.statSync(path.join(APP, 'screenshot.png')).size > 1000);
+const API = ['start', 'status', 'list', 'create', 'join', 'leave', 'end', 'record', 'transcribe', 'say', 'people', 'transcript', 'recording'];
+const apiBlock = (app.match(/window\.MeetingBot = \{([\s\S]*?)\};/) || [])[1] || '';
+const missingApi = API.filter((k) => !new RegExp('\\b' + k + ':').test(apiBlock));
+check('window.MeetingBot exposes the documented methods', missingApi.length === 0, missingApi.join(','));
+const undocumented = API.filter((k) => control.indexOf('`' + k + '(') < 0);
+check('CONTROL.md documents every method', undocumented.length === 0, undocumented.join(','));
+const OPS = ['list', 'status', 'create', 'join', 'leave', 'end', 'record', 'transcribe', 'say', 'people', 'transcript', 'recording'];
+const unhandled = OPS.filter((op) => app.indexOf("msg.op === '" + op + "'") < 0);
+check('the bot answers every documented remote op', unhandled.length === 0, unhandled.join(','));
+const opsUndoc = OPS.filter((op) => control.indexOf('`' + op + '`') < 0);
+check('CONTROL.md documents every remote op', opsUndoc.length === 0, opsUndoc.join(','));
+check('CONTROL.md says how to reach the app frame', /#appmount iframe/.test(control) && /\?run=meeting-bot/.test(control));
+
 const sandbox = {
   console, Math, Object, Array, JSON, Date, String, Number, Boolean, Error, RegExp, Promise, Uint8Array, TextEncoder,
   crypto, atob, btoa
