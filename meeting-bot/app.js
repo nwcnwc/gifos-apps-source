@@ -1,4 +1,5 @@
-/* Meeting Bot UI. Commands are structured chat on the admin meeting only. */
+/* Meeting Bot UI. Commands are structured chat on the admin meeting only.
+ * Contract version 2 adds voice. Version 1 methods keep their names. */
 (function () {
   var DUP = BotProto.DUP;
   var state = {
@@ -13,7 +14,22 @@
     probeBeat: null,
     warned: {},
     ctrlItems: [],
-    people: {}
+    people: {},
+    respond: false,
+    voice: 'none',
+    llm: null,
+    tts: null,
+    stt: null,
+    keyOnHost: false,
+    controls: {},
+    recentSpoken: [],
+    transcriptListeners: [],
+    speaking: false,
+    speakingId: '',
+    speakGen: 0,
+    replying: false,
+    commands: [],
+    errors: []
   };
 
   var warnEl = document.getElementById('warn');
@@ -33,19 +49,147 @@
   function noteIgnored() {
     ignoredEl.textContent = 'Ignored command-like chat outside the admin meeting.';
   }
+  function noteCommand(op, detail) {
+    state.commands.push({ at: Date.now(), op: op, detail: detail || '' });
+    if (state.commands.length > 12) state.commands.shift();
+  }
+  function noteError(text) {
+    var msg = String(text || '').trim();
+    if (!msg) return;
+    state.errors.push({ at: Date.now(), text: msg });
+    if (state.errors.length > 8) state.errors.shift();
+  }
   function workMeetings() {
     return Object.keys(state.meetings).filter(function (id) { return !state.meetings[id].control; }).map(function (id) {
       var m = state.meetings[id];
       var people = (state.people[id] || []).filter(function (x) { return x && !x.me; });
+      var c = state.controls[id] || { hand: false, mic: false, camera: false };
       return {
         id: m.meetingId, room: m.room || '', link: m.link || '', rec: !!m.rec, cc: !!m.cc,
-        created: !!m.created, people: people.map(function (x) { return x.name || ''; })
+        created: !!m.created, people: people.map(function (x) { return x.name || ''; }),
+        hand: !!c.hand, mic: !!c.mic, camera: !!c.camera
       };
     });
+  }
+  function listeningNow() {
+    var works = workMeetings();
+    for (var i = 0; i < works.length; i++) if (works[i].cc) return true;
+    return false;
+  }
+  function clearNode(el) {
+    if (!el) return;
+    el.textContent = '';
+    if (el.innerHTML != null) el.innerHTML = '';
+  }
+  function addText(parent, tag, text, className) {
+    var el = document.createElement(tag);
+    if (className) el.className = className;
+    el.textContent = text;
+    parent.appendChild(el);
+    return el;
+  }
+  function paintOps() {
+    var box = document.getElementById('ops-meetings');
+    clearNode(box);
+    var works = workMeetings();
+    if (!works.length) addText(box, 'p', 'Not in a work meeting yet.', 'muted');
+    works.forEach(function (m) {
+      var card = document.createElement('div');
+      card.className = 'meet';
+      card.dataset.id = m.id;
+      addText(card, 'div', m.id);
+      addText(card, 'div', m.link || m.room || '', 'muted');
+      var flags = (m.rec ? '⏺ recording  ' : '') + (m.cc ? '📝 transcribing' : '');
+      if (flags) addText(card, 'div', flags, 'chips');
+      var people = state.people[m.id] || [];
+      var row = document.createElement('div');
+      if (!people.length) addText(row, 'span', 'No one else is here yet.', 'muted');
+      people.forEach(function (p) {
+        var label = (p.name || 'Someone') + (p.me ? ' (this bot)' : '') + (p.bot && !p.me ? ' · bot' : '');
+        addText(row, 'span', label, 'person');
+      });
+      card.appendChild(row);
+      var c = state.controls[m.id] || { hand: false, mic: false, camera: false };
+      var flags2 = (c.hand ? 'Hand up  ' : '') + (c.mic ? 'Mic on  ' : '') + (c.camera ? 'Camera on' : '');
+      if (flags2) addText(card, 'div', flags2.trim(), 'chips');
+      var actions = document.createElement('div');
+      function act(label, fn) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = label;
+        b.onclick = fn;
+        actions.appendChild(b);
+      }
+      act(c.hand ? 'Lower hand' : 'Raise hand', function () {
+        ops.raiseHand(m.id, !c.hand).catch(function (e) { noteError(e && e.message || e); paint(); });
+      });
+      act(c.mic ? 'Mic off' : 'Mic on', function () {
+        ops.setMic(m.id, !c.mic).catch(function (e) { noteError(e && e.message || e); paint(); });
+      });
+      act(c.camera ? 'Camera off' : 'Camera on', function () {
+        ops.setCamera(m.id, !c.camera).catch(function (e) { noteError(e && e.message || e); paint(); });
+      });
+      card.appendChild(actions);
+      box.appendChild(card);
+    });
+    var cmd = document.getElementById('ops-commands');
+    cmd.textContent = state.respond ? 'On' : 'Off';
+    cmd.setAttribute('aria-pressed', state.respond ? 'true' : 'false');
+    ['none', 'grok', 'local'].forEach(function (v) {
+      var b = document.getElementById('voice-' + v);
+      if (b) b.setAttribute('aria-pressed', state.voice === v ? 'true' : 'false');
+    });
+    var prov = document.getElementById('ops-providers');
+    var model = state.voice === 'local' && state.llm && state.llm.model ? ' · ' + state.llm.model : '';
+    var speech = '';
+    if (state.voice === 'local' && state.tts) {
+      if (state.tts.engine === 'http') speech = ' · HTTP stand-in';
+      else if (state.tts.engine === 'none') speech = ' · speech off';
+      else speech = ' · ' + (state.tts.voice || 'af_heart');
+    }
+    prov.textContent = 'Conversation voice is ' + state.voice + model + speech +
+      (state.keyOnHost ? '. The host has the key.' : '.') +
+      (state.stt ? ' Captions stand-in is set.' : '');
+    var ear = document.getElementById('ops-ear');
+    var earText = state.speaking ? 'Speaking' : (listeningNow() ? 'Listening' : 'Quiet');
+    ear.textContent = earText;
+    ear.classList.toggle('speaking', earText === 'Speaking');
+    ear.classList.toggle('listening', earText === 'Listening');
+    var tail = document.getElementById('ops-tail');
+    clearNode(tail);
+    var anyLine = false;
+    works.forEach(function (m) {
+      var lines = state.lines[m.id] || [];
+      var slice = lines.slice(-6);
+      if (!slice.length) return;
+      anyLine = true;
+      addText(tail, 'div', m.id, 'muted');
+      var ol = document.createElement('ol');
+      ol.className = 'tail';
+      slice.forEach(function (l) {
+        addText(ol, 'li', (l.by || 'Someone') + ': ' + (l.text || ''));
+      });
+      tail.appendChild(ol);
+    });
+    if (!anyLine) addText(tail, 'p', 'No lines yet.', 'muted');
+    var cmds = document.getElementById('ops-cmds');
+    clearNode(cmds);
+    if (!state.commands.length) addText(cmds, 'li', 'No commands yet.', 'muted');
+    state.commands.slice(-8).forEach(function (c) {
+      addText(cmds, 'li', c.op + (c.detail ? ' — ' + c.detail : ''));
+    });
+    var errs = document.getElementById('ops-errors');
+    clearNode(errs);
+    if (!state.errors.length) addText(errs, 'p', 'No errors.', 'muted');
+    state.errors.slice(-6).forEach(function (e) { addText(errs, 'p', e.text); });
+    var stop = document.getElementById('ops-stop');
+    stop.disabled = !state.speaking;
+    stop.textContent = state.speaking ? 'Stop speaking' : 'Stop speaking';
   }
   function paint() {
     var label = { idle: '', probe: 'Checking whether this bot is already running…', run: 'Running', control: 'Controlling' };
     phaseEl.textContent = label[state.phase] || state.phase;
+    if (document.body && document.body.dataset) document.body.dataset.phase = state.phase;
     document.getElementById('runbox').hidden = state.phase !== 'run';
     document.getElementById('ctrl').hidden = state.phase !== 'control';
     document.getElementById('rules-label').hidden = document.getElementById('mode-control').checked && state.phase === 'idle';
@@ -59,6 +203,7 @@
       ul.appendChild(li);
     });
     if (state.phase === 'control') renderCtrl(state.ctrlItems);
+    if (state.phase === 'run') paintOps();
   }
   function renderCtrl(items) {
     state.ctrlItems = items || [];
@@ -111,10 +256,46 @@
       leave.className = 'ghost';
       leave.textContent = 'Leave';
       leave.onclick = function () { sendCtrl({ op: 'leave', meetingId: m.id, id: qid() }); };
+      var voice = document.createElement('button');
+      voice.type = 'button';
+      voice.textContent = 'Voice: ' + state.voice;
+      voice.onclick = function () {
+        var order = ['none', 'grok', 'local'];
+        var next = order[(order.indexOf(state.voice) + 1) % order.length];
+        sendCtrl({ op: 'set_voice', conversation_voice: next, id: qid() });
+      };
+      var resp = document.createElement('button');
+      resp.type = 'button';
+      resp.textContent = state.respond ? 'Commands on' : 'Commands off';
+      resp.onclick = function () { sendCtrl({ op: 'set_voice', respond_to_command: !state.respond, id: qid() }); };
+      var speak = document.createElement('button');
+      speak.type = 'button';
+      speak.textContent = 'Speak';
+      speak.onclick = function () { sendCtrl({ op: 'interject', meetingId: m.id, text: say.value, id: qid() }); say.value = ''; };
+      var stop = document.createElement('button');
+      stop.type = 'button';
+      stop.textContent = 'Stop speaking';
+      stop.onclick = function () { sendCtrl({ op: 'stop_speaking', meetingId: m.id, id: qid() }); };
+      var hand = document.createElement('button');
+      hand.type = 'button';
+      hand.textContent = m.hand ? 'Lower hand' : 'Raise hand';
+      hand.onclick = function () { sendCtrl({ op: 'raise_hand', meetingId: m.id, on: !m.hand, id: qid() }); };
+      var mic = document.createElement('button');
+      mic.type = 'button';
+      mic.textContent = m.mic ? 'Mic off' : 'Mic on';
+      mic.onclick = function () { sendCtrl({ op: 'set_mic', meetingId: m.id, on: !m.mic, id: qid() }); };
+      var cam = document.createElement('button');
+      cam.type = 'button';
+      cam.textContent = m.camera ? 'Camera off' : 'Camera on';
+      cam.onclick = function () { sendCtrl({ op: 'set_camera', meetingId: m.id, on: !m.camera, id: qid() }); };
+      var shot = document.createElement('button');
+      shot.type = 'button';
+      shot.textContent = 'Snapshot';
+      shot.onclick = function () { sendCtrl({ op: 'snapshot', meetingId: m.id, id: qid() }); };
       row.appendChild(title);
       row.appendChild(sub);
       row.appendChild(flags);
-      [rec, tr, say, sayGo, dl, dlr, leave].forEach(function (el) { row.appendChild(el); });
+      [rec, tr, say, sayGo, speak, hand, mic, cam, shot, dl, dlr, voice, resp, stop, leave].forEach(function (el) { row.appendChild(el); });
       box.appendChild(row);
     });
   }
@@ -138,9 +319,17 @@
       log('! ' + msg.op + ': not connected to the admin meeting yet.');
       return Promise.resolve(false);
     }
+    var secrets = [];
+    if (msg.llm && msg.llm.key) secrets.push(String(msg.llm.key));
+    if (msg.tts && msg.tts.url) secrets.push(String(msg.tts.url));
+    if (msg.stt && msg.stt.url) secrets.push(String(msg.stt.url));
     log('→ ' + msg.op + (msg.meetingId ? ' ' + msg.meetingId : ''));
-    return gifos.meet.sendChat(state.adminId, BotProto.encode(msg)).then(function () { return true; }, function (e) {
-      log('! ' + msg.op + ': ' + String(e && e.message || e));
+    return gifos.meet.sendChat(state.adminId, BotProto.encode(msg)).then(function () {
+      secrets.length = 0;
+      return true;
+    }, function (e) {
+      log('! ' + msg.op + ': ' + scrubSecrets(e && e.message || e, secrets));
+      secrets.length = 0;
       return false;
     });
   }
@@ -160,9 +349,6 @@
     };
     state.lines[sess.meetingId] = state.lines[sess.meetingId] || [];
   }
-  // The bot's operations. RUN answers them for the admin meeting (handleCommand)
-  // and for whoever drives this page directly (window.MeetingBot). Each one
-  // resolves with a plain result or rejects with an Error.
   function needWork(id) {
     var m = state.meetings[id];
     if (!m || m.control) throw new Error('No such meeting: ' + id);
@@ -179,20 +365,112 @@
   function transcriptText(id) {
     return (state.lines[id] || []).map(function (l) { return (l.by || '') + ': ' + (l.text || ''); }).join('\n');
   }
+  function scrubSecrets(text, secrets) {
+    var s = String(text == null ? '' : text);
+    (secrets || []).forEach(function (sec) { s = BotVoice.scrub(s, sec); });
+    return s;
+  }
+  function collectSecrets(settings) {
+    var out = [];
+    if (settings && settings.llm && settings.llm.key) out.push(String(settings.llm.key));
+    if (settings && settings.tts && settings.tts.url) out.push(String(settings.tts.url));
+    if (settings && settings.stt && settings.stt.url) out.push(String(settings.stt.url));
+    return out;
+  }
+  function voicePublic() {
+    return BotVoice.publicSettings({
+      respond_to_command: state.respond,
+      conversation_voice: state.voice,
+      llm: state.llm,
+      tts: state.tts,
+      stt: state.stt
+    });
+  }
+  function ensureControls(id) {
+    if (!state.controls[id]) state.controls[id] = { hand: false, mic: false, camera: false };
+    return state.controls[id];
+  }
+  function peopleOf(id) {
+    return (state.people[id] || []).map(function (p) {
+      return { id: p.id || '', name: p.name || '', bot: !!p.bot, me: !!p.me };
+    });
+  }
+  function roomControl(id, op, on, field) {
+    try { needWork(id); } catch (e) { return Promise.reject(e); }
+    var fn = meetCall(op);
+    if (!fn) return Promise.reject(new Error('This meeting cannot change ' + field + '.'));
+    var flag = !!on;
+    return Promise.resolve().then(function () { return fn(id, flag); }).then(function () {
+      ensureControls(id)[field] = flag;
+      noteCommand(op, flag ? 'on' : 'off');
+      paint();
+      var out = { id: id };
+      out[field] = flag;
+      return out;
+    });
+  }
+  function rememberSpoken(text) {
+    var t = String(text || '').trim();
+    if (!t) return;
+    state.recentSpoken.push(t);
+    if (state.recentSpoken.length > 20) state.recentSpoken.shift();
+  }
+  function ownVoice(line) {
+    if (!line) return false;
+    if (line.self || line.bot || line.me) return true;
+    var by = String(line.by || '').trim().toLowerCase();
+    if (state.name && by === state.name.toLowerCase()) return true;
+    var text = BotVoice.norm(line.text);
+    if (!text) return false;
+    for (var i = 0; i < state.recentSpoken.length; i++) {
+      if (BotVoice.norm(state.recentSpoken[i]) === text) return true;
+    }
+    return false;
+  }
+  function emitTranscript(id, line) {
+    var ev = { id: id, by: line.by || '', text: line.text || '', at: line.at || Date.now() };
+    state.transcriptListeners.forEach(function (fn) {
+      try { fn(ev); } catch (e) {}
+    });
+    if (state.phase === 'run' && state.adminId) {
+      reply({ op: 'transcript', meetingId: id, by: ev.by, text: ev.text, at: ev.at }).catch(function () {});
+    }
+  }
+  function onTranscript(fn) {
+    if (typeof fn !== 'function') return function () {};
+    state.transcriptListeners.push(fn);
+    return function () {
+      state.transcriptListeners = state.transcriptListeners.filter(function (x) { return x !== fn; });
+    };
+  }
+  function meetCall(name) {
+    var fn = gifos.meet && gifos.meet[name];
+    return typeof fn === 'function' ? fn : null;
+  }
+  function hostStop(id) {
+    var fn = meetCall('stopSpeaking');
+    if (!fn) return Promise.resolve({ id: id, stopped: true });
+    return Promise.resolve().then(function () { return fn(id); }).then(function () { return { id: id, stopped: true }; }, function () { return { id: id, stopped: true }; });
+  }
+  function aborted(e) {
+    return !!(e && (e.name === 'AbortError' || /abort/i.test(String(e && e.message || e))));
+  }
+  // The bot's operations. RUN answers them for the admin meeting (handleCommand)
+  // and for whoever drives this page directly (window.MeetingBot). Each one
+  // resolves with a plain result or rejects with an Error.
   var ops = {
     list: function () { return Promise.resolve(workMeetings()); },
     join: function (link, password) {
       if (!link) return Promise.reject(new Error('join needs a meeting link.'));
       return gifos.meet.join(link, password || '', state.name, { bot: true }).then(function (sess) {
-        // A bare room code is shown as the meeting's own invite link.
         var shown = /[:\/#]/.test(link) ? link : (sess.link || link);
         remember(sess, shown, false);
         paint();
         log('joined ' + sess.meetingId);
+        noteCommand('join', sess.meetingId);
         return { id: sess.meetingId, room: sess.room || '', link: shown };
       });
     },
-    // A new meeting this bot hosts: an unguessable 16-character open-room code.
     create: function () {
       return ops.join(freshRoom(), '').then(function (r) {
         state.meetings[r.id].created = true;
@@ -205,6 +483,8 @@
       return gifos.meet.leave(id).then(function () {
         delete state.meetings[id];
         delete state.people[id];
+        delete state.controls[id];
+        if (state.speakingId === id) { state.speaking = false; state.speakingId = ''; }
         paint();
         return { id: id, left: true };
       });
@@ -227,15 +507,155 @@
         return { id: id, cc: !!on };
       });
     },
+    // Version 1: chat only. Speech is interject.
     say: function (id, text) {
       try { needWork(id); } catch (e) { return Promise.reject(e); }
-      return gifos.meet.sendChat(id, text || '').then(function () { return { id: id, sent: true }; });
+      var body = String(text == null ? '' : text).slice(0, 2000);
+      if (!body.trim()) return Promise.reject(new Error('Nothing to say.'));
+      return gifos.meet.sendChat(id, body).then(function () {
+        noteCommand('say', 'chat');
+        return { id: id, sent: true };
+      });
+    },
+    setVoice: function (settings) {
+      var voice = state.voice;
+      var respond = state.respond;
+      var llm = state.llm;
+      var tts = state.tts;
+      var stt = state.stt;
+      var key = '';
+      var secrets = [];
+      try {
+        settings = settings || {};
+        if (settings.conversation_voice != null) voice = BotVoice.normalizeVoice(settings.conversation_voice);
+        if (settings.respond_to_command != null) respond = !!settings.respond_to_command;
+        secrets = collectSecrets(settings);
+        if (voice !== 'local') {
+          llm = null;
+          tts = null;
+        } else {
+          if (settings.llm) {
+            key = String(settings.llm.key || '');
+            llm = { url: String(settings.llm.url || ''), model: String(settings.llm.model || '') };
+          }
+          if (settings.tts) tts = BotVoice.publicTts(settings.tts);
+        }
+        if (settings.stt) stt = settings.stt.url ? { configured: true } : null;
+      } catch (e) {
+        return Promise.reject(new Error(scrubSecrets(e && e.message || e, secrets)));
+      }
+      var payload = { respond_to_command: respond, conversation_voice: voice };
+      if (voice === 'local' && settings.llm) payload.llm = { url: llm.url, model: llm.model, key: key };
+      if (voice === 'local' && settings.tts) {
+        payload.tts = {
+          engine: String(settings.tts.engine || (settings.tts.url ? 'http' : 'kokoro')),
+          app: settings.tts.app,
+          voice: settings.tts.voice,
+          url: settings.tts.url || ''
+        };
+      }
+      if (settings.stt) payload.stt = { url: String(settings.stt.url || '') };
+      var fn = meetCall('setVoice');
+      if (!fn) noteError('This meeting page has no voice setting yet.');
+      var handed = fn ? Promise.resolve().then(function () { return fn(payload); }) : Promise.resolve({ host: false });
+      return handed.then(function () {
+        state.voice = voice;
+        state.respond = respond;
+        state.llm = llm;
+        state.tts = tts;
+        state.stt = stt;
+        state.keyOnHost = !!(voice === 'local' && key && fn);
+        key = '';
+        payload = null;
+        secrets.length = 0;
+        noteCommand('set_voice', state.voice + (state.respond ? ' commands' : ''));
+        paint();
+        return voicePublic();
+      }, function (e) {
+        var msg = scrubSecrets(e && e.message || e, secrets);
+        key = '';
+        payload = null;
+        secrets.length = 0;
+        state.voice = voice;
+        state.respond = respond;
+        state.llm = llm;
+        state.tts = tts;
+        state.stt = stt;
+        state.keyOnHost = false;
+        noteError(msg);
+        noteCommand('set_voice', state.voice);
+        paint();
+        return voicePublic();
+      });
+    },
+    interject: function (id, text) {
+      try { needWork(id); } catch (e) { return Promise.reject(e); }
+      var body = String(text == null ? '' : text).trim().slice(0, 2000);
+      if (!body) return Promise.reject(new Error('Nothing to say.'));
+      var fn = meetCall('interject') || meetCall('speak');
+      if (!fn) return Promise.reject(new Error('This meeting cannot play the bot microphone.'));
+      state.speakGen++;
+      var gen = state.speakGen;
+      state.speaking = true;
+      state.speakingId = id;
+      rememberSpoken(body);
+      noteCommand('interject', 'mic');
+      paint();
+      return Promise.resolve().then(function () { return fn.length >= 2 ? fn(id, body) : fn({ meetingId: id, text: body }); }).then(function (r) {
+        if (r && r.text) rememberSpoken(r.text);
+        var stopped = gen !== state.speakGen;
+        if (!stopped) { state.speaking = false; state.speakingId = ''; }
+        paint();
+        if (stopped || (r && r.spoken === false)) return Promise.reject(new Error('Stopped.'));
+        return { id: id, spoken: true };
+      }, function (e) {
+        if (gen === state.speakGen) { state.speaking = false; state.speakingId = ''; }
+        if (!aborted(e)) noteError(BotVoice.scrub(e && e.message || e, ''));
+        paint();
+        throw e;
+      });
+    },
+    stopSpeaking: function (id) {
+      if (id) { try { needWork(id); } catch (e) { return Promise.reject(e); } }
+      state.speakGen++;
+      state.speaking = false;
+      var target = id || state.speakingId;
+      state.speakingId = '';
+      noteCommand('stop_speaking', target || '');
+      paint();
+      if (!target) return Promise.resolve({ stopped: true });
+      return hostStop(target).then(function () { return { id: target, stopped: true }; });
+    },
+    raiseHand: function (id, on) { return roomControl(id, 'raiseHand', on, 'hand'); },
+    setMic: function (id, on) { return roomControl(id, 'setMic', on, 'mic'); },
+    setCamera: function (id, on) { return roomControl(id, 'setCamera', on, 'camera'); },
+    meetingState: function (id) {
+      try { needWork(id); } catch (e) { return Promise.reject(e); }
+      var local = ensureControls(id);
+      var base = { id: id, hand: !!local.hand, mic: !!local.mic, camera: !!local.camera, people: peopleOf(id) };
+      var fn = meetCall('meetingState');
+      if (!fn) return Promise.resolve(base);
+      return Promise.resolve().then(function () { return fn(id); }).then(function (r) {
+        if (r && typeof r === 'object') {
+          if ('hand' in r) base.hand = !!r.hand;
+          if ('mic' in r) base.mic = !!r.mic;
+          if ('camera' in r) base.camera = !!r.camera;
+          if (r.people) base.people = r.people;
+          local.hand = base.hand;
+          local.mic = base.mic;
+          local.camera = base.camera;
+        }
+        return base;
+      }, function () { return base; });
+    },
+    snapshot: function (id) {
+      return ops.meetingState(id).then(function (row) {
+        return { id: row.id, hand: row.hand, mic: row.mic, camera: row.camera, people: row.people };
+      });
     },
     people: function (id) {
       try { needWork(id); } catch (e) { return Promise.reject(e); }
-      return Promise.resolve((state.people[id] || []).map(function (p) {
-        return { id: p.id || '', name: p.name || '', bot: !!p.bot, me: !!p.me };
-      }));
+      return Promise.resolve(peopleOf(id));
     },
     transcript: function (id) {
       if (!state.lines[id]) return Promise.reject(new Error('No such meeting: ' + id));
@@ -259,12 +679,46 @@
     }
   };
 
+  function maybeReply(id, line) {
+    if (!line || ownVoice(line) || state.voice === 'none' || state.replying) return;
+    var text = line.text || '';
+    var command = BotVoice.isCommand(text, state.name);
+    if (command && !state.respond) return;
+    if (!command && !BotVoice.isConversation(text, state.name)) return;
+    var fn = meetCall('converse');
+    if (!fn) {
+      noteError('This meeting cannot answer in conversation voice.');
+      return;
+    }
+    state.replying = true;
+    noteCommand(command ? 'command' : 'conversation', line.by || 'Someone');
+    paint();
+    Promise.resolve().then(function () {
+      return fn.length >= 2 ? fn(id, { by: line.by || '', text: text }) : fn({ meetingId: id, by: line.by || '', text: text });
+    }).then(function (r) {
+      if (r && r.text) rememberSpoken(r.text);
+    }).catch(function (e) {
+      if (!aborted(e)) noteError(scrubSecrets(e && e.message || e, []));
+    }).then(function () {
+      state.replying = false;
+      paint();
+    });
+  }
+
   function handleCommand(msg) {
     var ref = msg.id || '';
     var fail = function (e) { return reply({ op: 'err', ref: ref, text: String(e && e.message || e) }); };
     var okItems = function (text) { return function () { return reply({ op: 'ok', ref: ref, text: text, items: workMeetings() }); }; };
     var id = msg.meetingId;
-    if (msg.op === 'list' || msg.op === 'status') return reply({ op: 'meetings', ref: ref, items: workMeetings() });
+    if (msg.op === 'list' || msg.op === 'status') {
+      var pub = voicePublic();
+      return reply({
+        op: 'meetings', ref: ref, items: workMeetings(),
+        respond_to_command: pub.respond_to_command, conversation_voice: pub.conversation_voice,
+        llm: pub.llm, tts: pub.tts, stt: pub.stt,
+        speaking: !!state.speaking, listening: listeningNow() && !state.speaking
+      });
+    }
     if (msg.op === 'create') {
       return ops.create().then(function (r) {
         return reply({ op: 'ok', ref: ref, text: 'created ' + r.id, meetingId: r.id, link: r.link, room: r.room, items: workMeetings() });
@@ -279,7 +733,59 @@
     if (msg.op === 'record' && id) return ops.record(id, !!msg.on).then(okItems('record ' + (msg.on ? 'on' : 'off'))).catch(fail);
     if (msg.op === 'transcribe' && id) return ops.transcribe(id, !!msg.on).then(okItems('transcribe ' + (msg.on ? 'on' : 'off'))).catch(fail);
     if (msg.op === 'say' && id) {
-      return ops.say(id, msg.text).then(function () { return reply({ op: 'ok', ref: ref, text: 'sent' }); }).catch(fail);
+      return ops.say(id, msg.text).then(function () {
+        return reply({ op: 'ok', ref: ref, text: 'sent' });
+      }).catch(fail);
+    }
+    if (msg.op === 'interject' && id) {
+      return ops.interject(id, msg.text).then(function () {
+        return reply({ op: 'ok', ref: ref, text: 'spoken', spoken: true });
+      }).catch(fail);
+    }
+    if (msg.op === 'stop_speaking' || msg.op === 'stopSpeaking') {
+      return ops.stopSpeaking(id).then(function () { return reply({ op: 'ok', ref: ref, text: 'stopped' }); }).catch(fail);
+    }
+    if (msg.op === 'set_voice' || msg.op === 'setVoice') {
+      var settings = {};
+      if (msg.respond_to_command != null) settings.respond_to_command = msg.respond_to_command;
+      if (msg.conversation_voice != null) settings.conversation_voice = msg.conversation_voice;
+      if (msg.llm) settings.llm = { url: msg.llm.url, model: msg.llm.model, key: msg.llm.key };
+      if (msg.tts) settings.tts = { engine: msg.tts.engine, app: msg.tts.app, voice: msg.tts.voice, url: msg.tts.url };
+      if (msg.stt) settings.stt = { url: msg.stt.url };
+      var secrets = collectSecrets(settings);
+      return ops.setVoice(settings).then(function (r) {
+        secrets.length = 0;
+        return reply(Object.assign({ op: 'ok', ref: ref, text: 'set_voice' }, r));
+      }, function (e) {
+        var text = scrubSecrets(e && e.message || e, secrets);
+        secrets.length = 0;
+        return reply({ op: 'err', ref: ref, text: text });
+      });
+    }
+    if ((msg.op === 'raise_hand' || msg.op === 'raiseHand') && id) {
+      return ops.raiseHand(id, !!msg.on).then(function (r) {
+        return reply({ op: 'ok', ref: ref, text: r.hand ? 'hand up' : 'hand down', hand: r.hand, items: workMeetings() });
+      }).catch(fail);
+    }
+    if ((msg.op === 'set_mic' || msg.op === 'setMic') && id) {
+      return ops.setMic(id, !!msg.on).then(function (r) {
+        return reply({ op: 'ok', ref: ref, text: r.mic ? 'mic on' : 'mic off', mic: r.mic, items: workMeetings() });
+      }).catch(fail);
+    }
+    if ((msg.op === 'set_camera' || msg.op === 'setCamera') && id) {
+      return ops.setCamera(id, !!msg.on).then(function (r) {
+        return reply({ op: 'ok', ref: ref, text: r.camera ? 'camera on' : 'camera off', camera: r.camera, items: workMeetings() });
+      }).catch(fail);
+    }
+    if ((msg.op === 'meeting_state' || msg.op === 'meetingState') && id) {
+      return ops.meetingState(id).then(function (r) {
+        return reply({ op: 'meeting_state', ref: ref, meetingId: id, hand: r.hand, mic: r.mic, camera: r.camera, people: r.people });
+      }).catch(fail);
+    }
+    if (msg.op === 'snapshot' && id) {
+      return ops.snapshot(id).then(function (r) {
+        return reply({ op: 'snapshot', ref: ref, meetingId: id, hand: r.hand, mic: r.mic, camera: r.camera, people: r.people });
+      }).catch(fail);
     }
     if (msg.op === 'people' && id) {
       return ops.people(id).then(function (people) { return reply({ op: 'people', ref: ref, meetingId: id, people: people }); }).catch(fail);
@@ -310,9 +816,20 @@
       renderCtrl(msg.meetings || msg.items);
     }
     if (msg.op === 'ok' || msg.op === 'err' || msg.op === 'meetings') log('← ' + (msg.text || msg.op) + (msg.link ? '  ' + msg.link : ''));
+    if (msg.conversation_voice) {
+      try { state.voice = BotVoice.normalizeVoice(msg.conversation_voice); } catch (e) {}
+    }
+    if (msg.respond_to_command != null) state.respond = !!msg.respond_to_command;
+    if (msg.llm && typeof msg.llm === 'object') state.llm = { url: String(msg.llm.url || ''), model: String(msg.llm.model || '') };
+    if (msg.tts && typeof msg.tts === 'object') {
+      try { state.tts = BotVoice.publicTts(msg.tts); } catch (e) { state.tts = null; }
+    }
+    if (msg.stt && msg.stt.configured) state.stt = { configured: true };
+    if (msg.speaking != null) state.speaking = !!msg.speaking;
     if (msg.op === 'beat' && msg.instance && state.instance && msg.role === 'bot') {
       /* A controller just displays what the bot reports. */
     }
+    if (state.phase === 'control') paint();
   }
 
   gifos.meet.onParticipants(function (ev) {
@@ -331,6 +848,9 @@
     var text = String((ev && ev.text) || '');
     if (!adminEvent(ev)) {
       if (BotProto.looksLikeCommand(text) || BotProto.decode(text)) noteIgnored();
+      if (ev && ev.meetingId && state.meetings[ev.meetingId] && !state.meetings[ev.meetingId].control) {
+        maybeReply(ev.meetingId, { by: ev.by || '', text: text, self: ev.self, bot: ev.bot, me: ev.me });
+      }
       return;
     }
     var msg = BotProto.decode(text);
@@ -356,7 +876,10 @@
   gifos.meet.onTranscriptLine(function (ev) {
     if (!ev || !ev.meetingId || ev.meetingId === state.adminId) return;
     var line = ev.line || {};
-    (state.lines[ev.meetingId] = state.lines[ev.meetingId] || []).push({ by: line.by || '', text: line.text || '', at: line.at || Date.now() });
+    var row = { by: line.by || '', text: line.text || '', at: line.at || Date.now(), self: !!(line.self || ev.self), bot: !!(line.bot || ev.bot), me: !!(line.me || ev.me) };
+    if (ownVoice(row)) return;
+    (state.lines[ev.meetingId] = state.lines[ev.meetingId] || []).push({ by: row.by, text: row.text, at: row.at });
+    emitTranscript(ev.meetingId, row);
     var n = state.lines[ev.meetingId].length;
     var slot = document.getElementById('tr-' + ev.meetingId);
     if (!slot) {
@@ -365,6 +888,8 @@
       logEl.appendChild(slot);
     }
     slot.textContent = ev.meetingId + ' transcript lines: ' + n + (line.text ? '  last: ' + line.text : '');
+    maybeReply(ev.meetingId, row);
+    paint();
   });
   gifos.meet.onXfer(function (ev) {
     if (state.phase !== 'control' || !ev || ev.meetingId !== state.adminId) return;
@@ -386,7 +911,9 @@
   function beat() {
     if (state.phase !== 'run' || !state.adminId) return;
     gifos.meet.sendChat(state.adminId, BotProto.encode({
-      v: 1, role: 'bot', op: 'beat', instance: state.instance, meetings: workMeetings()
+      v: 1, role: 'bot', op: 'beat', instance: state.instance, meetings: workMeetings(),
+      respond_to_command: !!state.respond, conversation_voice: state.voice,
+      speaking: !!state.speaking, listening: listeningNow() && !state.speaking
     })).catch(function () {});
   }
   function autoJoin() {
@@ -459,9 +986,17 @@
   };
   document.getElementById('mode-run').onchange = paint;
   document.getElementById('mode-control').onchange = paint;
-  // Start in RUN or CONTROL. The Start button, window.MeetingBot.start and a
-  // granted go.start launch all come through here. Resolves when the bot is
-  // running (or controlling); rejects with the reason it did not start.
+  document.getElementById('ops-commands').onclick = function () {
+    ops.setVoice({ respond_to_command: !state.respond }).catch(function (e) { noteError(e && e.message || e); paint(); });
+  };
+  ['none', 'grok', 'local'].forEach(function (v) {
+    document.getElementById('voice-' + v).onclick = function () {
+      ops.setVoice({ conversation_voice: v }).catch(function (e) { noteError(e && e.message || e); paint(); });
+    };
+  });
+  document.getElementById('ops-stop').onclick = function () {
+    ops.stopSpeaking(state.speakingId).catch(function (e) { noteError(e && e.message || e); paint(); });
+  };
   function start(opts) {
     opts = opts || {};
     if (opts.name != null) document.getElementById('bot-name').value = String(opts.name);
@@ -470,6 +1005,14 @@
     if (opts.mode === 'run') document.getElementById('mode-run').checked = true;
     if (opts.override != null) document.getElementById('override').checked = !!opts.override;
     if (opts.rules != null) rulesEl.value = String(opts.rules);
+    if (opts.respond_to_command != null) state.respond = !!opts.respond_to_command;
+    if (opts.respond_to_commands != null) state.respond = !!opts.respond_to_commands;
+    if (opts.conversation_voice != null) {
+      try { state.voice = BotVoice.normalizeVoice(opts.conversation_voice); } catch (e) {
+        warn(e.message);
+        return Promise.reject(e);
+      }
+    }
     if (state.phase !== 'idle') return Promise.reject(new Error('Already started (' + state.phase + ').'));
     var name = document.getElementById('bot-name').value.trim();
     var password = document.getElementById('bot-pass').value;
@@ -506,7 +1049,16 @@
   function status() {
     return {
       phase: state.phase, connected: !!state.adminId, name: state.name,
-      meetings: state.phase === 'run' ? workMeetings() : state.ctrlItems.slice(), warning: warnEl.textContent || ''
+      meetings: state.phase === 'run' ? workMeetings() : state.ctrlItems.slice(), warning: warnEl.textContent || '',
+      respond_to_command: !!state.respond,
+      conversation_voice: state.voice,
+      llm: voicePublic().llm,
+      tts: voicePublic().tts,
+      stt: voicePublic().stt,
+      speaking: !!state.speaking,
+      listening: listeningNow() && !state.speaking,
+      commands: state.commands.slice(-8),
+      errors: state.errors.slice(-8)
     };
   }
   document.getElementById('start').onclick = function () { start().catch(function () {}); };
@@ -529,13 +1081,13 @@
     if (args.password) document.getElementById('bot-pass').value = args.password;
     if (args.mode === 'control') document.getElementById('mode-control').checked = true;
     if (args.mode === 'run') document.getElementById('mode-run').checked = true;
+    if (args.conversation_voice) {
+      try { state.voice = BotVoice.normalizeVoice(args.conversation_voice); } catch (e) {}
+    }
+    if (args.respond_to_command === '1' || args.respond_to_command === 'on' || args.respond_to_commands === '1' || args.respond_to_commands === 'on') state.respond = true;
     paint();
-    // go.start=1: the person approved this launch in the sheet, so start now.
     if (args.start === '1' || args.start === 'true') start().catch(function () {});
   }).catch(function () {});
-  // Local control surface for an automated browser driving THIS page (see
-  // CONTROL.md). RUN-mode calls act on this bot directly; nothing here is
-  // reachable from outside the app frame.
   function running() { if (state.phase !== 'run') throw new Error('The bot is not running. Call start({ mode: "run", ... }) first.'); }
   function guard(fn) {
     return function () {
@@ -545,7 +1097,8 @@
     };
   }
   window.MeetingBot = {
-    version: 1,
+    version: 2,
+    compatibleWith: function (v) { return v === 1 || v === 2; },
     start: start,
     status: status,
     list: guard(ops.list),
@@ -556,9 +1109,19 @@
     record: guard(ops.record),
     transcribe: guard(ops.transcribe),
     say: guard(ops.say),
+    setVoice: ops.setVoice,
+    interject: guard(ops.interject),
+    stopSpeaking: guard(ops.stopSpeaking),
+    stop_speaking: guard(ops.stopSpeaking),
+    raiseHand: guard(ops.raiseHand),
+    setMic: guard(ops.setMic),
+    setCamera: guard(ops.setCamera),
+    meetingState: guard(ops.meetingState),
+    snapshot: guard(ops.snapshot),
     people: guard(ops.people),
     transcript: guard(ops.transcript),
-    recording: guard(ops.recording)
+    recording: guard(ops.recording),
+    onTranscript: onTranscript
   };
   paint();
 })();
