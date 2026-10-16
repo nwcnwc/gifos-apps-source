@@ -427,6 +427,27 @@
     }
     return false;
   }
+  // Spoken lines stay in the transcript, credited to the bot. A repeat of one
+  // of the last 20 of those lines is the same utterance coming back, so it is
+  // not stored a second time. The bot still does not answer its own lines.
+  function keepLine(id, line) {
+    if (!id || !line) return null;
+    var own = ownVoice(line);
+    var by = own ? (state.name || line.by || 'Bot') : (line.by || '');
+    var text = line.text || '';
+    var at = line.at || Date.now();
+    var lines = state.lines[id] = state.lines[id] || [];
+    var norm = BotVoice.norm(text);
+    if (own && norm) {
+      var start = Math.max(0, lines.length - 20);
+      for (var i = lines.length - 1; i >= start; i--) {
+        if (lines[i].by === by && BotVoice.norm(lines[i].text) === norm) return null;
+      }
+    }
+    var row = { by: by, text: text, at: at };
+    lines.push(row);
+    return row;
+  }
   function emitTranscript(id, line) {
     var ev = { id: id, by: line.by || '', text: line.text || '', at: line.at || Date.now() };
     state.transcriptListeners.forEach(function (fn) {
@@ -605,8 +626,11 @@
         if (r && r.text) rememberSpoken(r.text);
         var stopped = gen !== state.speakGen;
         if (!stopped) { state.speaking = false; state.speakingId = ''; }
+        if (stopped || (r && r.spoken === false)) { paint(); return Promise.reject(new Error('Stopped.')); }
+        var said = (r && r.text) || body;
+        var kept = keepLine(id, { by: state.name, text: said, at: Date.now(), bot: true });
+        if (kept) emitTranscript(id, kept);
         paint();
-        if (stopped || (r && r.spoken === false)) return Promise.reject(new Error('Stopped.'));
         return { id: id, spoken: true };
       }, function (e) {
         if (gen === state.speakGen) { state.speaking = false; state.speakingId = ''; }
@@ -696,7 +720,11 @@
     Promise.resolve().then(function () {
       return fn.length >= 2 ? fn(id, { by: line.by || '', text: text }) : fn({ meetingId: id, by: line.by || '', text: text });
     }).then(function (r) {
-      if (r && r.text) rememberSpoken(r.text);
+      if (r && r.text) {
+        rememberSpoken(r.text);
+        var kept = keepLine(id, { by: state.name, text: r.text, at: Date.now(), bot: true });
+        if (kept) emitTranscript(id, kept);
+      }
     }).catch(function (e) {
       if (!aborted(e)) noteError(scrubSecrets(e && e.message || e, []));
     }).then(function () {
@@ -877,8 +905,9 @@
     if (!ev || !ev.meetingId || ev.meetingId === state.adminId) return;
     var line = ev.line || {};
     var row = { by: line.by || '', text: line.text || '', at: line.at || Date.now(), self: !!(line.self || ev.self), bot: !!(line.bot || ev.bot), me: !!(line.me || ev.me) };
-    if (ownVoice(row)) return;
-    (state.lines[ev.meetingId] = state.lines[ev.meetingId] || []).push({ by: row.by, text: row.text, at: row.at });
+    var kept = keepLine(ev.meetingId, row);
+    if (!kept) return;
+    row = kept;
     emitTranscript(ev.meetingId, row);
     var n = state.lines[ev.meetingId].length;
     var slot = document.getElementById('tr-' + ev.meetingId);

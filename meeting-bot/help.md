@@ -24,7 +24,7 @@ A script or an automated browser can drive the bot on this computer through `win
 
 ## Speaking
 
-Chat stays chat. A spoken line is a separate request, and it interrupts whatever the bot is already saying. Conversation voice can answer the room: Grok Voice, or a local model spoken with Kokoro on this computer. The app frame does not call the model itself. The bot's own voice is left out of the transcript, so it does not answer itself.
+Chat stays chat. A spoken line is a separate request, and it interrupts whatever the bot is already saying. Conversation voice can answer the room: Grok Voice, or a local model spoken with Kokoro on this computer. The app frame does not call the model itself. A line the bot speaks is written into the transcript under the bot's name. The bot does not answer itself.
 
 ## Out of scope
 

@@ -345,16 +345,19 @@ function appCase() {
           return Bot.interject(id, 'Speaking now.');
         }).then(function (spoken) {
           check('interject speaks through the host', spoken.spoken === true && spoken.id === id && calls.interject.some(function (c) { return c.text === 'Speaking now.'; }));
+          return Bot.transcript(id).then(function (spokenLines) {
+            check('interject writes the bot into the transcript', spokenLines.lines.some(function (l) { return l.by === 'harbor-maple' && l.text === 'Speaking now.'; }), JSON.stringify(spokenLines.lines));
           const heard = [];
           const off = Bot.onTranscript(function (ev) { heard.push(ev); });
           subs.tr.forEach(function (cb) {
             cb({ meetingId: id, line: { by: 'harbor-maple', text: 'Speaking now.' } });
+            cb({ meetingId: id, line: { by: 'Ada', text: 'Speaking now.' } });
             cb({ meetingId: id, line: { by: 'Ada', text: 'What should we do next?' } });
           });
           return Bot.transcript(id).then(function (t) {
-            const texts = t.lines.map(function (l) { return l.text; });
-            check('the bot voice stays out of the transcript', texts.indexOf('Speaking now.') < 0 && texts.indexOf('What should we do next?') >= 0);
-            check('the transcript event fires for other people', heard.length === 1 && heard[0].by === 'Ada');
+            const botLines = t.lines.filter(function (l) { return l.text === 'Speaking now.'; });
+            check('the bot voice is in the transcript once, attributed to the bot', botLines.length === 1 && botLines[0].by === 'harbor-maple' && t.lines.some(function (l) { return l.by === 'Ada' && l.text === 'What should we do next?'; }), JSON.stringify(t.lines));
+            check('the transcript event fires for other people and not a second copy of the bot', heard.length === 1 && heard[0].by === 'Ada' && heard[0].text === 'What should we do next?');
             off();
           function allText(node) {
             let s = node && node.textContent || '';
@@ -362,7 +365,7 @@ function appCase() {
             return s;
           }
           const tail = allText(ids['ops-tail']);
-          check('the operator tail omits the bot voice', tail.indexOf('Speaking now.') < 0 && tail.indexOf('Ada') >= 0, tail);
+          check('the operator tail shows the bot and Ada', tail.indexOf('Speaking now.') >= 0 && tail.indexOf('harbor-maple') >= 0 && tail.indexOf('Ada') >= 0 && tail.indexOf('What should we do next?') >= 0, tail);
             return Bot.raiseHand(id, true).then(function (hand) {
               return Bot.setMic(id, true).then(function (mic) {
                 return Bot.setCamera(id, false).then(function () {
@@ -388,6 +391,7 @@ function appCase() {
                 });
               });
             });
+          });
           });
         });
       });

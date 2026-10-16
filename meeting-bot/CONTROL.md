@@ -46,10 +46,10 @@ Every method returns a Promise, except `status`, which is synchronous. A failure
 | `join(link, password?)` | `{ id, room, link }` | `link` is a meeting link or a room code. `password` is the room password, if it has one. |
 | `list()` | `[{ id, room, link, rec, cc, created, people, hand, mic, camera }]` | The work meetings, without the admin meeting. `people` holds the names of everyone except the bot. The hand, microphone, and camera flags are the last ones this bot set. |
 | `people(id)` | `[{ id, name, bot, me }]` | Who is in the meeting now. `me` is the bot itself. |
-| `transcribe(id, on)` | `{ id, cc }` | Turns writing everyone down on or off. Everyone sees 📝 transcribing on the bot's tile. If that indicator cannot be shown, the call rejects. The bot writes down each person who is unmuted, credited to that person. People join muted, so a person has to unmute to be written down. The bot never writes down its own computer's microphone, and it never writes down its own voice. |
+| `transcribe(id, on)` | `{ id, cc }` | Turns writing everyone down on or off. Everyone sees 📝 transcribing on the bot's tile. If that indicator cannot be shown, the call rejects. The bot writes down each person who is unmuted, credited to that person. People join muted, so a person has to unmute to be written down. The bot never writes down its own computer's microphone. A line it spoke is written down separately, credited to the bot. |
 | `record(id, on)` | `{ id, rec }` | Turns recording on or off. Everyone sees ⏺ recording on the bot's tile. |
 | `say(id, text)` | `{ id, sent: true }` | Posts one chat message into the meeting, up to 2000 characters. This is chat. It does not speak. |
-| `transcript(id)` | `{ id, lines: [{ by, text, at }], text }` | Every kept line so far. `text` has one `Name: words` line per entry. `at` is ms since epoch. The bot's own voice is not in this list. |
+| `transcript(id)` | `{ id, lines: [{ by, text, at }], text }` | Every kept line so far. `text` has one `Name: words` line per entry. `at` is ms since epoch. A line the bot spoke is in this list, with `by` set to the bot's name. |
 | `recording(id)` | `{ id, name, mime, bytes }` | Stops recording if it is on, then returns the file (`bytes` is an ArrayBuffer, usually `video/webm`). |
 | `leave(id)` / `end(id)` | `{ id, left: true }` | The bot leaves the meeting. |
 | `setVoice(settings)` | the public settings | See below. Works before RUN. Rejects an unknown `conversation_voice`. The resolved value and `status()` omit `llm.key`, `tts.url`, and `stt.url`. |
@@ -60,7 +60,7 @@ Every method returns a Promise, except `status`, which is synchronous. A failure
 | `setCamera(id, on)` | `{ id, camera }` | Shows the bot's camera when `on` is true, and turns it off when `on` is false. Rejects when the meeting page cannot. |
 | `meetingState(id)` | `{ id, hand, mic, camera, people }` | The hand, microphone, camera, and the people list. Read-only. |
 | `snapshot(id)` | `{ id, hand, mic, camera, people }` | Same fields as `meetingState`. Read-only. It does not change the meeting and it does not open a browser. A connector may also save a PNG of the Meet Bot page it already has open. |
-| `onTranscript(fn)` | an unsubscribe function | Called with `{ id, by, text, at }` for each kept line. The bot's own voice is not delivered. |
+| `onTranscript(fn)` | an unsubscribe function | Called with `{ id, by, text, at }` for each kept line, including a line the bot spoke. `by` is the bot's name on those lines. A repeat of the same spoken line is not delivered again. |
 
 ### `setVoice`
 
@@ -94,7 +94,7 @@ The app forwards the setting with `gifos.meet.setVoice(settings)` and does not k
 
 ### The bot's own voice
 
-A transcript line is dropped when it is marked self, bot, or me, when `by` is the bot's name, or when the text matches one of the last 20 lines the bot spoke. Dropped lines are not stored, not given to `onTranscript`, and not announced on the admin meeting. Spoken replies are not posted back into the transcript.
+A line the bot spoke is stored and announced, with `by` set to the bot's name. That includes a successful `interject`, a spoken conversation reply, and a caption that is the bot's own line (marked self, bot, or me, credited to the bot's name, or matching one of the last 20 lines the bot spoke). The same line is kept once: a repeat among the last 20 lines already credited to the bot is not stored again and is not announced again. The bot does not answer its own lines. Chat from `say` is not a transcript line. The meeting page still does not caption this computer's own microphone.
 
 ### Mapping for a connector
 
@@ -175,7 +175,7 @@ Camel-case aliases `setVoice`, `stopSpeaking`, `raiseHand`, `setMic`, `setCamera
 
 A failure replies `err` with `text`. While running, the bot also posts `beat` every 3 s, with `instance`, `meetings`, `respond_to_command`, `conversation_voice`, `speaking`, and `listening`. The beat does not carry a key or a stand-in URL. A second bot with the same pair gets `warn`.
 
-New transcript lines are also posted by the bot, unsolicited, as `op: "transcript"` with `meetingId`, `by`, `text`, and `at`. That push is role `bot`. A controller's `transcript` request is still the file download. Lines of the bot's own voice are not posted.
+New transcript lines are also posted by the bot, unsolicited, as `op: "transcript"` with `meetingId`, `by`, `text`, and `at`. That push is role `bot`. A controller's `transcript` request is still the file download. A line the bot spoke is posted the same way, with `by` set to the bot's name. A repeat of that line is not posted again.
 
 Transcripts and recordings travel as data-channel frames (`k: "bx"`, base64 chunks of 8000 bytes). Only a session opened by the app, in CONTROL mode, puts them back together. A plain meeting page sees the chat lines but not the files. So to fetch files remotely, run the app in CONTROL mode and read `#xfer`, or catch the browser download.
 

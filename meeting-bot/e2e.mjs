@@ -127,8 +127,8 @@ try {
   }, id);
   const tail = await page.locator('#ops-tail').innerText();
   const lines = await page.evaluate(async (mid) => (await window.MeetingBot.transcript(mid)).lines.map((l) => l.by + ': ' + l.text), id);
-  check('the bot voice stays out of the transcript', lines.indexOf('demo-bot: Speaking now.') < 0 && lines.indexOf('Ada: What should we do next?') >= 0, JSON.stringify(lines));
-  check('the operator tail shows Ada only', tail.indexOf('Speaking now.') < 0 && tail.indexOf('Ada') >= 0, tail);
+  check('the bot voice is in the transcript, attributed to the bot', lines.indexOf('demo-bot: Speaking now.') >= 0 && lines.filter((l) => l === 'demo-bot: Speaking now.').length === 1 && lines.indexOf('Ada: What should we do next?') >= 0, JSON.stringify(lines));
+  check('the operator tail shows the bot and Ada', tail.indexOf('Speaking now.') >= 0 && tail.indexOf('demo-bot') >= 0 && tail.indexOf('Ada') >= 0, tail);
   console.log('screenshots: ' + join(outDir, 'status-before.png') + ' ' + join(outDir, 'status-after.png'));
 } finally {
   await browser.close();
