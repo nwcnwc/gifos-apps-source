@@ -16,7 +16,7 @@ const help = fs.readFileSync(path.join(APP, 'help.md'), 'utf8');
 const app = fs.readFileSync(path.join(APP, 'app.js'), 'utf8');
 const html = fs.readFileSync(path.join(APP, 'index.html'), 'utf8');
 
-check('manifest declares meet and remote', manifest.capabilities && manifest.capabilities.meet === true && manifest.capabilities.remote === true);
+check('manifest declares meet, remote, and Smartest speech', manifest.capabilities && manifest.capabilities.meet === true && manifest.capabilities.remote === true && Array.isArray(manifest.capabilities.ai) && manifest.capabilities.ai.indexOf('smartest') >= 0 && manifest.capabilities.ai.indexOf('tts') >= 0);
 check('minBuild is the 0.9.23 build that ships Meet', manifest.minBuild === 2723);
 check('no network capability', !manifest.capabilities.network && !manifest.capabilities.api);
 check('launch keys for headless start', !!(manifest.launch && manifest.launch.mode && manifest.launch.name && manifest.launch.password));
@@ -28,19 +28,19 @@ check('page has the launch form and the control panel', /id="mode-run"/.test(htm
 const control = fs.readFileSync(path.join(APP, 'CONTROL.md'), 'utf8');
 check('launch key start for headless runs', !!(manifest.launch && manifest.launch.start));
 check('listing has cover art on disk', listing.cover === 'screenshot.png' && fs.statSync(path.join(APP, 'screenshot.png')).size > 1000);
-const API = ['start', 'status', 'list', 'create', 'join', 'leave', 'end', 'record', 'transcribe', 'say', 'people', 'transcript', 'recording', 'setVoice', 'interject', 'stopSpeaking', 'raiseHand', 'setMic', 'setCamera', 'meetingState', 'snapshot'];
+const API = ['start', 'status', 'list', 'create', 'join', 'leave', 'end', 'record', 'transcribe', 'say', 'people', 'transcript', 'chatFile', 'recording', 'setVoice', 'interject', 'stopSpeaking', 'raiseHand', 'setMic', 'setCamera', 'meetingState', 'snapshot', 'watch'];
 const apiBlock = (app.match(/window\.MeetingBot = \{([\s\S]*?)\};/) || [])[1] || '';
 const missingApi = API.filter((k) => !new RegExp('\\b' + k + ':').test(apiBlock));
 check('window.MeetingBot exposes the documented methods', missingApi.length === 0, missingApi.join(','));
 check('contract version is 2', /version:\s*2/.test(apiBlock));
 const undocumented = API.filter((k) => control.indexOf('`' + k + '(') < 0);
 check('CONTROL.md documents every method', undocumented.length === 0, undocumented.join(','));
-const OPS = ['list', 'status', 'create', 'join', 'leave', 'end', 'record', 'transcribe', 'say', 'people', 'transcript', 'recording', 'set_voice', 'interject', 'stop_speaking', 'raise_hand', 'set_mic', 'set_camera', 'meeting_state', 'snapshot'];
+const OPS = ['list', 'status', 'create', 'join', 'leave', 'end', 'record', 'transcribe', 'say', 'people', 'transcript', 'chat', 'recording', 'set_voice', 'interject', 'stop_speaking', 'raise_hand', 'set_mic', 'set_camera', 'meeting_state', 'snapshot', 'watch'];
 const unhandled = OPS.filter((op) => app.indexOf("msg.op === '" + op + "'") < 0);
 check('the bot answers every documented remote op', unhandled.length === 0, unhandled.join(','));
 check('the app frame does not load the host voice engine', !/host-voice\.js/.test(html));
 check('voice.js does not fetch', !/\bfetch\s*\(/.test(fs.readFileSync(path.join(APP, 'voice.js'), 'utf8')));
-check('operator page is in the app', /id="ops"/.test(html) && /id="ops-stop"/.test(html) && /class="spark"/.test(html));
+check('operator page is in the app', /id="ops"/.test(html) && /id="ops-stop"/.test(html) && /class="spark"/.test(html) && /id="ops-speak"/.test(html) && /Smartest/.test(html) && !/id="voice-grok"/.test(html));
 const opsUndoc = OPS.filter((op) => control.indexOf('`' + op + '`') < 0);
 check('CONTROL.md documents every remote op', opsUndoc.length === 0, opsUndoc.join(','));
 check('CONTROL.md says how to reach the app frame', /#appmount iframe/.test(control) && /\?run=meeting-bot/.test(control));
@@ -80,25 +80,12 @@ function voiceUnits() {
   vm.createContext(voiceBox);
   vm.runInContext(fs.readFileSync(path.join(APP, 'voice.js'), 'utf8'), voiceBox, { filename: 'voice.js' });
   const V = voiceBox.BotVoice;
-  check('voice accepts none, grok, and local', V.normalizeVoice('Grok') === 'grok' && V.normalizeVoice('') === 'none');
-  let bad = '';
-  try { V.normalizeVoice('piper'); } catch (e) { bad = e.message; }
-  check('unknown conversation voice is rejected', /none, grok, or local/.test(bad));
   const KEY = 'sk-test-SECRET-key-9f3a';
-  const TTS = 'https://tts.example.test/speak';
-  const STT = 'https://stt.example.test/v1';
-  const pub = V.publicSettings({
-    respond_to_command: true,
-    conversation_voice: 'local',
-    llm: { url: 'https://api.x.ai/v1', model: 'grok-4.20-0309-non-reasoning', key: KEY },
-    tts: { engine: 'kokoro', app: 'offline-tts-kokoro', voice: 'af_heart' },
-    stt: { url: STT }
-  });
-  const dumped = JSON.stringify(pub);
-  check('public settings keep the model and Kokoro voice', pub.llm.model === 'grok-4.20-0309-non-reasoning' && pub.tts.voice === 'af_heart' && pub.stt.configured === true);
-  check('public settings drop the key and the stand-in URLs', dumped.indexOf(KEY) < 0 && dumped.indexOf(TTS) < 0 && dumped.indexOf(STT) < 0 && !pub.llm.key && !pub.tts.url);
-  const httpTts = V.publicTts({ engine: 'http', url: TTS });
-  check('HTTP speech is named without its URL', httpTts.engine === 'http' && !httpTts.url);
+  const pub = V.publicSettings({ respond_to_command: true, speak: true, listen: true });
+  check('public settings name Smartest and carry no engine', pub.text_role === 'smartest' && pub.speak === true && pub.listen === true && !pub.llm && !pub.tts && !pub.conversation_voice);
+  let bad = '';
+  try { V.publicSettings({ conversation_voice: 'grok', llm: { url: 'https://api.x.ai/v1', key: KEY } }); } catch (e) { bad = e.message; }
+  check('engine settings are rejected without the key', /GifOS AI settings/.test(bad) && bad.indexOf(KEY) < 0);
   check('a command addressed to the bot is not conversation', V.isCommand('hey bot, join', 'harbor') && !V.isConversation('hey bot, join', 'harbor'));
   check('a question is conversation', V.isConversation('What should we do next?', 'harbor'));
   check('scrub removes the key', V.scrub('failed ' + KEY, KEY) === 'failed [redacted]');
@@ -236,13 +223,13 @@ function appCase() {
   const STT = 'https://stt.example.test/v1';
   const ids = {};
   const made = [];
-  ['warn', 'suggest', 'phase', 'log', 'ignored', 'rules', 'ops-meetings', 'ops-commands', 'voice-none', 'voice-grok', 'voice-local', 'ops-providers', 'ops-ear', 'ops-tail', 'ops-cmds', 'ops-errors', 'ops-stop', 'runbox', 'ctrl', 'rules-label', 'mode-control', 'mode-run', 'run-meetings', 'override', 'bot-name', 'bot-pass', 'fill', 'start', 'list-go', 'create-go', 'join-go', 'join-link', 'ctrl-meetings', 'xfer'].forEach(function (id) {
+  ['warn', 'suggest', 'phase', 'log', 'ignored', 'rules', 'ops-meetings', 'ops-commands', 'ops-speak', 'ops-listen', 'ops-providers', 'ops-ear', 'ops-tail', 'ops-chat', 'ops-cmds', 'ops-errors', 'ops-stop', 'ops-ai', 'runbox', 'ctrl', 'rules-label', 'mode-control', 'mode-run', 'run-meetings', 'override', 'bot-name', 'bot-pass', 'fill', 'start', 'list-go', 'create-go', 'join-go', 'join-link', 'ctrl-meetings', 'xfer'].forEach(function (id) {
     ids[id] = el(id);
   });
   ids['mode-run'].checked = true;
   const body = el('body');
   const subs = { tr: [], pe: [], ch: [], xf: [] };
-  const calls = { chat: [], voice: [], interject: [], hand: [], mic: [], cam: [], joins: [] };
+  const calls = { chat: [], voice: [], interject: [], speak: [], tts: [], aiChat: [], hand: [], mic: [], cam: [], joins: [], watch: [], cc: [], setup: [] };
   let n = 0;
   let held = null;
   const box = {
@@ -273,6 +260,12 @@ function appCase() {
   box.gifos = {
     launch: function () { return Promise.resolve(null); },
     db: function () { return { get: function () { return Promise.resolve(null); }, put: function () { return Promise.resolve(); } }; },
+    ai: {
+      models: function () { return Promise.resolve({ available: ['smartest', 'tts', 'stt'] }); },
+      chat: function (req) { calls.aiChat.push(req); return Promise.resolve({ text: 'A short answer.' }); },
+      tts: function (req) { calls.tts.push(req); return Promise.resolve({ bytes: new Uint8Array([9, 8, 7, 6]).buffer, mime: 'audio/wav' }); }
+    },
+    aiSetup: function (role) { calls.setup.push(role); return Promise.resolve(); },
     meet: {
       join: function (room, password, name, opts) {
         const id = 'mt_' + (++n);
@@ -284,12 +277,16 @@ function appCase() {
       stopRecording: function () { return Promise.resolve({ ok: true }); },
       getRecording: function () { return Promise.resolve({}); },
       sendChat: function (id, text) { calls.chat.push({ id: id, text: text }); return Promise.resolve({ ok: true }); },
-      transcribe: function () { return Promise.resolve({ ok: true }); },
+      transcribe: function (id, on) { calls.cc.push([id, !!on]); return Promise.resolve({ ok: true, cc: !!on }); },
       sendXfer: function () { return Promise.resolve({}); },
-      setVoice: function (settings) { calls.voice.push(JSON.parse(JSON.stringify(settings))); return Promise.resolve({ ok: true }); },
+      speak: function (id, audio) {
+        calls.speak.push({ id: id, text: audio && audio.text, mime: audio && audio.mime, n: audio && audio.bytes && audio.bytes.byteLength });
+        if (held) return new Promise(function (res) { held.res = res; held.id = id; held.text = audio && audio.text; });
+        return Promise.resolve({ spoken: true, text: audio && audio.text });
+      },
+      watch: function (id, on) { calls.watch.push([id, !!on]); return Promise.resolve({ id: id, watch: !!on }); },
       interject: function (id, text) {
         calls.interject.push({ id: id, text: text });
-        if (held) return new Promise(function (res) { held.res = res; held.id = id; held.text = text; });
         return Promise.resolve({ spoken: true, text: text });
       },
       converse: function () { return Promise.resolve({ spoken: true, text: 'A short answer.' }); },
@@ -313,23 +310,29 @@ function appCase() {
     check('run mode lists the joined meeting', st.phase === 'run' && st.connected && st.meetings.length === 1, JSON.stringify(st.meetings));
     const id = st.meetings[0].id;
     return Bot.setVoice({
-      respond_to_command: true,
       conversation_voice: 'local',
       llm: { url: 'https://api.x.ai/v1', model: 'grok-4.20-0309-non-reasoning', key: KEY },
       tts: { engine: 'http', url: TTS, voice: 'af_heart' },
       stt: { url: STT }
+    }).then(function () {
+      check('engine settings are refused', false);
+    }, function (e) {
+      const blob = e.message + JSON.stringify(Bot.status());
+      check('engine settings are refused without the key or the URLs', /GifOS AI settings/.test(e.message) && blob.indexOf(KEY) < 0 && blob.indexOf(TTS) < 0 && blob.indexOf(STT) < 0);
+    }).then(function () {
+      return Bot.setVoice({ respond_to_command: true, speak: true, listen: true });
     }).then(function (pub) {
-      const blob = JSON.stringify(pub) + JSON.stringify(Bot.status()) + ids['ops-providers'].textContent + JSON.stringify(Bot.status().errors) + JSON.stringify(Bot.status().commands);
-      check('setVoice forwards the key once and does not echo it', calls.voice[0].llm.key === KEY && blob.indexOf(KEY) < 0 && blob.indexOf(TTS) < 0 && blob.indexOf(STT) < 0);
-      check('setVoice public result names HTTP speech without the URL', pub.tts.engine === 'http' && !pub.tts.url && pub.stt.configured === true && pub.respond_to_command === true);
-      return Bot.setVoice({ conversation_voice: 'nope', llm: { key: KEY } }).then(function () {
-        check('a bad voice rejects', false);
-      }, function (e) {
-        check('a bad voice rejects without the key', /none, grok, or local/.test(e.message) && e.message.indexOf(KEY) < 0);
+      const blob = JSON.stringify(pub) + JSON.stringify(Bot.status()) + ids['ops-providers'].textContent;
+      check('setVoice uses Smartest and stores no key', pub.text_role === 'smartest' && pub.speak === true && pub.listen === true && pub.respond_to_command === true && !pub.llm && !pub.tts && blob.indexOf(KEY) < 0 && calls.cc.some(function (c) { return c[0] === id && c[1] === true; }), blob);
+      return Bot.say(id, 'hello in chat');
+    }).then(function (said) {
+      check('say posts chat and does not speak', said.sent === true && calls.chat.some(function (c) { return c.text === 'hello in chat'; }) && calls.speak.length === 0 && calls.tts.length === 0);
+      return Bot.chatFile(id).then(function (chat) {
+        return Bot.transcript(id).then(function (spoken) {
+          check('the bot chat is saved in the chat file', chat.lines.some(function (l) { return l.by === 'harbor-maple' && l.text === 'hello in chat'; }) && chat.text.indexOf('harbor-maple: hello in chat') >= 0 && chat.name.indexOf('chat-') === 0, JSON.stringify(chat.lines));
+          check('chat is not a spoken line', !spoken.lines.some(function (l) { return l.text === 'hello in chat'; }));
+        });
       }).then(function () {
-        return Bot.say(id, 'hello in chat');
-      }).then(function (said) {
-        check('say posts chat and does not interject', said.sent === true && calls.chat.some(function (c) { return c.text === 'hello in chat'; }) && calls.interject.length === 0);
         held = {};
         const pending = Bot.interject(id, 'Speaking now.');
         check('interject shows speaking', Bot.status().speaking === true && ids['ops-ear'].textContent === 'Speaking');
@@ -344,7 +347,7 @@ function appCase() {
           held = null;
           return Bot.interject(id, 'Speaking now.');
         }).then(function (spoken) {
-          check('interject speaks through the host', spoken.spoken === true && spoken.id === id && calls.interject.some(function (c) { return c.text === 'Speaking now.'; }));
+          check('interject speaks with GifOS speech and no URL', spoken.spoken === true && spoken.id === id && calls.tts.some(function (t) { return t.text === 'Speaking now.'; }) && calls.speak.some(function (s) { return s.text === 'Speaking now.' && s.mime === 'audio/wav' && s.n > 0; }) && calls.interject.length === 0 && JSON.stringify(calls.speak).indexOf('http') < 0);
           return Bot.transcript(id).then(function (spokenLines) {
             check('interject writes the bot into the transcript', spokenLines.lines.some(function (l) { return l.by === 'harbor-maple' && l.text === 'Speaking now.'; }), JSON.stringify(spokenLines.lines));
           const heard = [];
@@ -365,16 +368,22 @@ function appCase() {
             return s;
           }
           const tail = allText(ids['ops-tail']);
-          check('the operator tail shows the bot and Ada', tail.indexOf('Speaking now.') >= 0 && tail.indexOf('harbor-maple') >= 0 && tail.indexOf('Ada') >= 0 && tail.indexOf('What should we do next?') >= 0, tail);
-            return Bot.raiseHand(id, true).then(function (hand) {
+            check('the operator tail shows the bot and Ada', tail.indexOf('Speaking now.') >= 0 && tail.indexOf('harbor-maple') >= 0 && tail.indexOf('Ada') >= 0 && tail.indexOf('What should we do next?') >= 0, tail);
+            return Bot.chatFile(id).then(function (chat) {
+              check('spoken lines stay out of the chat file', !chat.lines.some(function (l) { return l.text === 'Speaking now.' || l.text === 'What should we do next?'; }), JSON.stringify(chat.lines));
+              return Bot.watch(id, true);
+            }).then(function (eye) {
+              check('watch opens the bot-eye tile', eye.watch === true && calls.watch.some(function (w) { return w[0] === id && w[1] === true; }));
+              return Bot.raiseHand(id, true);
+            }).then(function (hand) {
               return Bot.setMic(id, true).then(function (mic) {
                 return Bot.setCamera(id, false).then(function () {
                   return Bot.meetingState(id).then(function (state) {
                     return Bot.snapshot(id).then(function (shot) {
                       check('hand, mic, and camera are reported', hand.hand === true && mic.mic === true && state.hand === true && state.mic === true && state.camera === false && shot.hand === true && shot.people);
-                      const before = calls.hand.length + calls.mic.length + calls.cam.length + calls.interject.length;
+                      const before = calls.hand.length + calls.mic.length + calls.cam.length + calls.speak.length;
                       return Bot.snapshot(id).then(function () {
-                        check('snapshot does not change the room', calls.hand.length + calls.mic.length + calls.cam.length + calls.interject.length === before);
+                        check('snapshot does not change the room', calls.hand.length + calls.mic.length + calls.cam.length + calls.speak.length === before);
                         const admin = calls.joins.filter(function (j) { return j.opts && j.opts.bot && j.opts.control; })[0];
                         subs.ch.forEach(function (cb) {
                           cb({ meetingId: admin.id, control: true, text: box.BotProto.encode({
@@ -398,8 +407,8 @@ function appCase() {
     });
   }).then(function () {
     const reply = calls.chat.map(function (c) { return c.text; }).join('\n');
-    check('the admin reply does not echo the key or the URLs', reply.indexOf(KEY) < 0 && reply.indexOf(TTS) < 0 && reply.indexOf(STT) < 0 && /set_voice/.test(reply));
-    check('grok voice drops the local key from the host', calls.voice[calls.voice.length - 1].conversation_voice === 'grok' && !calls.voice[calls.voice.length - 1].llm);
+    check('the admin reply refuses engine settings and does not echo the key', reply.indexOf(KEY) < 0 && reply.indexOf(TTS) < 0 && reply.indexOf(STT) < 0 && /GifOS AI settings/.test(reply));
+    check('conversation asks Smartest', calls.aiChat.some(function (c) { return c.model === 'smartest'; }));
   });
 }
 

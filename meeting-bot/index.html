@@ -93,20 +93,25 @@
         <div class="mode-row">
           <span class="ai-label">
             <svg class="spark" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0l1.1 4.6L14 6l-4.9 1.3L8 12l-1.1-4.7L2 6l4.9-1.4z"/></svg>
-            Conversation voice
+            Speak with Smartest
           </span>
-          <div class="seg" role="radiogroup" aria-label="Conversation voice">
-            <button type="button" id="voice-none" data-voice="none" aria-pressed="true">None</button>
-            <button type="button" id="voice-grok" data-voice="grok" aria-pressed="false">Grok</button>
-            <button type="button" id="voice-local" data-voice="local" aria-pressed="false">Local</button>
-          </div>
+          <button type="button" id="ops-speak" class="switch" aria-pressed="false">Off</button>
         </div>
-        <p id="ops-providers" class="muted"></p>
+        <div class="mode-row">
+          <span>Listen and write the room down</span>
+          <button type="button" id="ops-listen" class="switch" aria-pressed="false">Off</button>
+        </div>
+        <p id="ops-providers" class="muted">Conversation uses Smartest.</p>
+        <p><button type="button" id="ops-ai">AI settings</button></p>
       </div>
       <p id="ops-ear" class="ear">Quiet</p>
       <div class="card">
         <h3>Transcript</h3>
         <div id="ops-tail"></div>
+      </div>
+      <div class="card">
+        <h3>Meeting chat</h3>
+        <div id="ops-chat"></div>
       </div>
       <div class="card">
         <h3>Recent commands</h3>

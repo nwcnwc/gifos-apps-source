@@ -1,13 +1,10 @@
-/* Voice rules for Meeting Bot. No network. The key never appears in a
- * value this file returns. */
+/* Voice rules for Meeting Bot. No network. Speech uses the GifOS AI
+ * roles (Smartest, Text to speech). This file never returns a key or a URL. */
 (function (root) {
-  var VOICES = ['none', 'grok', 'local'];
+  var TEXT_ROLE = 'smartest';
 
-  function normalizeVoice(v) {
-    var s = String(v == null ? '' : v).trim().toLowerCase();
-    if (!s) s = 'none';
-    if (VOICES.indexOf(s) < 0) throw new Error('conversation_voice must be none, grok, or local.');
-    return s;
+  function engineFields(s) {
+    return !!(s && (s.conversation_voice != null || s.llm || s.tts || s.stt));
   }
 
   function scrub(text, secret) {
@@ -47,48 +44,26 @@
     return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   }
 
-  // Kokoro, an HTTP stand-in, or off. The stand-in URL is never copied out.
-  function publicTts(tts) {
-    if (!tts) return null;
-    var engine = String(tts.engine || '').trim().toLowerCase();
-    if (!engine) engine = tts.url ? 'http' : 'kokoro';
-    if (engine === 'none') return { engine: 'none' };
-    if (engine === 'http') return { engine: 'http' };
-    if (engine !== 'kokoro' && engine !== 'auto') throw new Error('tts.engine must be kokoro, http, or none.');
-    return {
-      engine: 'kokoro',
-      app: String(tts.app || 'offline-tts-kokoro'),
-      voice: String(tts.voice || 'af_heart')
-    };
-  }
-
   // Settings safe to resolve, log, and put on screen.
-  // llm.key, tts.url, and stt.url are dropped.
+  // An engine name, a model URL, or a key is refused.
   function publicSettings(s) {
     s = s || {};
-    var voice = 'none';
-    try { voice = normalizeVoice(s.conversation_voice); } catch (e) { voice = 'none'; }
-    var out = {
-      respond_to_command: !!(s.respond_to_command),
-      conversation_voice: voice
+    if (engineFields(s)) throw new Error('Voice uses the GifOS AI settings (Smartest and Text to speech).');
+    return {
+      respond_to_command: !!s.respond_to_command,
+      speak: !!s.speak,
+      listen: !!s.listen,
+      text_role: TEXT_ROLE
     };
-    if (voice === 'local' && s.llm && (s.llm.url || s.llm.model)) {
-      out.llm = { url: String(s.llm.url || ''), model: String(s.llm.model || '') };
-    }
-    if (voice === 'local' && s.tts) out.tts = publicTts(s.tts);
-    if (s.stt && (s.stt.url || s.stt.configured)) out.stt = { configured: true };
-    return out;
   }
 
   root.BotVoice = {
-    VOICES: VOICES,
-    normalizeVoice: normalizeVoice,
+    TEXT_ROLE: TEXT_ROLE,
     scrub: scrub,
     addressedToBot: addressedToBot,
     isCommand: isCommand,
     isConversation: isConversation,
     norm: norm,
-    publicTts: publicTts,
     publicSettings: publicSettings
   };
 })(typeof window !== 'undefined' ? window : globalThis);

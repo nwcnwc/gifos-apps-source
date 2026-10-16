@@ -11,16 +11,15 @@
     instance: 'in_' + Math.random().toString(36).slice(2),
     meetings: {},
     lines: {},
+    chats: {},
     probeBeat: null,
     warned: {},
     ctrlItems: [],
     people: {},
     respond: false,
-    voice: 'none',
-    llm: null,
-    tts: null,
-    stt: null,
-    keyOnHost: false,
+    speak: false,
+    listen: false,
+    aiReady: { smartest: false, tts: false, stt: false },
     controls: {},
     recentSpoken: [],
     transcriptListeners: [],
@@ -67,7 +66,7 @@
       return {
         id: m.meetingId, room: m.room || '', link: m.link || '', rec: !!m.rec, cc: !!m.cc,
         created: !!m.created, people: people.map(function (x) { return x.name || ''; }),
-        hand: !!c.hand, mic: !!c.mic, camera: !!c.camera
+        hand: !!c.hand, mic: !!c.mic, camera: !!c.camera, watch: !!c.watch
       };
     });
   }
@@ -129,29 +128,31 @@
       act(c.camera ? 'Camera off' : 'Camera on', function () {
         ops.setCamera(m.id, !c.camera).catch(function (e) { noteError(e && e.message || e); paint(); });
       });
+      act(c.watch ? 'Close watch' : 'Watch', function () {
+        ops.watch(m.id, !c.watch).catch(function (e) { noteError(e && e.message || e); paint(); });
+      });
       card.appendChild(actions);
       box.appendChild(card);
     });
     var cmd = document.getElementById('ops-commands');
     cmd.textContent = state.respond ? 'On' : 'Off';
     cmd.setAttribute('aria-pressed', state.respond ? 'true' : 'false');
-    ['none', 'grok', 'local'].forEach(function (v) {
-      var b = document.getElementById('voice-' + v);
-      if (b) b.setAttribute('aria-pressed', state.voice === v ? 'true' : 'false');
-    });
-    var prov = document.getElementById('ops-providers');
-    var model = state.voice === 'local' && state.llm && state.llm.model ? ' · ' + state.llm.model : '';
-    var speech = '';
-    if (state.voice === 'local' && state.tts) {
-      if (state.tts.engine === 'http') speech = ' · HTTP stand-in';
-      else if (state.tts.engine === 'none') speech = ' · speech off';
-      else speech = ' · ' + (state.tts.voice || 'af_heart');
+    var speakBtn = document.getElementById('ops-speak');
+    if (speakBtn) {
+      speakBtn.textContent = state.speak ? 'On' : 'Off';
+      speakBtn.setAttribute('aria-pressed', state.speak ? 'true' : 'false');
     }
-    prov.textContent = 'Conversation voice is ' + state.voice + model + speech +
-      (state.keyOnHost ? '. The host has the key.' : '.') +
-      (state.stt ? ' Captions stand-in is set.' : '');
+    var listenBtn = document.getElementById('ops-listen');
+    if (listenBtn) {
+      listenBtn.textContent = state.listen ? 'On' : 'Off';
+      listenBtn.setAttribute('aria-pressed', state.listen ? 'true' : 'false');
+    }
+    var prov = document.getElementById('ops-providers');
+    prov.textContent = 'Conversation uses Smartest. ' +
+      (state.aiReady.smartest ? 'Smartest is set.' : 'Smartest is not set.') + ' ' +
+      (state.aiReady.tts ? 'Text to speech is set.' : 'Text to speech is not set.');
     var ear = document.getElementById('ops-ear');
-    var earText = state.speaking ? 'Speaking' : (listeningNow() ? 'Listening' : 'Quiet');
+    var earText = state.speaking ? 'Speaking' : (state.listen ? 'Listening' : 'Quiet');
     ear.textContent = earText;
     ear.classList.toggle('speaking', earText === 'Speaking');
     ear.classList.toggle('listening', earText === 'Listening');
@@ -172,6 +173,22 @@
       tail.appendChild(ol);
     });
     if (!anyLine) addText(tail, 'p', 'No lines yet.', 'muted');
+    var chatBox = document.getElementById('ops-chat');
+    if (chatBox) {
+      clearNode(chatBox);
+      var anyChat = false;
+      works.forEach(function (m) {
+        var chats = (state.chats[m.id] || []).slice(-6);
+        if (!chats.length) return;
+        anyChat = true;
+        addText(chatBox, 'div', m.id, 'muted');
+        var ol = document.createElement('ol');
+        ol.className = 'tail';
+        chats.forEach(function (l) { addText(ol, 'li', (l.by || 'Someone') + ': ' + (l.text || '')); });
+        chatBox.appendChild(ol);
+      });
+      if (!anyChat) addText(chatBox, 'p', 'No chat yet.', 'muted');
+    }
     var cmds = document.getElementById('ops-cmds');
     clearNode(cmds);
     if (!state.commands.length) addText(cmds, 'li', 'No commands yet.', 'muted');
@@ -258,12 +275,16 @@
       leave.onclick = function () { sendCtrl({ op: 'leave', meetingId: m.id, id: qid() }); };
       var voice = document.createElement('button');
       voice.type = 'button';
-      voice.textContent = 'Voice: ' + state.voice;
-      voice.onclick = function () {
-        var order = ['none', 'grok', 'local'];
-        var next = order[(order.indexOf(state.voice) + 1) % order.length];
-        sendCtrl({ op: 'set_voice', conversation_voice: next, id: qid() });
-      };
+      voice.textContent = state.speak ? 'Speak on' : 'Speak off';
+      voice.onclick = function () { sendCtrl({ op: 'set_voice', speak: !state.speak, id: qid() }); };
+      var eye = document.createElement('button');
+      eye.type = 'button';
+      eye.textContent = m.watch ? 'Close watch' : 'Watch';
+      eye.onclick = function () { sendCtrl({ op: 'watch', meetingId: m.id, on: !m.watch, id: qid() }); };
+      var chatDl = document.createElement('button');
+      chatDl.type = 'button';
+      chatDl.textContent = 'Download chat';
+      chatDl.onclick = function () { sendCtrl({ op: 'chat', meetingId: m.id, id: qid() }); };
       var resp = document.createElement('button');
       resp.type = 'button';
       resp.textContent = state.respond ? 'Commands on' : 'Commands off';
@@ -295,7 +316,7 @@
       row.appendChild(title);
       row.appendChild(sub);
       row.appendChild(flags);
-      [rec, tr, say, sayGo, speak, hand, mic, cam, shot, dl, dlr, voice, resp, stop, leave].forEach(function (el) { row.appendChild(el); });
+      [rec, tr, say, sayGo, speak, hand, mic, cam, shot, eye, dl, chatDl, dlr, voice, resp, stop, leave].forEach(function (el) { row.appendChild(el); });
       box.appendChild(row);
     });
   }
@@ -348,6 +369,7 @@
       meetingId: sess.meetingId, room: sess.room || '', link: link || sess.link || '', control: !!control, rec: false, cc: false
     };
     state.lines[sess.meetingId] = state.lines[sess.meetingId] || [];
+    state.chats[sess.meetingId] = state.chats[sess.meetingId] || [];
   }
   function needWork(id) {
     var m = state.meetings[id];
@@ -380,11 +402,39 @@
   function voicePublic() {
     return BotVoice.publicSettings({
       respond_to_command: state.respond,
-      conversation_voice: state.voice,
-      llm: state.llm,
-      tts: state.tts,
-      stt: state.stt
+      speak: state.speak,
+      listen: state.listen
     });
+  }
+  function refreshAi() {
+    var fn = gifos.ai && gifos.ai.models;
+    if (!fn) return Promise.resolve(state.aiReady);
+    return Promise.resolve().then(function () { return fn(); }).then(function (m) {
+      var list = (m && m.available) || [];
+      state.aiReady = {
+        smartest: list.indexOf('smartest') >= 0,
+        tts: list.indexOf('tts') >= 0,
+        stt: list.indexOf('stt') >= 0
+      };
+      return state.aiReady;
+    }, function () { return state.aiReady; });
+  }
+  function keepChat(id, line) {
+    if (!id || !line) return null;
+    var by = line.by || '';
+    var text = line.text || '';
+    var at = line.at || Date.now();
+    var lines = state.chats[id] = state.chats[id] || [];
+    var norm = BotVoice.norm(text);
+    if (norm) {
+      var start = Math.max(0, lines.length - 20);
+      for (var i = lines.length - 1; i >= start; i--) {
+        if (lines[i].by === by && BotVoice.norm(lines[i].text) === norm) return null;
+      }
+    }
+    var row = { by: by, text: text, at: at };
+    lines.push(row);
+    return row;
   }
   function ensureControls(id) {
     if (!state.controls[id]) state.controls[id] = { hand: false, mic: false, camera: false };
@@ -534,77 +584,29 @@
       var body = String(text == null ? '' : text).slice(0, 2000);
       if (!body.trim()) return Promise.reject(new Error('Nothing to say.'));
       return gifos.meet.sendChat(id, body).then(function () {
+        keepChat(id, { by: state.name, text: body.trim(), at: Date.now(), self: true });
         noteCommand('say', 'chat');
+        paint();
         return { id: id, sent: true };
       });
     },
     setVoice: function (settings) {
-      var voice = state.voice;
-      var respond = state.respond;
-      var llm = state.llm;
-      var tts = state.tts;
-      var stt = state.stt;
-      var key = '';
-      var secrets = [];
-      try {
-        settings = settings || {};
-        if (settings.conversation_voice != null) voice = BotVoice.normalizeVoice(settings.conversation_voice);
-        if (settings.respond_to_command != null) respond = !!settings.respond_to_command;
-        secrets = collectSecrets(settings);
-        if (voice !== 'local') {
-          llm = null;
-          tts = null;
-        } else {
-          if (settings.llm) {
-            key = String(settings.llm.key || '');
-            llm = { url: String(settings.llm.url || ''), model: String(settings.llm.model || '') };
-          }
-          if (settings.tts) tts = BotVoice.publicTts(settings.tts);
-        }
-        if (settings.stt) stt = settings.stt.url ? { configured: true } : null;
-      } catch (e) {
-        return Promise.reject(new Error(scrubSecrets(e && e.message || e, secrets)));
+      settings = settings || {};
+      var secrets = collectSecrets(settings);
+      try { BotVoice.publicSettings(settings); }
+      catch (e) { return Promise.reject(new Error(scrubSecrets(e && e.message || e, secrets))); }
+      if (settings.respond_to_command != null) state.respond = !!settings.respond_to_command;
+      if (settings.speak != null) state.speak = !!settings.speak;
+      if (settings.listen != null) state.listen = !!settings.listen;
+      secrets.length = 0;
+      var turns = [];
+      if (settings.listen != null) {
+        workMeetings().forEach(function (m) {
+          turns.push(ops.transcribe(m.id, state.listen).catch(function () {}));
+        });
       }
-      var payload = { respond_to_command: respond, conversation_voice: voice };
-      if (voice === 'local' && settings.llm) payload.llm = { url: llm.url, model: llm.model, key: key };
-      if (voice === 'local' && settings.tts) {
-        payload.tts = {
-          engine: String(settings.tts.engine || (settings.tts.url ? 'http' : 'kokoro')),
-          app: settings.tts.app,
-          voice: settings.tts.voice,
-          url: settings.tts.url || ''
-        };
-      }
-      if (settings.stt) payload.stt = { url: String(settings.stt.url || '') };
-      var fn = meetCall('setVoice');
-      if (!fn) noteError('This meeting page has no voice setting yet.');
-      var handed = fn ? Promise.resolve().then(function () { return fn(payload); }) : Promise.resolve({ host: false });
-      return handed.then(function () {
-        state.voice = voice;
-        state.respond = respond;
-        state.llm = llm;
-        state.tts = tts;
-        state.stt = stt;
-        state.keyOnHost = !!(voice === 'local' && key && fn);
-        key = '';
-        payload = null;
-        secrets.length = 0;
-        noteCommand('set_voice', state.voice + (state.respond ? ' commands' : ''));
-        paint();
-        return voicePublic();
-      }, function (e) {
-        var msg = scrubSecrets(e && e.message || e, secrets);
-        key = '';
-        payload = null;
-        secrets.length = 0;
-        state.voice = voice;
-        state.respond = respond;
-        state.llm = llm;
-        state.tts = tts;
-        state.stt = stt;
-        state.keyOnHost = false;
-        noteError(msg);
-        noteCommand('set_voice', state.voice);
+      noteCommand('set_voice', (state.speak ? 'speak' : 'quiet') + (state.listen ? ' listen' : ''));
+      return refreshAi().then(function () { return Promise.all(turns); }).then(function () {
         paint();
         return voicePublic();
       });
@@ -613,8 +615,9 @@
       try { needWork(id); } catch (e) { return Promise.reject(e); }
       var body = String(text == null ? '' : text).trim().slice(0, 2000);
       if (!body) return Promise.reject(new Error('Nothing to say.'));
-      var fn = meetCall('interject') || meetCall('speak');
-      if (!fn) return Promise.reject(new Error('This meeting cannot play the bot microphone.'));
+      var tts = gifos.ai && gifos.ai.tts;
+      var play = meetCall('speak');
+      if (typeof tts !== 'function' || !play) return Promise.reject(new Error('This meeting cannot play the bot microphone.'));
       state.speakGen++;
       var gen = state.speakGen;
       state.speaking = true;
@@ -622,7 +625,12 @@
       rememberSpoken(body);
       noteCommand('interject', 'mic');
       paint();
-      return Promise.resolve().then(function () { return fn.length >= 2 ? fn(id, body) : fn({ meetingId: id, text: body }); }).then(function (r) {
+      return Promise.resolve().then(function () { return tts({ text: body }); }).then(function (audio) {
+        if (gen !== state.speakGen) return Promise.reject(new Error('Stopped.'));
+        var bytes = audio && audio.bytes;
+        var mime = (audio && audio.mime) || 'audio/wav';
+        return play.length >= 2 ? play(id, { bytes: bytes, mime: mime, text: body }) : play({ meetingId: id, bytes: bytes, mime: mime, text: body });
+      }).then(function (r) {
         if (r && r.text) rememberSpoken(r.text);
         var stopped = gen !== state.speakGen;
         if (!stopped) { state.speaking = false; state.speakingId = ''; }
@@ -686,6 +694,24 @@
       var lines = state.lines[id].map(function (l) { return { by: l.by, text: l.text, at: l.at }; });
       return Promise.resolve({ id: id, lines: lines, text: transcriptText(id) });
     },
+    chatFile: function (id) {
+      if (!state.meetings[id] || state.meetings[id].control) return Promise.reject(new Error('No such meeting: ' + id));
+      var lines = (state.chats[id] || []).map(function (l) { return { by: l.by, text: l.text, at: l.at }; });
+      var text = lines.map(function (l) { return (l.by || '') + ': ' + (l.text || ''); }).join('\n');
+      return Promise.resolve({ id: id, name: 'chat-' + id + '.txt', mime: 'text/plain', lines: lines, text: text });
+    },
+    watch: function (id, on) {
+      try { needWork(id); } catch (e) { return Promise.reject(e); }
+      var fn = meetCall('watch');
+      if (!fn) return Promise.reject(new Error('This meeting cannot open a watch tile.'));
+      var flag = !!on;
+      return Promise.resolve().then(function () { return fn(id, flag); }).then(function () {
+        ensureControls(id).watch = flag;
+        noteCommand('watch', flag ? 'open' : 'closed');
+        paint();
+        return { id: id, watch: flag };
+      });
+    },
     recording: function (id) {
       try { needWork(id); } catch (e) { return Promise.reject(e); }
       return gifos.meet.stopRecording(id).catch(function () { return null; }).then(function () {
@@ -704,27 +730,42 @@
   };
 
   function maybeReply(id, line) {
-    if (!line || ownVoice(line) || state.voice === 'none' || state.replying) return;
+    if (!line || ownVoice(line) || !state.speak || state.replying) return;
     var text = line.text || '';
     var command = BotVoice.isCommand(text, state.name);
     if (command && !state.respond) return;
     if (!command && !BotVoice.isConversation(text, state.name)) return;
-    var fn = meetCall('converse');
-    if (!fn) {
-      noteError('This meeting cannot answer in conversation voice.');
+    var chat = gifos.ai && gifos.ai.chat;
+    var tts = gifos.ai && gifos.ai.tts;
+    var play = meetCall('speak');
+    if (typeof chat !== 'function' || typeof tts !== 'function' || !play) {
+      noteError('Conversation needs Smartest and Text to speech in GifOS Settings.');
       return;
     }
     state.replying = true;
     noteCommand(command ? 'command' : 'conversation', line.by || 'Someone');
     paint();
     Promise.resolve().then(function () {
-      return fn.length >= 2 ? fn(id, { by: line.by || '', text: text }) : fn({ meetingId: id, by: line.by || '', text: text });
+      return chat({
+        model: 'smartest',
+        messages: [
+          { role: 'system', content: 'You are ' + (state.name || 'the bot') + ' in a meeting. Answer in one or two sentences.' },
+          { role: 'user', content: (line.by || 'Someone') + ': ' + text }
+        ]
+      });
     }).then(function (r) {
-      if (r && r.text) {
-        rememberSpoken(r.text);
-        var kept = keepLine(id, { by: state.name, text: r.text, at: Date.now(), bot: true });
-        if (kept) emitTranscript(id, kept);
-      }
+      var said = String(r && r.text || '').trim();
+      if (!said) return null;
+      return tts({ text: said }).then(function (audio) {
+        var bytes = audio && audio.bytes;
+        var mime = (audio && audio.mime) || 'audio/wav';
+        return Promise.resolve(play.length >= 2 ? play(id, { bytes: bytes, mime: mime, text: said }) : play({ meetingId: id, bytes: bytes, mime: mime, text: said })).then(function () { return said; });
+      });
+    }).then(function (said) {
+      if (!said) return;
+      rememberSpoken(said);
+      var kept = keepLine(id, { by: state.name, text: said, at: Date.now(), bot: true });
+      if (kept) emitTranscript(id, kept);
     }).catch(function (e) {
       if (!aborted(e)) noteError(scrubSecrets(e && e.message || e, []));
     }).then(function () {
@@ -742,9 +783,8 @@
       var pub = voicePublic();
       return reply({
         op: 'meetings', ref: ref, items: workMeetings(),
-        respond_to_command: pub.respond_to_command, conversation_voice: pub.conversation_voice,
-        llm: pub.llm, tts: pub.tts, stt: pub.stt,
-        speaking: !!state.speaking, listening: listeningNow() && !state.speaking
+        respond_to_command: pub.respond_to_command, speak: pub.speak, listen: pub.listen, text_role: pub.text_role,
+        speaking: !!state.speaking, listening: !!state.listen && !state.speaking
       });
     }
     if (msg.op === 'create') {
@@ -776,6 +816,8 @@
     if (msg.op === 'set_voice' || msg.op === 'setVoice') {
       var settings = {};
       if (msg.respond_to_command != null) settings.respond_to_command = msg.respond_to_command;
+      if (msg.speak != null) settings.speak = msg.speak;
+      if (msg.listen != null) settings.listen = msg.listen;
       if (msg.conversation_voice != null) settings.conversation_voice = msg.conversation_voice;
       if (msg.llm) settings.llm = { url: msg.llm.url, model: msg.llm.model, key: msg.llm.key };
       if (msg.tts) settings.tts = { engine: msg.tts.engine, app: msg.tts.app, voice: msg.tts.voice, url: msg.tts.url };
@@ -818,6 +860,20 @@
     if (msg.op === 'people' && id) {
       return ops.people(id).then(function (people) { return reply({ op: 'people', ref: ref, meetingId: id, people: people }); }).catch(fail);
     }
+    if (msg.op === 'chat' && id) {
+      return ops.chatFile(id).then(function (t) {
+        var bytes = new TextEncoder().encode(t.text);
+        var xid = 'xc' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        return sendXferRetry(xid, t.name, 'text/plain', bytes.buffer, 6).then(function () {
+          return reply({ op: 'xfer', ref: ref, xferId: xid, name: t.name, mime: 'text/plain', meetingId: id, lines: t.lines.length });
+        });
+      }).catch(fail);
+    }
+    if ((msg.op === 'watch') && id) {
+      return ops.watch(id, !!msg.on).then(function (r) {
+        return reply({ op: 'ok', ref: ref, text: r.watch ? 'watching' : 'closed', watch: r.watch, items: workMeetings() });
+      }).catch(fail);
+    }
     if (msg.op === 'transcript' && id) {
       return ops.transcript(id).then(function (t) {
         var bytes = new TextEncoder().encode(t.text);
@@ -844,15 +900,10 @@
       renderCtrl(msg.meetings || msg.items);
     }
     if (msg.op === 'ok' || msg.op === 'err' || msg.op === 'meetings') log('← ' + (msg.text || msg.op) + (msg.link ? '  ' + msg.link : ''));
-    if (msg.conversation_voice) {
-      try { state.voice = BotVoice.normalizeVoice(msg.conversation_voice); } catch (e) {}
-    }
+    if (msg.speak != null) state.speak = !!msg.speak;
+    if (msg.listen != null) state.listen = !!msg.listen;
+    if (msg.text_role) { /* Smartest is the only conversation role. */ }
     if (msg.respond_to_command != null) state.respond = !!msg.respond_to_command;
-    if (msg.llm && typeof msg.llm === 'object') state.llm = { url: String(msg.llm.url || ''), model: String(msg.llm.model || '') };
-    if (msg.tts && typeof msg.tts === 'object') {
-      try { state.tts = BotVoice.publicTts(msg.tts); } catch (e) { state.tts = null; }
-    }
-    if (msg.stt && msg.stt.configured) state.stt = { configured: true };
     if (msg.speaking != null) state.speaking = !!msg.speaking;
     if (msg.op === 'beat' && msg.instance && state.instance && msg.role === 'bot') {
       /* A controller just displays what the bot reports. */
@@ -877,7 +928,9 @@
     if (!adminEvent(ev)) {
       if (BotProto.looksLikeCommand(text) || BotProto.decode(text)) noteIgnored();
       if (ev && ev.meetingId && state.meetings[ev.meetingId] && !state.meetings[ev.meetingId].control) {
+        if (text && !BotProto.decode(text)) keepChat(ev.meetingId, { by: ev.by || '', text: text, at: ev.at || Date.now(), self: !!ev.self });
         maybeReply(ev.meetingId, { by: ev.by || '', text: text, self: ev.self, bot: ev.bot, me: ev.me });
+        paint();
       }
       return;
     }
@@ -941,8 +994,8 @@
     if (state.phase !== 'run' || !state.adminId) return;
     gifos.meet.sendChat(state.adminId, BotProto.encode({
       v: 1, role: 'bot', op: 'beat', instance: state.instance, meetings: workMeetings(),
-      respond_to_command: !!state.respond, conversation_voice: state.voice,
-      speaking: !!state.speaking, listening: listeningNow() && !state.speaking
+      respond_to_command: !!state.respond, speak: !!state.speak, listen: !!state.listen, text_role: 'smartest',
+      speaking: !!state.speaking, listening: !!state.listen && !state.speaking
     })).catch(function () {});
   }
   function autoJoin() {
@@ -1018,11 +1071,18 @@
   document.getElementById('ops-commands').onclick = function () {
     ops.setVoice({ respond_to_command: !state.respond }).catch(function (e) { noteError(e && e.message || e); paint(); });
   };
-  ['none', 'grok', 'local'].forEach(function (v) {
-    document.getElementById('voice-' + v).onclick = function () {
-      ops.setVoice({ conversation_voice: v }).catch(function (e) { noteError(e && e.message || e); paint(); });
-    };
-  });
+  document.getElementById('ops-speak').onclick = function () {
+    ops.setVoice({ speak: !state.speak }).catch(function (e) { noteError(e && e.message || e); paint(); });
+  };
+  document.getElementById('ops-listen').onclick = function () {
+    ops.setVoice({ listen: !state.listen }).catch(function (e) { noteError(e && e.message || e); paint(); });
+  };
+  var aiBtn = document.getElementById('ops-ai');
+  if (aiBtn) aiBtn.onclick = function () {
+    var role = state.aiReady.smartest ? 'tts' : 'smartest';
+    var fn = gifos.aiSetup;
+    if (typeof fn === 'function') fn(role, 'Meeting Bot uses this to talk.').catch(function () {});
+  };
   document.getElementById('ops-stop').onclick = function () {
     ops.stopSpeaking(state.speakingId).catch(function (e) { noteError(e && e.message || e); paint(); });
   };
@@ -1036,12 +1096,8 @@
     if (opts.rules != null) rulesEl.value = String(opts.rules);
     if (opts.respond_to_command != null) state.respond = !!opts.respond_to_command;
     if (opts.respond_to_commands != null) state.respond = !!opts.respond_to_commands;
-    if (opts.conversation_voice != null) {
-      try { state.voice = BotVoice.normalizeVoice(opts.conversation_voice); } catch (e) {
-        warn(e.message);
-        return Promise.reject(e);
-      }
-    }
+    if (opts.speak != null) state.speak = !!opts.speak;
+    if (opts.listen != null) state.listen = !!opts.listen;
     if (state.phase !== 'idle') return Promise.reject(new Error('Already started (' + state.phase + ').'));
     var name = document.getElementById('bot-name').value.trim();
     var password = document.getElementById('bot-pass').value;
@@ -1080,12 +1136,11 @@
       phase: state.phase, connected: !!state.adminId, name: state.name,
       meetings: state.phase === 'run' ? workMeetings() : state.ctrlItems.slice(), warning: warnEl.textContent || '',
       respond_to_command: !!state.respond,
-      conversation_voice: state.voice,
-      llm: voicePublic().llm,
-      tts: voicePublic().tts,
-      stt: voicePublic().stt,
+      speak: !!state.speak,
+      listen: !!state.listen,
+      text_role: 'smartest',
       speaking: !!state.speaking,
-      listening: listeningNow() && !state.speaking,
+      listening: !!state.listen && !state.speaking,
       commands: state.commands.slice(-8),
       errors: state.errors.slice(-8)
     };
@@ -1110,9 +1165,8 @@
     if (args.password) document.getElementById('bot-pass').value = args.password;
     if (args.mode === 'control') document.getElementById('mode-control').checked = true;
     if (args.mode === 'run') document.getElementById('mode-run').checked = true;
-    if (args.conversation_voice) {
-      try { state.voice = BotVoice.normalizeVoice(args.conversation_voice); } catch (e) {}
-    }
+    if (args.speak === '1' || args.speak === 'on') state.speak = true;
+    if (args.listen === '1' || args.listen === 'on') state.listen = true;
     if (args.respond_to_command === '1' || args.respond_to_command === 'on' || args.respond_to_commands === '1' || args.respond_to_commands === 'on') state.respond = true;
     paint();
     if (args.start === '1' || args.start === 'true') start().catch(function () {});
@@ -1138,6 +1192,7 @@
     record: guard(ops.record),
     transcribe: guard(ops.transcribe),
     say: guard(ops.say),
+    chatFile: guard(ops.chatFile),
     setVoice: ops.setVoice,
     interject: guard(ops.interject),
     stopSpeaking: guard(ops.stopSpeaking),
@@ -1147,6 +1202,7 @@
     setCamera: guard(ops.setCamera),
     meetingState: guard(ops.meetingState),
     snapshot: guard(ops.snapshot),
+    watch: guard(ops.watch),
     people: guard(ops.people),
     transcript: guard(ops.transcript),
     recording: guard(ops.recording),
