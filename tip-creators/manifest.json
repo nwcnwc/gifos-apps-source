@@ -3,7 +3,7 @@
   "appId": "tip-creators",
   "name": "Tip GifOS Creators",
   "shortName": "Tip",
-  "version": "1.0",
+  "version": "1.1",
   "minBuild": 947,
   "description": "Say thanks with a few dollars. Every payment shows you exactly who gets it before anything is charged.",
   "entry": "index.html",
@@ -14,12 +14,7 @@
   ],
   "capabilities": {
     "pay": [
-      "paypal",
-      "x402",
-      "transfer"
+      "paypal"
     ]
-  },
-  "pay": {
-    "to": "0x1111111111111111111111111111111111111111"
   }
 }
