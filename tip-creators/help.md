@@ -10,10 +10,9 @@ Press the big button.
 
 Your computer then shows you the payment screen. That screen is GifOS's own,
 not this app's: it names exactly who receives the money (a verified identity,
-not an account number), shows the amount, and offers a way to pay — PayPal,
-or USDC if you have a wallet connected. You can still change the amount
-there, and you can still say no. Nothing is charged until you approve it on
-that screen.
+not an account number), shows the amount, and lets you pay with PayPal.
+You can still change the amount there, and you can still say no. Nothing
+is charged until you approve it on that screen.
 
 ## What happens to the money
 
