@@ -51,6 +51,7 @@ window.gifos = (function () {
 `;
 const html = read('index.html')
   .replace('<script src="protocol.js"></script>', '<script>' + STUB + '</script><script>' + read('protocol.js') + '</script>')
+  .replace('<script src="voice.js"></script>', '<script>' + read('voice.js') + '</script>')
   .replace('<script src="app.js"></script>', '<script>' + read('app.js') + '</script>');
 
 const browser = await chromium.launch({ headless: true });
