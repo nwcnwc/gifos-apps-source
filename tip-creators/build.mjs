@@ -45,12 +45,20 @@ const listing = JSON.parse(read('listing.json'));
 
 if (manifest.appId !== 'tip-creators') throw new Error('appId must be tip-creators');
 // capabilities.pay is the author's list of payment methods (docs/payments.md
-// §The author chooses the rails): true would mean PayPal only. The listing
-// promises "pay with PayPal or with USDC", so the list is exactly those three
-// rails — a drift either way makes the listing false and stops this build.
-const TIP_RAILS = ['paypal', 'x402', 'transfer'];
+// §The author chooses the rails). The tip jar takes PayPal only, and says so
+// in its own signed manifest: visitors run frozen OS snapshots that the OS's
+// USDC switch never reaches, so the app has to be the one that drops USDC.
+// A drift stops this build.
+//
+// TO RESTORE USDC AT MAINNET, change all three together:
+//   1. here and in manifest.json: capabilities.pay = ["paypal", "x402", "transfer"]
+//   2. manifest.json: add "pay": { "to": "<the real GifOS treasury address>" },
+//      and bring back the treasury check below that this build used to run on it
+//   3. gifos-app/js/gifos-pay-broker.js: USDC_ENABLED = true
+// Then rebuild, re-sign, and regenerate the store catalog.
+const TIP_RAILS = ['paypal'];
 if (!manifest.capabilities || JSON.stringify(manifest.capabilities.pay) !== JSON.stringify(TIP_RAILS)) {
-  throw new Error('manifest must declare capabilities.pay = ' + JSON.stringify(TIP_RAILS) + ' — PayPal and USDC, as the listing promises');
+  throw new Error('manifest must declare capabilities.pay = ' + JSON.stringify(TIP_RAILS) + ' — the signed rail list must not drift');
 }
 // "It remembers nothing about you" rests on these being absent. If a future
 // edit adds one, the listing became false and this build must stop.
@@ -59,14 +67,14 @@ for (const forbidden of ['network', 'pool', 'api', 'ai', 'camera', 'microphone',
     throw new Error('tip-creators declares no ' + forbidden + ' — "it remembers nothing" must stay true');
   }
 }
-// The FIAT payee is DERIVED from the signing identity (payments@gifos.app
-// once signed — THE PAYEE RULE, docs/payments.md) and needs no field. The
-// CHAIN payee is a field, and for the tip jar it must be the GifOS treasury
-// and nothing else — a different address here is someone pointing the tips
-// somewhere else, and this build must stop.
-const TREASURY = '0x1111111111111111111111111111111111111111'; // Base Sepolia TEST treasury — replace at the mainnet flag day
-if (!manifest.pay || manifest.pay.to !== TREASURY) {
-  throw new Error('tip-creators manifest.pay.to must be the GifOS treasury (' + TREASURY + ')');
+// The PayPal payee is DERIVED from the signing identity (payments@gifos.app
+// once signed — THE PAYEE RULE, docs/payments.md) and needs no field. A pay
+// block would name a chain payee, and with no chain rail there is none, so
+// any pay block is a mistake. (At mainnet, step 2 above: pay.to must be the
+// GifOS treasury and nothing else, and this build must stop on any other
+// address.)
+if (manifest.pay !== undefined) {
+  throw new Error('tip-creators is PayPal only — manifest.json must have no pay block (no pay.to)');
 }
 
 // ---- the listing is a promise to the reader ---------------------------------

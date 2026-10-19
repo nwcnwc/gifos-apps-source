@@ -21,6 +21,11 @@
     if (custom.value !== '' && isFinite(v)) return Math.floor(v);
     return selected;
   }
+  function supportLine(msg) {
+    var line = 'Questions about this payment? support@gifos.app';
+    if (String(msg || '').indexOf('support@gifos.app') !== -1) return String(msg || '');
+    return (msg ? String(msg) + ' ' : '') + line;
+  }
   function paint() {
     var usd = currentUsd();
     var ok = usd >= MIN_USD;
@@ -52,9 +57,9 @@
     }).then(function (receipt) {
       thanks.hidden = false;
       var how = { paypal: ' by PayPal.', x402: ' in USDC.', transfer: ' in USDC.', fednow: ' from your bank.' };
-      $('thanks-line').textContent = 'Your tip went through' +
+      $('thanks-line').textContent = supportLine('Your tip went through' +
         (how[receipt && receipt.rail] || '.') +
-        ' It goes straight to the people who build GifOS.';
+        ' It goes straight to the people who build GifOS.');
       sendBtn.hidden = true; note.hidden = true;
       paint();
     }).catch(function (err) {
@@ -66,8 +71,8 @@
       // the money was not taken.
       var declined = /DECLINED_BY_USER/.test(msg);
       note.textContent = declined
-        ? 'GifOS did not record a payment. If you approved one in PayPal, that charge is real — check your PayPal activity before trying again.'
-        : msg;
+        ? supportLine('GifOS did not record a payment. If you approved one in PayPal, that charge is real — check your PayPal activity before trying again.')
+        : supportLine(msg);
       sendBtn.disabled = false;
       paint();
     });
