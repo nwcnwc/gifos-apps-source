@@ -8,7 +8,7 @@
   "releaseDate": "2026-10-14",
   "categories": ["Utilities"],
   "tags": ["meeting", "bot", "transcript", "recording"],
-  "license": "MIT",
+  "license": "Proprietary",
   "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/meeting-bot",
   "cover": "screenshot.png",
   "coverCrop": { "top": 0 },
