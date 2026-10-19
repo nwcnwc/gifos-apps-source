@@ -44,16 +44,19 @@ if (!listing.tagline || !listing.description) throw new Error('listing');
 const help = read('help.md');
 if (help.length < 400) throw new Error('help.md is too short');
 if (!/window\.MeetingBot/.test(read('CONTROL.md'))) throw new Error('CONTROL.md must document window.MeetingBot');
-for (const src of ['app.js', 'protocol.js', 'index.html']) {
+for (const src of ['app.js', 'protocol.js', 'voice.js', 'index.html']) {
   const text = read(src);
   if (/\bfetch\s*\(/.test(text) || /WebSocket/.test(text) || /\beval\s*\(/.test(text)) throw new Error(src + ' reaches the network');
 }
+if (/host-voice\.js/.test(read('index.html'))) throw new Error('host-voice.js must stay on the GifOS host page, not in the app frame');
 
 const files = {
   'manifest.json': JSON.stringify(manifest),
   'index.html': read('index.html'),
   'app.js': read('app.js'),
   'protocol.js': read('protocol.js'),
+  'voice.js': read('voice.js'),
+  'host-voice.js': read('host-voice.js'),
   'help.md': help,
   'CONTROL.md': read('CONTROL.md'),
   'listing.json': JSON.stringify(listing)
