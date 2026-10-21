@@ -443,7 +443,9 @@ function drag(W, dx, dy, id) {
   return st;
 }
 async function shell() {
-  const W = bootApp(APP);
+  // Real timer lengths: a win auto-advances after 1.6 s, and the 50 ms default cap
+  // let that fire inside flushAsync on a loaded box, taking Next away (flaky crash).
+  const W = bootApp(APP, { maxTimer: Infinity });
   await flushAsync();
   check('first open is the menu', W.$('menu').hidden === false && W.$('level').hidden === true);
   W.dom.document.querySelector('button[data-diff="0"]').click();
