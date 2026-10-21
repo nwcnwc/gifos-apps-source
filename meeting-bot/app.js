@@ -13,6 +13,7 @@
     lines: {},
     chats: {},
     probeBeat: null,
+    runSince: 0,
     warned: {},
     ctrlItems: [],
     people: {},
@@ -942,6 +943,13 @@
     }
     if (state.phase === 'run') {
       if (msg.role === 'bot' && msg.op === 'beat' && msg.instance && msg.instance !== state.instance) {
+        // The probe can miss a running bot: its 4.5 s look ends before a slow
+        // box has seated it next to the bot. Two bots then run under one
+        // name. The newer one steps down, unless the user asked for a second.
+        if (!document.getElementById('override').checked && olderThanMe(msg)) {
+          stepDown();
+          return;
+        }
         warn(DUP);
         if (!state.warned[msg.instance]) {
           state.warned[msg.instance] = true;
@@ -993,7 +1001,7 @@
   function beat() {
     if (state.phase !== 'run' || !state.adminId) return;
     gifos.meet.sendChat(state.adminId, BotProto.encode({
-      v: 1, role: 'bot', op: 'beat', instance: state.instance, meetings: workMeetings(),
+      v: 1, role: 'bot', op: 'beat', instance: state.instance, since: state.runSince, meetings: workMeetings(),
       respond_to_command: !!state.respond, speak: !!state.speak, listen: !!state.listen, text_role: 'smartest',
       speaking: !!state.speaking, listening: !!state.listen && !state.speaking
     })).catch(function () {});
@@ -1003,7 +1011,12 @@
     var chain = Promise.resolve();
     links.forEach(function (link) {
       chain = chain.then(function () {
+        if (state.phase !== 'run') return;
+        var gen = state.runSince;
         return gifos.meet.join(link, '', state.name, { bot: true }).then(function (sess) {
+          if (state.phase !== 'run' || state.runSince !== gen) {
+            return gifos.meet.leave(sess.meetingId).catch(function () {});
+          }
           remember(sess, link, false);
           paint();
           log('joined ' + sess.meetingId);
@@ -1012,9 +1025,37 @@
     });
     return chain;
   }
+  // A beat from an older bot. A beat without `since` comes from a bot that
+  // predates this rule, and it was running first. Ties go to the lower id.
+  function olderThanMe(msg) {
+    var since = Number(msg.since) || 0;
+    if (!since) return true;
+    if (since !== state.runSince) return since < state.runSince;
+    return String(msg.instance) < String(state.instance);
+  }
+  function stepDown() {
+    clearInterval(state.beatTimer);
+    state.beatTimer = null;
+    var ids = Object.keys(state.meetings);
+    state.phase = 'idle';
+    state.adminId = '';
+    state.runSince = 0;
+    ids.forEach(function (id) {
+      delete state.meetings[id];
+      delete state.people[id];
+      delete state.controls[id];
+      gifos.meet.leave(id).catch(function () {});
+    });
+    state.speaking = false;
+    state.speakingId = '';
+    warn(DUP);
+    log('stepped down: another bot with this name was already running');
+    paint();
+  }
   function becomeBot(sawOther) {
     return gifos.meet.join(state.admin.room, state.admin.password, state.name, { bot: true, control: true }).then(function (sess) {
       state.phase = 'run';
+      state.runSince = Date.now();
       state.adminId = sess.meetingId;
       remember(sess, sess.link, true);
       if (sawOther) warn(DUP);
