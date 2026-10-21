@@ -44,6 +44,29 @@
     return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   }
 
+  // Said as soon as a person finishes talking to the bot, before the answer.
+  var FILLER = 'One moment while I think about that.';
+  // How long a filler of unknown format is given before the answer plays.
+  var FILLER_MS = 2500;
+
+  // Play time of a WAV in ms, from its fmt and data chunks. 0 when the bytes
+  // are not a WAV this can read.
+  function wavMs(bytes) {
+    var u = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || 0);
+    var tag = function (at) { return String.fromCharCode(u[at], u[at + 1], u[at + 2], u[at + 3]); };
+    if (u.length < 44 || tag(0) !== 'RIFF' || tag(8) !== 'WAVE') return 0;
+    var dv = new DataView(u.buffer, u.byteOffset, u.byteLength);
+    var rate = 0;
+    var at = 12;
+    while (at + 8 <= u.length) {
+      var size = dv.getUint32(at + 4, true);
+      if (tag(at) === 'fmt ' && at + 20 <= u.length) rate = dv.getUint32(at + 16, true);
+      if (tag(at) === 'data') return rate ? Math.round(Math.min(size, u.length - at - 8) * 1000 / rate) : 0;
+      at += 8 + size + (size & 1);
+    }
+    return 0;
+  }
+
   // Settings safe to resolve, log, and put on screen.
   // An engine name, a model URL, or a key is refused.
   function publicSettings(s) {
@@ -64,6 +87,9 @@
     isCommand: isCommand,
     isConversation: isConversation,
     norm: norm,
+    FILLER: FILLER,
+    FILLER_MS: FILLER_MS,
+    wavMs: wavMs,
     publicSettings: publicSettings
   };
 })(typeof window !== 'undefined' ? window : globalThis);

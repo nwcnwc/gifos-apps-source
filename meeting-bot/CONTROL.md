@@ -41,7 +41,7 @@ Every method returns a Promise, except `status`, which is synchronous. A failure
 | Method | Resolves with | Notes |
 |---|---|---|
 | `start({ mode, name, password, override?, rules? })` | `status()` | `mode` is `'run'` or `'control'`. A weak name and password pair rejects, for example "Password needs at least 10 characters." If a bot with this pair is already running, it rejects with the duplicate warning unless `override: true`. `rules` is the auto-join list, one link per line. RUN takes about 5 s, because it first listens for a running duplicate. |
-| `status()` | `{ phase, connected, name, meetings, warning }` | Synchronous. `phase` is `'idle'`, `'probe'`, `'run'` or `'control'`. `connected` turns true once the admin meeting is joined. Wait for it before you send commands. In CONTROL, `meetings` is the last list the bot reported. Version 2 adds `respond_to_command`, `speak`, `listen`, `text_role` (`smartest`), `speaking`, and `listening`. It never includes a key, a model URL, or an engine name. |
+| `status()` | `{ phase, connected, name, meetings, warning }` | Synchronous. `phase` is `'idle'`, `'probe'`, `'run'` or `'control'`. `connected` turns true once the admin meeting is joined. Wait for it before you send commands. In CONTROL, `meetings` is the last list the bot reported. Version 2 adds `respond_to_command`, `speak`, `listen`, `text_role` (`smartest`), `speaking`, `listening`, and `thinking`. It never includes a key, a model URL, or an engine name. |
 | `create()` | `{ id, room, link }` | Hosts a new meeting with an unguessable 16-character room code. `link` is the invite to give people. |
 | `join(link, password?)` | `{ id, room, link }` | `link` is a meeting link or a room code. `password` is the room password, if it has one. |
 | `list()` | `[{ id, room, link, rec, cc, created, people, hand, mic, camera }]` | The work meetings, without the admin meeting. `people` holds the names of everyone except the bot. The hand, microphone, and camera flags are the last ones this bot set. |
@@ -62,6 +62,7 @@ Every method returns a Promise, except `status`, which is synchronous. A failure
 | `meetingState(id)` | `{ id, hand, mic, camera, people }` | The hand, microphone, camera, and the people list. Read-only. |
 | `snapshot(id)` | `{ id, hand, mic, camera, people }` | Same fields as `meetingState`. Read-only. It does not change the meeting and it does not open a browser. A connector may also save a PNG of the Meet Bot page it already has open. |
 | `watch(id, on)` | `{ id, watch }` | Opens a tile that shows this meeting through the bot's eyes and ears when `on` is true, and closes it when `on` is false. A person can watch and listen. The tile has no microphone and no camera for that person. Only the bot talks. |
+| `thinking(id, on)` | `{ id, thinking }` | Shows a blinking thought bubble on the bot's tile for everyone when `on` is true, and hides it when `on` is false. The bubble shows through blur. The bot's next spoken line hides it, and so does `stopSpeaking`. The meeting page also hides it after 60 s. A connector that composes its own answer calls this before it starts and then speaks with `interject`. Rejects when the meeting page cannot show it. |
 | `onTranscript(fn)` | an unsubscribe function | Called with `{ id, by, text, at }` for each kept line, including a line the bot spoke. `by` is the bot's name on those lines. A repeat of the same spoken line is not delivered again. |
 
 ### `setVoice`
@@ -84,15 +85,19 @@ MeetingBot.setVoice({
 
 A command is a line addressed to the bot (its name, or "bot"), a line that starts with `join`, `leave`, `list`, `record`, `transcribe`, `status`, or `send`, or a line that starts with `/` or `!`. Conversation is any other line that ends with `?` or is at least 24 characters. `interject` speaks even when `speak` is false. It asks Text to speech for the words you already wrote, then plays the bytes. It does not call Smartest.
 
+When the bot answers a line itself (`speak` on), it first says "One moment while I think about that." The filler audio is made once, when `speak` turns on, and kept. When the filler ends, a blinking thought bubble shows on the bot's tile until the answer plays. If the answer is ready before the filler ends, it waits for the filler and no bubble shows. The filler is not a transcript line.
+
 ### Where speech runs
 
 The app frame cannot `fetch`. Smartest and Text to speech are GifOS AI roles declared on the manifest as `capabilities.ai`. The host holds the key. The app asks `gifos.ai.chat` and `gifos.ai.tts` and never sees a URL. The manifest does not put those roles in `requires`, so the bot can still join while speech stays quiet until Settings is filled in.
 
-Meeting control is the same `capabilities.meet` grant as joining. The new ops are the Meet buttons, plus playing audio the app already produced, plus the watch tile: `gifos.meet.raiseHand(id, on)`, `gifos.meet.setMic(id, on)`, `gifos.meet.setCamera(id, on)`, `gifos.meet.speak(id, { bytes, mime, text })`, `gifos.meet.stopSpeaking(id)`, and `gifos.meet.watch(id, on)`. A published GifOS build that does not know one of these answers "Unknown meet op." `raiseHand`, `setMic`, `setCamera`, `interject`, and `watch` then reject, and the room is left as it is.
+Meeting control is the same `capabilities.meet` grant as joining. The new ops are the Meet buttons, plus playing audio the app already produced, plus the watch tile and the thought bubble: `gifos.meet.raiseHand(id, on)`, `gifos.meet.setMic(id, on)`, `gifos.meet.setCamera(id, on)`, `gifos.meet.speak(id, { bytes, mime, text, filler? })`, `gifos.meet.stopSpeaking(id)`, `gifos.meet.watch(id, on)`, and `gifos.meet.thinking(id, on)`. A published GifOS build that does not know one of these answers "Unknown meet op." `raiseHand`, `setMic`, `setCamera`, `interject`, `watch`, and `thinking` then reject, and the room is left as it is. A build without `thinking` still plays the filler and the answer.
+
+In every meeting the bot picks No blur, so it consents to clear video. It is never the reason a password room stays blurred.
 
 ### The bot's own voice
 
-A line the bot spoke is stored and announced, with `by` set to the bot's name. That includes a successful `interject`, a spoken conversation reply, and a caption that is the bot's own line (marked self, bot, or me, credited to the bot's name, or matching one of the last 20 lines the bot spoke). The same line is kept once: a repeat among the last 20 lines already credited to the bot is not stored again and is not announced again. The bot does not answer its own lines. Chat from `say`, and every other meeting chat line, is saved by `chatFile(` and is not a spoken line. The meeting page still does not caption this computer's own microphone.
+A line the bot spoke is stored and announced, with `by` set to the bot's name. The meeting page also writes it into the room transcript that everyone sees, as `<bot name>: <line>`. That includes a successful `interject`, a spoken conversation reply, and a caption that is the bot's own line (marked self, bot, or me, credited to the bot's name, or matching one of the last 20 lines the bot spoke). The same line is kept once: a repeat among the last 20 lines already credited to the bot is not stored again and is not announced again. The bot does not answer its own lines. Chat from `say`, and every other meeting chat line, is saved by `chatFile(` and is not a spoken line. The meeting page still does not caption this computer's own microphone.
 
 ### Mapping for a connector
 
@@ -154,7 +159,7 @@ Controller to bot:
 
 | op | fields | reply |
 |---|---|---|
-| `list` / `status` | — | `meetings` with `items`, plus `respond_to_command`, `speak`, `listen`, `text_role`, `speaking`, `listening`. |
+| `list` / `status` | — | `meetings` with `items`, plus `respond_to_command`, `speak`, `listen`, `text_role`, `speaking`, `listening`, `thinking`. |
 | `create` | — | `ok` with `meetingId`, `link`, `room`, `items` |
 | `join` | `link`, `password?` | `ok` with `meetingId`, `link`, `room`, `items` |
 | `leave` / `end` | `meetingId` | `ok` with `items` |
@@ -169,6 +174,7 @@ Controller to bot:
 | `meeting_state` | `meetingId` | `meeting_state` with `hand`, `mic`, `camera`, `people` |
 | `snapshot` | `meetingId` | `snapshot` with `hand`, `mic`, `camera`, `people`. Read-only. |
 | `watch` | `meetingId`, `on` | `ok` with `watch` and `items`. The tile is watch and listen only. |
+| `thinking` | `meetingId`, `on` | `ok` with `thinking`. The thought bubble on the bot's tile. |
 | `people` | `meetingId` | `people` with `people` |
 | `chat` | `meetingId` | the chat file over the data channel, then `xfer` with `name`, `lines` |
 | `transcript` | `meetingId` | the spoken file over the data channel, then `xfer` with `name`, `lines` |
@@ -176,7 +182,7 @@ Controller to bot:
 
 Camel-case aliases `setVoice`, `stopSpeaking`, `raiseHand`, `setMic`, `setCamera`, and `meetingState` are accepted as the same ops.
 
-A failure replies `err` with `text`. While running, the bot also posts `beat` every 3 s, with `instance`, `meetings`, `respond_to_command`, `speak`, `listen`, `text_role`, `speaking`, and `listening`. The beat does not carry a key or a URL. A second bot with the same pair gets `warn`.
+A failure replies `err` with `text`. While running, the bot also posts `beat` every 3 s, with `instance`, `meetings`, `respond_to_command`, `speak`, `listen`, `text_role`, `speaking`, `listening`, and `thinking`. The beat does not carry a key or a URL. A second bot with the same pair gets `warn`.
 
 New transcript lines are also posted by the bot, unsolicited, as `op: "transcript"` with `meetingId`, `by`, `text`, and `at`. That push is role `bot`. A controller's `transcript` request is still the file download. A line the bot spoke is posted the same way, with `by` set to the bot's name. A repeat of that line is not posted again.
 
