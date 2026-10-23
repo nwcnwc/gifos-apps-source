@@ -282,7 +282,10 @@ function miniDom(html) {
   return doc;
 }
 // ---- the page's inline scripts as a syntax tree (acorn), not as text ----
-const acorn = require('acorn');
+// acorn is a pinned dependency of the gifos checkout this suite runs from
+// (the gate runs ../gifos-apps-source/*/test.js with cwd gifos); a bare
+// require only found it on boxes with a distro-wide copy (/usr/share/nodejs).
+const acorn = require(require.resolve('acorn', { paths: [APP, process.cwd(), path.join(APP, '..', '..', 'gifos')] }));
 function pageScripts(page) {
   const out = [], re = /<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/g;
   let m;
