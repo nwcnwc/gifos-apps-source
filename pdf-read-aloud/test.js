@@ -1,4 +1,4 @@
-// Read Aloud: sentences, headers, lookahead, resume, missing voice,
+// Read Aloud: sentences, headers, synthesis ahead of playback, resume, missing voice,
 // pasted text, the English asset pin, and the vendored engine hash.
 // The checks run the app's own functions on invented fixtures.
 const fs = require('fs');
@@ -329,6 +329,7 @@ async function main() {
   check('play order is the sentence order', plays.map((a) => a.text).join(',') === 'Alpha.,Beta.,Gamma.', plays.map((a) => a.text));
   check('the computer voice was not used', S.__synth === 0, S.__synth);
 
+  order.splice(0, order.length);
   const from = S.PdfSpeak.createReader({
     sentences: [
       { text: 'Alpha.', page: 1 },
@@ -341,8 +342,6 @@ async function main() {
     play: play
   });
   const mid = [];
-  const savedOrder = order.splice(0, order.length);
-  void savedOrder;
   const midDone = from.play();
   await micro();
   check('resume starts at the saved sentence', order.length === 1 && order[0] === 'tts:Gamma.@1', order.slice());
@@ -364,7 +363,10 @@ async function main() {
     const twelve = [];
     for (let i = 1; i <= 12; i++) twelve.push('w' + i);
     check('twelve words stay one chunk', S.PdfSpeak.splitLead(twelve.join(' ')).length === 1);
-    check('the lookahead buffer defaults to four', S.PdfSpeak.LOOKAHEAD === 4);
+    check('the memory guard defaults to four hundred sentences', S.PdfSpeak.MAX_SENTENCES === 400);
+    check('the memory guard defaults to about two hundred megabytes', S.PdfSpeak.MAX_BYTES === 200 * 1024 * 1024);
+    check('the buffer line names prepared and ready',
+      S.PdfSpeak.bufferLabel({ prepared: 37, total: 120, ahead: 12 }) === 'Prepared 37 / 120 · 12 ready ahead');
   }
 
   async function flush() {
@@ -374,58 +376,42 @@ async function main() {
   {
     const names = ['S0.', 'S1.', 'S2.', 'S3.', 'S4.', 'S5.', 'S6.', 'S7.'];
     const order2 = [];
-    const gates2 = {};
-    function tts2(req) {
-      order2.push('tts:' + req.text);
-      const d = deferred();
-      gates2[req.text] = d;
-      return d.promise;
-    }
-    function play2(audio) {
-      order2.push('play:' + audio.text);
-      const d = deferred();
-      gates2['play:' + audio.text] = d;
-      return {
-        done: d.promise,
-        pause: function () {},
-        resume: function () {},
-        stop: function () { d.resolve(); }
-      };
-    }
-    const ahead = S.PdfSpeak.createReader({
-      sentences: names.map((text, i) => ({ text: text, page: 1 })),
-      lookahead: 4,
-      tts: tts2,
-      play: play2
-    });
-    const aheadDone = ahead.play();
-    await flush();
-    check('lookahead asks for the first sentence before anything plays', order2.length === 1 && order2[0] === 'tts:S0.', order2.slice());
-    for (let n = 0; n < 5; n++) {
-      gates2['S' + n + '.'].resolve({ bytes: new Uint8Array([n + 1]), mime: 'audio/wav' });
-      await flush();
-    }
-    const ttsWhileFirstPlays = order2.filter((x) => x.startsWith('tts:')).length;
-    check('while the first sentence plays, four more are ready and a fifth is not',
-      ttsWhileFirstPlays === 5 && order2.filter((x) => x.startsWith('play:')).join(',') === 'play:S0.',
-      order2.slice());
-    gates2['play:S0.'].resolve();
-    await flush();
-    check('the next sentence starts as soon as the first ends and the buffer refills',
-      order2.indexOf('play:S1.') > order2.indexOf('play:S0.') && order2.filter((x) => x.startsWith('tts:')).length === 6,
-      order2.slice());
-    for (let n = 1; n < names.length; n++) {
-      if (gates2['S' + n + '.'] && order2.indexOf('tts:S' + n + '.') >= 0) {
-        gates2['S' + n + '.'].resolve({ bytes: new Uint8Array([n + 1]), mime: 'audio/wav' });
+    const playEnds = [];
+    const slow = S.PdfSpeak.createReader({
+      sentences: names.map((text, i) => ({ text: text, page: i < 4 ? 1 : 2 })),
+      tts: (req) => {
+        order2.push('tts:' + req.text);
+        return Promise.resolve({ bytes: new Uint8Array([req.text.length, 2, 3, 4]), mime: 'audio/wav' });
+      },
+      play: (audio) => {
+        order2.push('play:' + audio.text);
+        const d = deferred();
+        playEnds.push(d);
+        return {
+          done: d.promise,
+          pause: function () {},
+          resume: function () {},
+          stop: function () { d.resolve(); }
+        };
       }
-      await flush();
-      if (gates2['play:S' + n + '.']) gates2['play:S' + n + '.'].resolve();
-      await flush();
-    }
-    const aheadResult = await aheadDone;
-    check('lookahead keeps sentence order through the whole read',
-      aheadResult.spoke === true && order2.filter((x) => x.startsWith('play:')).join(',') === names.map((t) => 'play:' + t).join(','),
-      order2.filter((x) => x.startsWith('play:')));
+    });
+    const slowDone = slow.play();
+    for (let n = 0; n < 20; n++) await flush();
+    const ttsDone = order2.filter((x) => x.startsWith('tts:')).length;
+    const secondEnded = playEnds.length > 1 && playEnds[1].settled;
+    check('a slow player gets every sentence synthesized before sentence 2 finishes',
+      ttsDone === names.length && order2.filter((x) => x.startsWith('play:')).join(',') === 'play:S0.' && !secondEnded,
+      order2.slice());
+    check('the buffer counts every prepared sentence with the rest ready ahead',
+      slow.stats().prepared === names.length && slow.stats().total === names.length && slow.stats().ahead === names.length - 1 &&
+      slow.label() === 'Prepared ' + names.length + ' / ' + names.length + ' · ' + (names.length - 1) + ' ready ahead',
+      slow.stats());
+    slow.stopPreparing();
+    const afterStop = order2.filter((x) => x.startsWith('tts:')).length;
+    await flush();
+    check('stop preparing requests nothing further', order2.filter((x) => x.startsWith('tts:')).length === afterStop);
+    slow.close();
+    await slowDone.catch(() => {});
   }
 
   {
@@ -491,11 +477,11 @@ async function main() {
         { text: 'Gamma.', page: 1 },
         { text: 'Delta.', page: 1 }
       ],
-      lookahead: 4,
       tts: ttsStale,
       play: playStale,
       prepare: (audio) => ({
         drop: function () { drops++; },
+        bytes: audio.bytes.byteLength,
         play: function () { return playStale(audio); }
       })
     });
@@ -505,26 +491,33 @@ async function main() {
     await flush();
     staleGates['Beta.'].resolve({ bytes: new Uint8Array([2]), mime: 'audio/wav' });
     await flush();
-    const betaInFlight = staleGates['Gamma.'];
+    const gammaInFlight = staleGates['Gamma.'];
     check('a prepared sentence is waiting while the first one plays',
       staleOrder.indexOf('play:Alpha.') >= 0 && staleOrder.indexOf('tts:Gamma.') >= 0 && staleOrder.indexOf('play:Beta.') < 0,
       staleOrder.slice());
-    const playsBefore = staleOrder.filter((x) => x.startsWith('play:')).length;
+    const ttsBefore = staleOrder.filter((x) => x.startsWith('tts:')).length;
     stale.next();
     await flush();
-    betaInFlight.resolve({ bytes: new Uint8Array([3]), mime: 'audio/wav' });
-    await flush();
-    check('seeking drops a prepared sentence and ignores a stale result',
-      drops >= 1 && staleOrder.filter((x) => x.startsWith('play:')).length === playsBefore && staleOrder.indexOf('play:Gamma.') < 0,
-      { drops: drops, order: staleOrder.slice() });
-    const betaAgain = staleGates['Beta.'];
-    check('the sentence that was seeked to is fetched again', betaAgain && betaAgain !== undefined && staleOrder.filter((x) => x === 'tts:Beta.').length >= 2, staleOrder.slice());
-    betaAgain.resolve({ bytes: new Uint8Array([9]), mime: 'audio/wav' });
-    await flush();
-    check('only the sentence seeked to starts after the stale result',
+    check('next keeps the buffered clip and plays it without synthesizing again',
+      drops === 0 && staleOrder.filter((x) => x === 'tts:Beta.').length === 1 &&
       staleOrder.filter((x) => x.startsWith('play:')).join(',') === 'play:Alpha.,play:Beta.',
+      { drops: drops, order: staleOrder.slice() });
+    stale.go(3);
+    await flush();
+    check('a jump leaves the in-flight clip alone',
+      drops === 0 && staleOrder.filter((x) => x.startsWith('tts:')).length === ttsBefore && staleOrder.indexOf('play:Delta.') < 0,
+      staleOrder.slice());
+    gammaInFlight.resolve({ bytes: new Uint8Array([3]), mime: 'audio/wav' });
+    await flush();
+    check('after the in-flight clip lands, synthesis prioritizes the jumped-to sentence',
+      drops === 0 && stale.stats().prepared >= 3 && staleOrder[staleOrder.length - 1] === 'tts:Delta.',
+      staleOrder.slice());
+    staleGates['Delta.'].resolve({ bytes: new Uint8Array([4]), mime: 'audio/wav' });
+    await flush();
+    check('the jumped-to sentence plays from the clip that was just prepared',
+      staleOrder.filter((x) => x.startsWith('play:')).join(',').endsWith('play:Delta.'),
       staleOrder.filter((x) => x.startsWith('play:')));
-    stale.stop();
+    stale.close();
     await staleDone.catch(() => {});
   }
 
@@ -555,36 +548,175 @@ async function main() {
         };
       }
     });
+    const pauseLabels = [];
     const pauseDone = pauseReader.play();
     await flush();
     pauseGates['Alpha.'].resolve({ bytes: new Uint8Array([1]), mime: 'audio/wav' });
     await flush();
+    const preparedAtPause = pauseReader.stats().prepared;
+    pauseLabels.push(preparedAtPause);
     const oldBeta = pauseGates['Beta.'];
     pauseReader.pause();
     check('pause holds the current sentence', pauseReader.paused() === true && pauseReader.playing() === false, pauseOrder.slice());
+    check('pause does not stop preparation', pauseReader.preparing() === true);
     oldBeta.resolve({ bytes: new Uint8Array([2]), mime: 'audio/wav' });
     await flush();
+    pauseLabels.push(pauseReader.stats().prepared);
     check('a result that arrives while paused does not play',
       pauseOrder.filter((x) => x.startsWith('play:')).join(',') === 'play:Alpha.' && pauseOrder.indexOf('pause:Alpha.') >= 0,
       pauseOrder.slice());
+    check('synthesis continues while paused and the prepared count grows',
+      pauseOrder.filter((x) => x === 'tts:Beta.').length === 1 &&
+      pauseOrder.indexOf('tts:Gamma.') >= 0 &&
+      pauseLabels[1] > pauseLabels[0],
+      { labels: pauseLabels, order: pauseOrder.slice(), stats: pauseReader.stats() });
+    pauseGates['Gamma.'].resolve({ bytes: new Uint8Array([3]), mime: 'audio/wav' });
+    await flush();
+    check('the prepared count keeps growing while the audio stays paused',
+      pauseReader.stats().prepared === 3 && pauseOrder.filter((x) => x.startsWith('play:')).join(',') === 'play:Alpha.',
+      pauseReader.stats());
+    const ttsAtResume = pauseOrder.filter((x) => x.startsWith('tts:')).length;
     pauseReader.play();
     await flush();
-    check('resume continues the same sentence and refills the queue',
-      pauseOrder.indexOf('resume:Alpha.') >= 0 && pauseOrder.filter((x) => x === 'tts:Beta.').length === 2,
-      pauseOrder.slice());
-    const newBeta = pauseGates['Beta.'];
-    newBeta.resolve({ bytes: new Uint8Array([4]), mime: 'audio/wav' });
-    await flush();
-    check('the refilled sentence stays queued until the current one ends',
-      pauseOrder.filter((x) => x.startsWith('play:')).join(',') === 'play:Alpha.',
+    check('resume continues the same decoded clip without synthesizing it again',
+      pauseOrder.indexOf('resume:Alpha.') >= 0 && pauseOrder.filter((x) => x.startsWith('tts:')).length === ttsAtResume,
       pauseOrder.slice());
     pauseGates['play:Alpha.'].resolve();
     await flush();
-    check('after resume the next sentence plays from the refill',
+    check('after resume the next sentence plays from the buffer',
       pauseOrder.filter((x) => x.startsWith('play:')).join(',') === 'play:Alpha.,play:Beta.',
       pauseOrder.slice());
+    const ttsAtStop = pauseOrder.filter((x) => x.startsWith('tts:')).length;
+    const preparedAtStop = pauseReader.stats().prepared;
     pauseReader.stop();
+    await flush();
+    check('stop resets playback and keeps the buffer',
+      pauseReader.playing() === false && pauseReader.index() === 0 && pauseReader.stats().prepared === preparedAtStop &&
+      pauseOrder.filter((x) => x.startsWith('tts:')).length === ttsAtStop,
+      { index: pauseReader.index(), stats: pauseReader.stats(), order: pauseOrder.slice() });
+    pauseReader.play();
+    await flush();
+    check('play after stop starts at once from the buffer',
+      pauseOrder.filter((x) => x.startsWith('tts:')).length === ttsAtStop &&
+      pauseOrder.filter((x) => x === 'play:Alpha.').length === 2,
+      pauseOrder.slice());
+    pauseReader.close();
     await pauseDone.catch(() => {});
+  }
+
+  {
+    const prepOrder = [];
+    const prepGates = {};
+    const prepReader = S.PdfSpeak.createReader({
+      sentences: [
+        { text: 'One.', page: 1 },
+        { text: 'Two.', page: 1 },
+        { text: 'Three.', page: 1 }
+      ],
+      tts: (req) => {
+        prepOrder.push(req.text);
+        const d = deferred();
+        prepGates[req.text] = d;
+        return d.promise;
+      },
+      play: (audio) => {
+        const d = deferred();
+        return { done: d.promise, stop: function () { d.resolve(); }, pause: function () {}, resume: function () {} };
+      }
+    });
+    await flush();
+    check('preparation starts with the first sentence', prepOrder.length === 1 && prepOrder[0] === 'One.', prepOrder.slice());
+    prepReader.stopPreparing();
+    check('the preparing control is off', prepReader.preparing() === false);
+    prepGates['One.'].resolve({ bytes: new Uint8Array([1]), mime: 'audio/wav' });
+    await flush();
+    check('stop preparing keeps the clip already coming back and does not ask for the next',
+      prepOrder.length === 1 && prepReader.stats().prepared === 1, prepOrder.slice());
+    prepReader.startPreparing();
+    await flush();
+    check('resume preparing continues from the next sentence',
+      prepReader.preparing() === true && prepOrder.length === 2 && prepOrder[1] === 'Two.', prepOrder.slice());
+    const flight = prepGates['Two.'];
+    prepReader.reset([{ text: 'Zed.', page: 1 }], 0);
+    await flush();
+    flight.resolve({ bytes: new Uint8Array([2]), mime: 'audio/wav' });
+    await flush();
+    check('a new source discards the old buffer and synthesizes the new text',
+      prepOrder[prepOrder.length - 1] === 'Zed.' && prepReader.stats().total === 1 && prepReader.stats().prepared === 0,
+      { order: prepOrder.slice(), stats: prepReader.stats() });
+    prepReader.stopPreparing();
+    prepGates['Zed.'].resolve({ bytes: new Uint8Array([9]), mime: 'audio/wav' });
+    await flush();
+    const beforeOff = prepOrder.length;
+    prepReader.reset([{ text: 'Wait.', page: 1 }], 0);
+    await flush();
+    check('a new source waits when preparing is off',
+      prepReader.preparing() === false && prepOrder.length === beforeOff && prepReader.stats().prepared === 0,
+      prepOrder.slice());
+    prepReader.startPreparing();
+    await flush();
+    check('resume preparing starts the new source', prepOrder[prepOrder.length - 1] === 'Wait.', prepOrder.slice());
+    prepReader.close();
+  }
+
+  {
+    const capOrder = [];
+    const capGates = {};
+    const cap = S.PdfSpeak.createReader({
+      sentences: [
+        { text: 'A.', page: 1 },
+        { text: 'B.', page: 1 },
+        { text: 'C.', page: 1 },
+        { text: 'D.', page: 1 }
+      ],
+      maxSentences: 2,
+      tts: (req) => {
+        capOrder.push(req.text);
+        const d = deferred();
+        capGates[req.text] = d;
+        return d.promise;
+      },
+      play: (audio) => {
+        const d = deferred();
+        capGates['play:' + audio.text] = d;
+        return { done: d.promise, stop: function () { d.resolve(); }, pause: function () {}, resume: function () {} };
+      }
+    });
+    cap.play();
+    await flush();
+    capGates['A.'].resolve({ bytes: new Uint8Array(8), mime: 'audio/wav' });
+    await flush();
+    capGates['B.'].resolve({ bytes: new Uint8Array(8), mime: 'audio/wav' });
+    await flush();
+    check('the memory guard pauses synthesis at the cap',
+      capOrder.join(',') === 'A.,B.' && cap.stats().prepared === 2, capOrder.slice());
+    capGates['play:A.'].resolve();
+    await flush();
+    check('synthesis continues once a played clip is released',
+      capOrder.indexOf('C.') >= 0 && capOrder.join(',').indexOf('A.,B.,C.') === 0, capOrder.slice());
+    cap.close();
+  }
+
+  {
+    const pages = [];
+    const pageReader = S.PdfSpeak.createReader({
+      sentences: [{ text: 'Page one.', page: 1 }],
+      tts: (req) => {
+        pages.push(req.text);
+        return Promise.resolve({ bytes: new Uint8Array([1, 2, 3]), mime: 'audio/wav' });
+      },
+      play: () => ({ done: new Promise(function () {}), stop: function () {}, pause: function () {}, resume: function () {} })
+    });
+    pageReader.play();
+    for (let n = 0; n < 8; n++) await flush();
+    pageReader.setSentences([
+      { text: 'Page one.', page: 1 },
+      { text: 'Page two.', page: 2 }
+    ]);
+    for (let n = 0; n < 8; n++) await flush();
+    check('later PDF pages are synthesized when their sentences arrive',
+      pages.indexOf('Page one.') >= 0 && pages.indexOf('Page two.') >= 0, pages.slice());
+    pageReader.close();
   }
 
   async function miss(label, ttsFn) {

@@ -8,7 +8,6 @@
   var LANG = 'eng';
   var LANG_ASSET = 'eng.traineddata';
   var WASM_ASSET = 'tesseract-core.wasm';
-  var MAX_SIDE = 2400;
 
   var worker = null;
   var booted = false;
@@ -111,35 +110,13 @@
     });
   }
 
-  function fileToPng(file) {
-    var load = (typeof root.createImageBitmap === 'function')
-      ? root.createImageBitmap(file)
-      : new Promise(function (res, rej) {
-        var url = URL.createObjectURL(file);
-        var img = new Image();
-        img.onload = function () { URL.revokeObjectURL(url); res(img); };
-        img.onerror = function () { URL.revokeObjectURL(url); rej(new Error('Could not open this image.')); };
-        img.src = url;
-      });
-    return load.then(function (bmp) {
-      var w = bmp.width, h = bmp.height;
-      if (!w || !h) throw new Error('This image has no size.');
-      var scale = 1;
-      if (Math.max(w, h) > MAX_SIDE) scale = MAX_SIDE / Math.max(w, h);
-      var cw = Math.max(1, Math.round(w * scale));
-      var ch = Math.max(1, Math.round(h * scale));
-      var c = document.createElement('canvas');
-      c.width = cw;
-      c.height = ch;
-      var ctx = c.getContext('2d');
-      ctx.drawImage(bmp, 0, 0, cw, ch);
-      if (bmp.close) try { bmp.close(); } catch (e) { void e; }
-      return new Promise(function (res, rej) {
-        c.toBlob(function (blob) {
-          if (!blob) return rej(new Error('Could not prepare this image.'));
-          blob.arrayBuffer().then(res, rej);
-        }, 'image/png');
-      });
+  function fileBytes(file) {
+    if (file && typeof file.arrayBuffer === 'function') return file.arrayBuffer();
+    return new Promise(function (res, rej) {
+      var r = new FileReader();
+      r.onload = function () { res(r.result); };
+      r.onerror = function () { rej(r.error || new Error('Could not read this image.')); };
+      r.readAsArrayBuffer(file);
     });
   }
 
@@ -148,7 +125,7 @@
   }
 
   function recognize(file) {
-    return fileToPng(file).then(function (png) {
+    return fileBytes(file).then(function (png) {
       return loadLang().then(function () {
         var buf = asBuffer(png);
         return send({

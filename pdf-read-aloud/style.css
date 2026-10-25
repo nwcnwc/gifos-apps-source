@@ -50,6 +50,13 @@ body { overflow: hidden; }
 .chip:disabled { opacity: 0.4; cursor: default; }
 .chip.play { background: #c45c2a; border-color: #c45c2a; color: #fff; font-weight: 700; }
 .chip.play:hover { background: #d46b38; }
+#buffer {
+  font-size: 12px;
+  line-height: 1.3;
+  color: #b7aea4;
+  padding: 0 4px;
+  max-width: 16em;
+}
 .btn {
   background: #c45c2a;
   border-color: #c45c2a;

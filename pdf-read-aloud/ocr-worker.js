@@ -75,6 +75,37 @@
     });
   }
 
+  var MAX_SIDE = 2400;
+
+  function scaleImage(buf) {
+    var raw = u8of(buf);
+    if (typeof createImageBitmap !== 'function' || typeof OffscreenCanvas !== 'function') {
+      return Promise.resolve(raw);
+    }
+    var blob = new Blob([raw]);
+    return createImageBitmap(blob).then(function (bmp) {
+      var w = bmp.width, h = bmp.height;
+      if (!w || !h) throw new Error('This image has no size.');
+      var scale = 1;
+      if (Math.max(w, h) > MAX_SIDE) scale = MAX_SIDE / Math.max(w, h);
+      var cw = Math.max(1, Math.round(w * scale));
+      var ch = Math.max(1, Math.round(h * scale));
+      if (cw === w && ch === h && raw.length < 1500000) {
+        if (bmp.close) try { bmp.close(); } catch (e) { void e; }
+        return raw;
+      }
+      var canvas = new OffscreenCanvas(cw, ch);
+      var g = canvas.getContext('2d');
+      g.drawImage(bmp, 0, 0, cw, ch);
+      if (bmp.close) try { bmp.close(); } catch (e2) { void e2; }
+      if (typeof canvas.convertToBlob !== 'function') return raw;
+      return canvas.convertToBlob({ type: 'image/png' }).then(function (out) {
+        if (!out) return raw;
+        return out.arrayBuffer().then(function (ab) { return new Uint8Array(ab); });
+      });
+    }, function () { return raw; });
+  }
+
   function recognize(image, opts) {
     if (!api) throw new Error('No language loaded.');
     opts = opts || {};
@@ -106,8 +137,8 @@
         post({ type: 'lang-ready', code: langCode });
       });
     } else if (d.type === 'recognize') {
-      p = Promise.resolve().then(function () {
-        var out = recognize(d.image, d.opts);
+      p = scaleImage(d.image).then(function (png) {
+        var out = recognize(png, d.opts);
         post({ type: 'result', text: out.text });
       });
     } else {

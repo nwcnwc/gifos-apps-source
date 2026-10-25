@@ -19,7 +19,7 @@ index.html      chrome, stage, paste box
 style.css       dark shell, white paper, sentence mark, phone layout
 vendor/         pdf.js 2.16 legacy, tesseract.js-core 7.0.0, notices
 text.js         lines, headers, sentences, bite size, pasted text
-speak.js        a few sentences ahead, no silent fallback
+speak.js        whole-document synthesis, memory guard, no silent fallback
 store.js        last PDF, text, or picture, and the sentence
 view.js         open / render / highlight a PDF
 ocr.js          picture → text, blob worker, English asset pin
@@ -47,9 +47,30 @@ down its fake-worker path, which injects a `<script src="blob:">` that
 ## Why sentences are short
 
 A Text → speech provider returns one finished clip per call. A long call is a
-long silence before the first sound. This app sends one sentence, and fetches
-the next sentence while that clip plays. A sentence longer than 180 characters
-is cut on a comma or a space.
+long silence before the first sound. This app sends one sentence. The first
+sentence of a reading is cut shorter still, so the voice can start on the
+first few words. A sentence longer than 180 characters is cut on a comma or
+a space.
+
+## Preparing ahead
+
+Synthesis does not wait for playback. From the moment the text is ready, the
+app asks for every remaining sentence, one call at a time, as soon as the
+previous call returns. Later PDF pages are included as soon as their sentences
+exist. Clips are decoded before they play. The line `#buffer` shows how many
+sentences are prepared and how many of those sit ahead of the one you are on.
+
+A memory guard holds this at 400 sentences or about 200 MB of audio. Past that,
+synthesis waits until a played clip can be released.
+
+**Pause** holds the audio only. Preparation keeps going, so **Play** continues
+from the clip that is already decoded. **Stop** stops the audio and returns to
+the first sentence without throwing those clips away. **Prev**, **Next**, and
+a click move playback and leave the buffer in place.
+
+**Stop preparing** is the control that halts synthesis. **Resume preparing**
+continues from the sentence it had reached. Opening a different PDF, text, or
+picture discards the old clips and starts over, unless preparing is off.
 
 ## capabilities
 

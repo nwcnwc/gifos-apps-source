@@ -51,6 +51,7 @@
     this.pending = false;
     this.renderTask = null;
     this.onChange = function () {};
+    this.onSentences = null;
     this.onPassword = null;
     this._cssW = 0;
     this._cssH = 0;
@@ -136,6 +137,10 @@
     });
   };
 
+  function later() {
+    return new Promise(function (resolve) { setTimeout(resolve, 0); });
+  }
+
   View.prototype.extract = function (gen) {
     var self = this;
     var pdf = this.pdf;
@@ -153,13 +158,20 @@
             height: vp.height,
             items: (tc && tc.items) || []
           });
+          return later();
+        }).then(function () {
+          if (gen != null && gen !== self._gen) return;
+          self.sentences = root.PdfRead.pagesToSentences(pages);
+          if (typeof self.onSentences === 'function') self.onSentences(self.sentences);
+          return later();
+        }).then(function () {
+          if (gen != null && gen !== self._gen) return;
           return step(n + 1);
         });
       });
     };
     return step(1).then(function () {
       if (gen != null && gen !== self._gen) return self.sentences;
-      self.sentences = root.PdfRead.pagesToSentences(pages);
       return self.sentences;
     });
   };

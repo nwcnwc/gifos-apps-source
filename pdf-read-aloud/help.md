@@ -24,9 +24,11 @@ It reads English. A faint, skewed, or handwritten picture will come back imperfe
 
 ## Listen
 
-Press **Play**. The voice reads the current sentence, then the next. The sentence is marked, and a PDF page turns when the reading moves on.
+Press **Play**. The voice reads the current sentence, then the next. The sentence is marked, and a PDF page turns when the reading moves on. While that is happening the app keeps preparing later sentences, including the following PDF pages. The count on the bar shows how many are ready.
 
-**Pause** holds the sentence. **Play** continues it. **Prev** and **Next** move one sentence. On a PDF, the page box jumps to the first sentence on that page.
+**Pause** holds the audio and leaves that preparation running, so **Play** continues at once. **Stop** stops the audio and returns to the start, and the prepared clips stay. **Prev** and **Next** move one sentence without dropping what is already prepared. On a PDF, the page box jumps to the first sentence on that page.
+
+**Stop preparing** halts only the preparation. **Resume preparing** continues it. Opening a different file, text, or picture starts preparation over.
 
 **Speed** is passed to the voice. It applies as the next sentence is prepared.
 

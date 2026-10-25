@@ -14,6 +14,12 @@
   var sentences = [];
   var cursor = 0;
   var speed = 1;
+  var preparingOn = true;
+  var placeSaved = null;
+  var audioCtx = null;
+  var uiQueued = false;
+  var uiAt = 0;
+  var pendingHighlight = false;
   var saveTimer = 0;
   var watchGen = 0;
   var openGen = 0;
@@ -63,6 +69,45 @@
     if (pdf && view.numPages) bits.push('page ' + view.page + ' of ' + view.numPages);
     if (total) bits.push('sentence ' + (cursor + 1) + ' of ' + total);
     status(bits.join(' · '));
+    var prep = $('prep-toggle');
+    if (prep) prep.textContent = preparingOn ? 'Stop preparing' : 'Resume preparing';
+  }
+
+  function paintBuffer() {
+    var el = $('buffer');
+    if (!el || !root.PdfSpeak || !root.PdfSpeak.bufferLabel) return;
+    var info = reader ? reader.stats() : { prepared: 0, total: sentences.length, ahead: 0 };
+    el.textContent = root.PdfSpeak.bufferLabel(info);
+  }
+
+  function flushUi() {
+    if (pendingHighlight) {
+      pendingHighlight = false;
+      if (source.kind === 'pdf') {
+        if (sentences[cursor]) view.showSentence(sentences[cursor]);
+      } else applyMark(cursor);
+    }
+    paintBuffer();
+    paintChrome();
+  }
+
+  function scheduleUi() {
+    pendingHighlight = true;
+    if (uiQueued) return;
+    uiQueued = true;
+    var kick = function () {
+      uiQueued = false;
+      var now = Date.now();
+      if (uiAt && now - uiAt < 250) {
+        uiQueued = true;
+        setTimeout(kick, 250 - (now - uiAt));
+        return;
+      }
+      uiAt = Date.now();
+      flushUi();
+    };
+    if (root.requestAnimationFrame) root.requestAnimationFrame(function () { kick(); });
+    else setTimeout(kick, 16);
   }
 
   function scheduleSave() {
@@ -93,52 +138,141 @@
     });
   }
 
-  function prepareBytes(audio) {
+  function sharedCtx() {
+    var AC = root.AudioContext || root.webkitAudioContext;
+    if (!AC) return null;
+    if (!audioCtx) {
+      try { audioCtx = new AC(); }
+      catch (e) { audioCtx = null; }
+    }
+    return audioCtx;
+  }
+
+  function resumeAudio() {
+    var ctx = sharedCtx();
+    if (ctx && ctx.state === 'suspended' && ctx.resume) {
+      var p = ctx.resume();
+      if (p && p.catch) p.catch(function () {});
+    }
+  }
+
+  function copyAudioBuffer(bytes) {
+    var u = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || 0);
+    var out = new ArrayBuffer(u.byteLength);
+    new Uint8Array(out).set(u);
+    return out;
+  }
+
+  function pcmBytes(buf) {
+    if (!buf || !buf.length) return 0;
+    return buf.length * (buf.numberOfChannels || 1) * 4;
+  }
+
+  function prepareBuffer(ctx, decoded, encodedBytes) {
+    return {
+      bytes: Math.max(encodedBytes || 0, pcmBytes(decoded)),
+      ready: Promise.resolve(),
+      drop: function () { decoded = null; },
+      play: function () {
+        resumeAudio();
+        var settled = false;
+        var resolve, reject;
+        var done = new Promise(function (res, rej) { resolve = res; reject = rej; });
+        var node = null;
+        var offset = 0;
+        var startedAt = 0;
+        var epoch = 0;
+        function finish(err) {
+          if (settled) return;
+          settled = true;
+          if (err) reject(err); else resolve();
+        }
+        function halt() {
+          var n = node;
+          node = null;
+          if (!n) return;
+          try { n.onended = null; } catch (e) { void e; }
+          try { n.stop(); } catch (e2) { void e2; }
+          try { n.disconnect(); } catch (e3) { void e3; }
+        }
+        function startAt(off) {
+          if (!decoded) {
+            finish(new Error('PLAYBACK: The audio did not play.'));
+            return;
+          }
+          var n = ctx.createBufferSource();
+          n.buffer = decoded;
+          n.connect(ctx.destination);
+          var my = ++epoch;
+          node = n;
+          n.onended = function () {
+            if (my !== epoch || node !== n) return;
+            node = null;
+            finish();
+          };
+          var dur = decoded.duration || 0;
+          if (off < 0) off = 0;
+          if (dur && off > dur) off = Math.max(0, dur - 0.01);
+          offset = off;
+          startedAt = ctx.currentTime;
+          try { n.start(0, off); }
+          catch (e) { finish(new Error('PLAYBACK: The audio did not play.')); }
+        }
+        startAt(0);
+        return {
+          done: done,
+          pause: function () {
+            if (!node) return;
+            offset += Math.max(0, ctx.currentTime - startedAt);
+            epoch++;
+            halt();
+          },
+          resume: function () {
+            resumeAudio();
+            if (node || settled) return;
+            startAt(offset);
+          },
+          stop: function () {
+            epoch++;
+            halt();
+            finish();
+          }
+        };
+      }
+    };
+  }
+
+  function prepareElement(audio) {
     var blob = new Blob([audio.bytes], { type: audio.mime || 'audio/mpeg' });
     var url = URL.createObjectURL(blob);
-    var a = new Audio();
-    a.preload = 'auto';
-    var revoked = false;
-    var settled = false;
-    var resolve, reject;
-    var done = new Promise(function (res, rej) { resolve = res; reject = rej; });
-    function revoke() {
-      if (revoked) return;
-      revoked = true;
-      try { URL.revokeObjectURL(url); } catch (e) { void e; }
-    }
-    function finish(err) {
-      if (settled) return;
-      settled = true;
-      revoke();
-      if (err) reject(err); else resolve();
-    }
-    var ready = new Promise(function (res) {
-      var over = false;
-      function readyNow() {
-        if (over) return;
-        over = true;
-        res();
-      }
-      a.addEventListener('canplay', readyNow);
-      a.addEventListener('loadeddata', readyNow);
-      a.addEventListener('error', readyNow);
-      a.src = url;
-      try { a.load(); } catch (e) { readyNow(); }
-    });
+    var encoded = audio.bytes && audio.bytes.byteLength || 0;
     return {
-      ready: ready,
+      bytes: encoded,
+      ready: Promise.resolve(),
       drop: function () {
-        a.onended = null;
-        a.onerror = null;
-        try { a.pause(); } catch (e) { void e; }
-        try { a.removeAttribute('src'); a.load(); } catch (e2) { void e2; }
-        revoke();
+        try { URL.revokeObjectURL(url); } catch (e) { void e; }
       },
       play: function () {
+        var a = new Audio();
+        a.preload = 'auto';
+        a.src = url;
+        var settled = false;
+        var resolve, reject;
+        var done = new Promise(function (res, rej) { resolve = res; reject = rej; });
+        function finish(err) {
+          if (settled) return;
+          settled = true;
+          a.onended = null;
+          a.onerror = null;
+          if (err) reject(err); else resolve();
+        }
         a.onended = function () { finish(); };
         a.onerror = function () { finish(new Error('PLAYBACK: The audio did not play.')); };
-        var handle = {
+        var started = a.play();
+        if (started && started.catch) {
+          started.catch(function () { finish(new Error('PLAYBACK: The audio did not play.')); });
+        }
+        return {
           done: done,
           pause: function () { try { a.pause(); } catch (e) { void e; } },
           resume: function () {
@@ -152,32 +286,52 @@
             finish();
           }
         };
-        var started = a.play();
-        if (started && started.catch) {
-          started.catch(function () { finish(new Error('PLAYBACK: The audio did not play.')); });
-        }
-        return handle;
       }
     };
   }
 
+  function prepareBytes(audio) {
+    var ctx = sharedCtx();
+    var encoded = audio && audio.bytes && audio.bytes.byteLength || 0;
+    if (!ctx || typeof ctx.decodeAudioData !== 'function' || !audio || audio.bytes == null) {
+      return prepareElement(audio);
+    }
+    var copy;
+    try { copy = copyAudioBuffer(audio.bytes); }
+    catch (e) { return prepareElement(audio); }
+    return ctx.decodeAudioData(copy).then(function (decoded) {
+      return prepareBuffer(ctx, decoded, encoded);
+    }, function () {
+      return prepareElement(audio);
+    });
+  }
+
+  function dropReader() {
+    if (reader) {
+      reader.close();
+      reader = null;
+    }
+    paintBuffer();
+  }
+
   function makeReader() {
-    if (reader) reader.stop();
+    dropReader();
     reader = root.PdfSpeak.createReader({
       sentences: sentences,
       index: cursor,
       speed: speed,
       voice: '',
+      preparing: preparingOn,
       tts: ttsCall,
       prepare: prepareBytes,
-      onIndex: function (i, sent) {
+      onBuffer: function () { scheduleUi(); },
+      onIndex: function (i) {
         cursor = i;
-        if (source.kind === 'pdf') view.showSentence(sent);
-        else markSentence(i);
-        paintChrome();
+        scheduleUi();
         scheduleSave();
       }
     });
+    scheduleUi();
     return reader;
   }
 
@@ -228,24 +382,60 @@
   function renderSentences(index) {
     var host = $('sentences');
     host.textContent = '';
+    var frag = document.createDocumentFragment();
     var i;
-    for (i = 0; i < sentences.length; i++) {
+    var batch = Math.min(sentences.length, 80);
+    for (i = 0; i < batch; i++) {
       var p = document.createElement('p');
       p.className = 'sent' + (i === index ? ' on' : '');
       p.textContent = sentences[i].text;
-      host.appendChild(p);
+      frag.appendChild(p);
     }
-    var on = host.querySelector('.sent.on');
+    host.appendChild(frag);
+    if (batch < sentences.length) {
+      var rest = sentences;
+      var at = batch;
+      var step = function () {
+        if (rest !== sentences) return;
+        var more = document.createDocumentFragment();
+        var end = Math.min(rest.length, at + 80);
+        var n;
+        for (n = at; n < end; n++) {
+          var node = document.createElement('p');
+          node.className = 'sent' + (n === cursor ? ' on' : '');
+          node.textContent = rest[n].text;
+          more.appendChild(node);
+        }
+        host.appendChild(more);
+        at = end;
+        if (at < rest.length) setTimeout(step, 0);
+      };
+      setTimeout(step, 0);
+    }
+    var on = host.children[index];
     if (on && on.scrollIntoView) {
       try { on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { void e; }
     }
   }
 
-  function markSentence(index) {
+  function applyMark(index) {
     var host = $('sentences');
-    if (host.children.length !== sentences.length) { renderSentences(index); return; }
+    if (!host) return;
+    if (host.children.length !== sentences.length) {
+      if (host.children.length < sentences.length && host.children.length >= 80) return;
+      renderSentences(index);
+      return;
+    }
     var i;
-    for (i = 0; i < host.children.length; i++) host.children[i].classList.toggle('on', i === index);
+    var changed = false;
+    for (i = 0; i < host.children.length; i++) {
+      var want = i === index;
+      if (host.children[i].classList.contains('on') !== want) {
+        host.children[i].classList.toggle('on', want);
+        changed = true;
+      }
+    }
+    if (!changed) return;
     var on = host.children[index];
     if (on && on.scrollIntoView) {
       try { on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { void e; }
@@ -285,7 +475,7 @@
 
   function openText(name, text, saved) {
     var my = ++openGen;
-    if (reader) { reader.stop(); reader = null; }
+    dropReader();
     showError('');
     setBusy('');
     source = {
@@ -300,6 +490,30 @@
   }
 
   view.onChange = function () { paintChrome(); };
+  view.onSentences = function (list) {
+    if (source.kind !== 'pdf') return;
+    sentences = list || [];
+    if (!sentences.length) {
+      paintBuffer();
+      return;
+    }
+    if (!reader) {
+      var place = root.PdfStore.placeAt(sentences, placeSaved);
+      cursor = place.index;
+      if (placeSaved && placeSaved.speed) syncSpeed(placeSaved.speed);
+      makeReader();
+    } else {
+      reader.setSentences(sentences);
+      if (placeSaved && !reader.playing() && !reader.paused()) {
+        var again = root.PdfStore.placeAt(sentences, placeSaved);
+        if (again.index !== cursor) {
+          cursor = again.index;
+          reader.setIndex(cursor);
+        }
+      }
+    }
+    scheduleUi();
+  };
   view.onPassword = function (update, reason) {
     pwUpdate = update;
     $('pw-msg').textContent = reason === 2
@@ -321,14 +535,20 @@
     source.text = '';
     sentences = view.sentences || [];
     var place = root.PdfStore.placeAt(sentences, saved || null);
-    cursor = place.index;
-    if (saved && saved.speed) syncSpeed(saved.speed);
+    if (!reader) {
+      cursor = place.index;
+      if (saved && saved.speed) syncSpeed(saved.speed);
+      if (sentences.length) makeReader();
+    } else if (!reader.playing() && !reader.paused() && place.index !== cursor) {
+      cursor = place.index;
+      reader.setIndex(cursor);
+    }
     var sent = sentences[cursor];
     var shown = sent ? view.showSentence(sent) : view.go(place.page || 1);
     return Promise.resolve(shown).then(function () {
       if (my !== openGen) return;
-      makeReader();
       paintChrome();
+      paintBuffer();
       if (!sentences.length) showError('This PDF has no text to read.');
       else if (view.bytes && view.bytes.byteLength > root.PdfStore.MAX_BYTES) {
         showError('This file is too large to keep in the app (8 MB). Open it again next time.');
@@ -344,7 +564,8 @@
     setBusy('');
     showError('');
     status('Opening ' + (name || 'PDF') + '…');
-    if (reader) { reader.stop(); reader = null; }
+    placeSaved = saved || null;
+    dropReader();
     source = { kind: 'pdf', name: name || 'document.pdf', text: '', bytes: null, mime: '' };
     clearShot();
     $('readout').hidden = true;
@@ -366,7 +587,7 @@
   function recognizeImage(name, mime, bytes, blob, my) {
     if (my == null) my = ++openGen;
     if (my !== openGen) return Promise.resolve();
-    if (reader) { reader.stop(); reader = null; }
+    dropReader();
     source = {
       kind: 'image',
       name: name || 'Image',
@@ -592,18 +813,7 @@
     if (!(i >= 0) || i >= sentences.length) return;
     if (!reader) makeReader();
     showError('');
-    if (reader.playing()) {
-      watch(reader.go(i));
-      return;
-    }
-    if (reader.paused()) reader.stop();
-    cursor = i;
-    reader.setIndex(i);
-    if (source.kind === 'pdf') {
-      var sent = sentences[i];
-      if (sent) view.showSentence(sent);
-    } else markSentence(i);
-    paintChrome();
+    watch(reader.go(i));
     scheduleSave();
   }
 
@@ -644,6 +854,7 @@
       showError(noTextMessage());
       return;
     }
+    resumeAudio();
     if (!reader) makeReader();
     if (reader.playing()) {
       reader.pause();
@@ -655,6 +866,21 @@
     reader.setIndex(cursor);
     watch(reader.play());
     paintChrome();
+  };
+  $('stop').onclick = function () {
+    if (!reader) return;
+    showError('');
+    reader.stop();
+    paintChrome();
+  };
+  $('prep-toggle').onclick = function () {
+    preparingOn = !preparingOn;
+    if (reader) {
+      if (preparingOn) reader.startPreparing();
+      else reader.stopPreparing();
+    }
+    paintChrome();
+    paintBuffer();
   };
   $('prev').onclick = function () {
     if (busyMsg || !sentences.length) return;
@@ -739,7 +965,7 @@
     var bytes = buf ? new Uint8Array(buf) : null;
     if (rec.text) {
       var my = ++openGen;
-      if (reader) { reader.stop(); reader = null; }
+      dropReader();
       source = {
         kind: 'image',
         name: rec.name || 'Image',
