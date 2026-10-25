@@ -88,6 +88,36 @@ check('text, speak, and store load', !!(S.PdfRead && S.PdfSpeak && S.PdfStore));
   check('pasted text keeps Mr. and splits on a new line', got.length === 2 && got[0] === 'Mr. Smith folded it.' && got[1] === 'He smiled.', got);
 }
 {
+  const got = S.PdfRead.plainToSentences('The letter came from St. Thomas named Anton Ulrich. He waited.').map((s) => s.text);
+  check('St. does not end the sentence',
+    got.length === 2 && got[0] === 'The letter came from St. Thomas named Anton Ulrich.' && got[1] === 'He waited.', got);
+}
+{
+  const got = S.PdfRead.plainToSentences('Dr. Hale and Mrs. Hale met on Mt. Zion. They left.').map((s) => s.text);
+  check('Dr. Mrs. and Mt. stay inside the sentence',
+    got[0] === 'Dr. Hale and Mrs. Hale met on Mt. Zion.' && got[1] === 'They left.', got);
+}
+{
+  const got = S.PdfRead.plainToSentences('Bring a coat, e.g. Wool. Then go.').map((s) => s.text);
+  check('e.g. before a capital stays in the sentence',
+    got[0] === 'Bring a coat, e.g. Wool.' && got[1] === 'Then go.', got);
+}
+{
+  const got = S.PdfRead.plainToSentences('The point was narrow, i.e. only the evening. It held.').map((s) => s.text);
+  check('i.e. stays in the sentence',
+    got[0] === 'The point was narrow, i.e. only the evening.' && got[1] === 'It held.', got);
+}
+{
+  const got = S.PdfRead.plainToSentences('It was patience vs. hurry in the room. They sat.').map((s) => s.text);
+  check('vs. stays in the sentence',
+    got[0] === 'It was patience vs. hurry in the room.' && got[1] === 'They sat.', got);
+}
+{
+  const got = S.PdfRead.plainToSentences('Pack books, tools, etc. The cart was ready.').map((s) => s.text);
+  check('etc. stays in the sentence',
+    got[0] === 'Pack books, tools, etc. The cart was ready.', got);
+}
+{
   const words = [];
   for (let i = 0; i < 80; i++) words.push('alpha' + i);
   const got = S.PdfRead.plainToSentences(words.join(' ') + '.').map((s) => s.text);
@@ -120,6 +150,13 @@ check('text, speak, and store load', !!(S.PdfRead && S.PdfSpeak && S.PdfStore));
     item('Mr. Smith folded it. He smiled.', 72, 600)
   ])]);
   check('Mr. stays inside the sentence', got.length === 2 && got[0] === 'Mr. Smith folded it.' && got[1] === 'He smiled.', got);
+}
+{
+  const got = texts([page(1, [
+    item('The letter came from St. Thomas named Anton Ulrich. He waited.', 72, 600)
+  ])]);
+  check('a page keeps St. Thomas together',
+    got[0] === 'The letter came from St. Thomas named Anton Ulrich.' && got[1] === 'He waited.', got);
 }
 
 {
@@ -798,6 +835,40 @@ async function main() {
       seen.slice());
     once.close();
     await running.catch(() => {});
+  }
+
+  {
+    const armed = [];
+    const gates = [];
+    const ahead = S.PdfSpeak.createReader({
+      sentences: [
+        { text: 'A.', page: 1 },
+        { text: 'B.', page: 1 },
+        { text: 'C.', page: 1 }
+      ],
+      tts: () => Promise.resolve({ bytes: new Uint8Array([1, 2, 3, 4]), mime: 'audio/wav' }),
+      prepare: (audio) => ({
+        schedules: true,
+        bytes: 4,
+        drop: function () {},
+        play: function () {
+          armed.push(audio.text);
+          const d = deferred();
+          gates.push(d);
+          return {
+            done: d.promise,
+            pause: function () {},
+            resume: function () {},
+            stop: function () { d.settled = true; d.resolve(); }
+          };
+        }
+      })
+    });
+    ahead.play();
+    for (let n = 0; n < 40; n++) await Promise.resolve();
+    check('a ready clip is armed before the one playing it ends',
+      armed.join(',') === 'A.,B.,C.' && gates.length === 3 && !gates[0].settled, armed.slice());
+    ahead.close();
   }
 
   async function miss(label, ttsFn) {

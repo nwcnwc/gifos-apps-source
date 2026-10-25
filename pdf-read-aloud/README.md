@@ -60,7 +60,10 @@ previous call returns. Later PDF pages are included as soon as their sentences
 exist. Clips are decoded before they play. The line `#buffer` shows how many
 sentences are prepared and how many of those sit ahead of the one you are on.
 
-Each sentence is sent to the voice once (1.1.3). While that clip is still
+Each sentence is sent to the voice once (1.1.4). A decoded clip is placed on
+the audio clock as soon as it is ready, at the end of the clip already
+playing, so the next sentence does not wait for the main thread. While a
+request is still
 coming back or being decoded, Play, Pause, resume, Stop, and a jump wait for
 the request already in flight. The sentence is sent again only if that request
 failed, or when a different file, text, or picture replaces this one.

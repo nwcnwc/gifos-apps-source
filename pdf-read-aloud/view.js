@@ -330,8 +330,12 @@
       layer.appendChild(div);
     }
     var box = layer.firstChild;
-    if (box && box.scrollIntoView) {
-      try { box.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { void e; }
+    if (box && box.scrollIntoView && this.stage) {
+      var er = box.getBoundingClientRect();
+      var sr = this.stage.getBoundingClientRect();
+      if (er.top < sr.top || er.bottom > sr.bottom) {
+        try { box.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' }); } catch (e) { void e; }
+      }
     }
   };
 

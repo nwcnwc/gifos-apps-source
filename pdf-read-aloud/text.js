@@ -182,7 +182,11 @@
 
   function abbrevBefore(text, dotIndex) {
     var upto = text.slice(0, dotIndex + 1);
-    if (/\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc)\.$/i.test(upto)) return true;
+    // St. / Mr. / Mrs. / Dr. / Mt. are names and places, not sentence ends,
+    // even when the next word is capitalized ("St. Thomas").
+    // e.g. / i.e. / vs. / etc. before a capital are ambiguous; keeping them
+    // inside the sentence avoids a pause in the middle of the phrase.
+    if (/\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|Mt|vs|etc)\.$/i.test(upto)) return true;
     if (/\b(?:e\.g|i\.e|U\.S|U\.K)\.$/i.test(upto)) return true;
     if (/(?:^|[\s(])[A-Z]\.$/.test(upto)) return true;
     return false;

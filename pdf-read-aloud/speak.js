@@ -3,8 +3,10 @@
  * clips are requested one at a time, as soon as the previous call returns,
  * for every remaining sentence and then any gap behind the playhead.
  * A clip that is already requested or still decoding is not requested again.
- * Play, pause, resume, and seek wait for that work. It is sent again only
- * if the request failed, or the source was replaced.
+ * When the voice returns a clip that can be scheduled, it is armed at once
+ * so the next sentence is already on the audio clock before this one ends.
+ * Play, pause, resume, and seek wait for an in-flight request. It is sent
+ * again only if the request failed, or the source was replaced.
  * A memory guard pauses that work. Pause and Stop leave the buffer alone.
  * Only "Stop preparing" halts synthesis. A new source discards the buffer.
  * The first bite of a reading is kept short so the voice starts sooner.
@@ -116,6 +118,7 @@
     var leadSentence = 0;
     var chunks = [];
     var lastNotified = -1;
+    var holdTimer = 0;
 
     function result(extra) {
       var out = {
@@ -238,13 +241,58 @@
       pendingBytes = 0;
     }
 
-    function haltHandle() {
-      var h = current;
+    function resetClock() {
+      var i;
+      for (i = 0; i < cache.length; i++) {
+        var p = cache[i] && cache[i].prep;
+        if (p && typeof p.resetClock === 'function') {
+          try { p.resetClock(); } catch (e) { void e; }
+          return;
+        }
+      }
+    }
+
+    function restoreClock() {
+      if (current && typeof current.restoreClock === 'function') {
+        try { current.restoreClock(); } catch (e) { void e; }
+      }
+    }
+
+    // Drop every armed clip. The epoch moves first so a late "ended" from a
+    // clip we just stopped cannot start the next sentence.
+    function silenceHandles() {
+      playEpoch++;
+      resetClock();
+      var pending = [];
+      var i;
+      for (i = 0; i < cache.length; i++) {
+        if (!cache[i] || !cache[i].handle) continue;
+        pending.push(cache[i].handle);
+        cache[i].handle = null;
+        cache[i].ended = false;
+      }
       current = null;
       currentItem = null;
-      if (h && h.stop) {
-        try { h.stop(); } catch (e) { void e; }
+      for (i = 0; i < pending.length; i++) {
+        if (pending[i] && pending[i].stop) {
+          try { pending[i].stop(); } catch (e) { void e; }
+        }
       }
+    }
+
+    function haltHandle() {
+      silenceHandles();
+    }
+
+    function pauseHandles() {
+      var i;
+      for (i = 0; i < cache.length; i++) {
+        var h = cache[i] && cache[i].handle;
+        if (h && h.pause) {
+          try { h.pause(); } catch (e) { void e; }
+        }
+      }
+      resetClock();
     }
 
     function ensureRun() {
@@ -386,9 +434,106 @@
       if (preparing) pump();
     }
 
-    function maybePlayWaiting() {
+    function callPlay(item) {
+      var handle;
+      try { handle = item.prep.play(); }
+      catch (e) {
+        failPlayback(e, 'playback');
+        return null;
+      }
+      if (!handle || !handle.done || typeof handle.done.then !== 'function') {
+        failPlayback(new Error('PLAYBACK: The audio did not play.'), 'playback');
+        return null;
+      }
+      return handle;
+    }
+
+    function watchHandle(ord, handle, ep) {
+      handle.done.then(function () {
+        if (ep !== playEpoch || dead) return;
+        if (!cache[ord] || cache[ord].handle !== handle) return;
+        cache[ord].ended = true;
+        if (!playing || paused) return;
+        if (current === handle) onEnded(ord, handle);
+      }, function (err) {
+        if (ep !== playEpoch || dead) return;
+        if (!cache[ord] || cache[ord].handle !== handle) return;
+        current = null;
+        currentItem = null;
+        var playback = /^PLAYBACK:/.test(String(err && err.message || err));
+        failPlayback(err, playback ? 'playback' : 'no-voice');
+      });
+    }
+
+    function armAhead() {
+      if (!playing || paused || !currentItem || !currentItem.prep || !currentItem.prep.schedules) return;
+      var ord = currentItem.chunk.ord + 1;
+      var ep = playEpoch;
+      while (ord < chunks.length) {
+        if (ep !== playEpoch || !playing || paused) return;
+        var item = cache[ord];
+        if (!item || !item.prep || !item.prep.schedules) break;
+        if (!item.handle) {
+          var handle = callPlay(item);
+          if (!handle) return;
+          item.handle = handle;
+          item.ended = false;
+          watchHandle(ord, handle, ep);
+        }
+        ord++;
+      }
+    }
+
+    function adopt(ord) {
+      var item = cache[ord];
+      if (!item || !item.handle) return false;
+      current = item.handle;
+      currentItem = item;
+      waitOrd = ord;
+      index = item.chunk.index;
+      notify(false);
+      if (item.ended) onEnded(ord, item.handle);
+      else armAhead();
+      return true;
+    }
+
+    function onEnded(ord, handle) {
+      var item = cache[ord];
+      if (!item || item.handle !== handle || item.consumed) return;
+      item.consumed = true;
+      item.handle = null;
+      if (current === handle) {
+        current = null;
+        currentItem = null;
+      }
+      var next = ord + 1;
+      if (!playing || paused) {
+        relax();
+        return;
+      }
+      waitOrd = next;
+      if (next >= chunks.length) {
+        relax();
+        finishOk();
+        return;
+      }
+      relax();
       if (!playing || paused || current) return;
-      startClip(waitOrd);
+      var nxt = cache[next];
+      if (nxt && nxt.handle) {
+        adopt(next);
+        return;
+      }
+      if (!startClip(next)) relax();
+      else armAhead();
+    }
+
+    function maybePlayWaiting() {
+      if (!playing || paused) return;
+      if (!current) {
+        if (!startClip(waitOrd)) return;
+      }
+      armAhead();
     }
 
     function startClip(ord) {
@@ -397,49 +542,37 @@
       if (ord < 0 || ord >= chunks.length) return false;
       var item = cache[ord];
       if (!item || !item.prep) return false;
-      var handle;
-      try { handle = item.prep.play(); }
-      catch (e) {
-        failPlayback(e, 'playback');
-        return false;
-      }
-      if (!handle || !handle.done || typeof handle.done.then !== 'function') {
-        failPlayback(new Error('PLAYBACK: The audio did not play.'), 'playback');
-        return false;
-      }
+      if (item.handle) return adopt(ord);
+      var handle = callPlay(item);
+      if (!handle) return false;
+      item.handle = handle;
+      item.ended = false;
       var ep = playEpoch;
       current = handle;
       currentItem = item;
       index = item.chunk.index;
       notify(false);
-      handle.done.then(function () {
-        if (ep !== playEpoch) return;
-        if (current !== handle) return;
-        current = null;
-        currentItem = null;
-        if (cache[ord]) cache[ord].consumed = true;
-        var next = ord + 1;
-        if (!playing || paused) {
-          relax();
-          return;
-        }
-        waitOrd = next;
-        if (next >= chunks.length) {
-          relax();
-          finishOk();
-          return;
-        }
-        relax();
-        if (ep !== playEpoch || !playing || paused || current) return;
-        if (!startClip(next)) relax();
-      }, function (err) {
-        if (ep !== playEpoch) return;
-        if (current === handle) current = null;
-        currentItem = null;
-        var playback = /^PLAYBACK:/.test(String(err && err.message || err));
-        failPlayback(err, playback ? 'playback' : 'no-voice');
-      });
+      watchHandle(ord, handle, ep);
       return true;
+    }
+
+    function resumeHandles() {
+      resetClock();
+      if (!currentItem || !current) return;
+      var i;
+      for (i = currentItem.chunk.ord; i < cache.length; i++) {
+        var item = cache[i];
+        if (!item || !item.handle) break;
+        if (item.ended) {
+          onEnded(i, item.handle);
+          return;
+        }
+        if (item.handle.resume) {
+          try { item.handle.resume(); }
+          catch (e) { failPlayback(e, 'playback'); return; }
+        }
+      }
+      armAhead();
     }
 
     function remember(ticket, gen, chunk, audio, prep) {
@@ -543,12 +676,24 @@
         if (gen !== sourceGen || ep !== playEpoch || dead) return;
         if (!playing || paused || current) return;
         if (waitOrd !== ord) return;
-        startClip(ord);
+        if (!startClip(ord)) return;
+        armAhead();
       }, function () {});
     }
 
     function pump() {
-      if (dead || !preparing || fetching || fault) return;
+      if (dead || !preparing || fetching || fault || holdTimer) return;
+      if (playing && !paused && current && typeof current.endingSoon === 'function') {
+        var soon = false;
+        try { soon = !!current.endingSoon(); } catch (e) { soon = false; }
+        if (soon) {
+          holdTimer = setTimeout(function () {
+            holdTimer = 0;
+            pump();
+          }, 40);
+          return;
+        }
+      }
       if (!chunks.length) return;
       if (overCap()) return;
       var chunk = pickNext();
@@ -573,9 +718,16 @@
       var i;
       for (i = 0; i < cache.length; i++) {
         if (!cache[i] || cache[i] === keep) continue;
+        if (cache[i].handle && cache[i].handle.stop) {
+          var old = cache[i].handle;
+          cache[i].handle = null;
+          try { old.stop(); } catch (e) { void e; }
+        }
         dropPrep(cache[i].prep);
         cache[i] = null;
       }
+      resetClock();
+      restoreClock();
       recount();
       emitBuffer();
     }
@@ -654,8 +806,7 @@
           paused = false;
           playing = true;
           ensureRun();
-          try { current.resume(); }
-          catch (e) { failPlayback(e, 'playback'); }
+          resumeHandles();
           if (preparing) pump();
           return runPromise;
         }
@@ -665,7 +816,8 @@
         if (!current) {
           waitOrd = chunkFor(index);
           if (!startClip(waitOrd)) followFlight(waitOrd);
-        }
+          else armAhead();
+        } else armAhead();
         if (preparing) pump();
         return runPromise;
       },
@@ -674,14 +826,13 @@
         if (!playing && !current) return;
         paused = true;
         playing = false;
-        if (current && current.pause) current.pause();
+        pauseHandles();
       },
       stop: function () {
         if (dead) return;
-        playEpoch++;
         playing = false;
         paused = false;
-        haltHandle();
+        silenceHandles();
         index = 0;
         waitOrd = 0;
         notify(true);
@@ -707,10 +858,7 @@
         i = clampIndex(i);
         var wasPlaying = playing && !paused;
         index = i;
-        if (current) {
-          playEpoch++;
-          haltHandle();
-        }
+        if (current) silenceHandles();
         paused = false;
         notify(true);
         waitOrd = chunkFor(index);
@@ -718,6 +866,7 @@
           playing = true;
           ensureRun();
           if (!startClip(waitOrd)) followFlight(waitOrd);
+          else armAhead();
         } else {
           playing = false;
         }
@@ -771,10 +920,9 @@
         sourceGen++;
         flight = Object.create(null);
         fetching = false;
-        playEpoch++;
         playing = false;
         paused = false;
-        haltHandle();
+        silenceHandles();
         clearCache();
         settle(result({ code: 'stopped', stopped: true, index: index }));
         emitBuffer();

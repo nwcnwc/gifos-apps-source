@@ -17,6 +17,7 @@
   var preparingOn = true;
   var placeSaved = null;
   var audioCtx = null;
+  var playClock = { end: 0 };
   var uiQueued = false;
   var uiAt = 0;
   var pendingHighlight = false;
@@ -174,6 +175,11 @@
     return {
       bytes: Math.max(encodedBytes || 0, pcmBytes(decoded)),
       ready: Promise.resolve(),
+      // play() may run before the previous clip has finished. It starts this
+      // buffer on the audio clock at the end of whatever was armed before it,
+      // so a busy main thread cannot open a gap.
+      schedules: true,
+      resetClock: function () { playClock.end = 0; },
       drop: function () { decoded = null; },
       play: function () {
         resumeAudio();
@@ -197,9 +203,25 @@
           try { n.stop(); } catch (e2) { void e2; }
           try { n.disconnect(); } catch (e3) { void e3; }
         }
+        function place(off) {
+          var now = ctx.currentTime;
+          var when = playClock.end > now + 0.02 ? playClock.end : now;
+          var dur = Math.max(0, (decoded.duration || 0) - off);
+          startedAt = when;
+          playClock.end = when + dur;
+          return when;
+        }
         function startAt(off) {
           if (!decoded) {
             finish(new Error('PLAYBACK: The audio did not play.'));
+            return;
+          }
+          var durAll = decoded.duration || 0;
+          if (off < 0) off = 0;
+          if (durAll && off > durAll) off = Math.max(0, durAll - 0.01);
+          if (durAll && off >= durAll - 0.01) {
+            offset = off;
+            finish();
             return;
           }
           var n = ctx.createBufferSource();
@@ -212,20 +234,29 @@
             node = null;
             finish();
           };
-          var dur = decoded.duration || 0;
-          if (off < 0) off = 0;
-          if (dur && off > dur) off = Math.max(0, dur - 0.01);
           offset = off;
-          startedAt = ctx.currentTime;
-          try { n.start(0, off); }
+          var when = place(off);
+          try { n.start(when, off); }
           catch (e) { finish(new Error('PLAYBACK: The audio did not play.')); }
         }
         startAt(0);
         return {
           done: done,
+          endingSoon: function () {
+            if (settled || !decoded) return false;
+            var end = startedAt + Math.max(0, (decoded.duration || 0) - offset);
+            var now = ctx.currentTime;
+            return now + 0.12 >= end && now < end + 0.05;
+          },
+          restoreClock: function () {
+            if (!decoded) return;
+            var dur = Math.max(0, (decoded.duration || 0) - offset);
+            playClock.end = startedAt + dur;
+          },
           pause: function () {
             if (!node) return;
-            offset += Math.max(0, ctx.currentTime - startedAt);
+            var now = ctx.currentTime;
+            if (now > startedAt) offset += now - startedAt;
             epoch++;
             halt();
           },
@@ -383,6 +414,16 @@
     $('shot').hidden = false;
   }
 
+  function ensureVisible(el) {
+    var scroller = $('stage');
+    if (!el || !scroller) return;
+    var er = el.getBoundingClientRect();
+    var sr = scroller.getBoundingClientRect();
+    if (er.top >= sr.top && er.bottom <= sr.bottom) return;
+    try { el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' }); }
+    catch (e) { void e; }
+  }
+
   function renderSentences(index) {
     var host = $('sentences');
     host.textContent = '';
@@ -417,33 +458,25 @@
       setTimeout(step, 0);
     }
     var on = host.children[index];
-    if (on && on.scrollIntoView) {
-      try { on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { void e; }
-    }
+    if (on) ensureVisible(on);
   }
 
   function applyMark(index) {
     var host = $('sentences');
     if (!host) return;
     if (host.children.length !== sentences.length) {
-      if (host.children.length < sentences.length && host.children.length >= 80) return;
-      renderSentences(index);
-      return;
-    }
-    var i;
-    var changed = false;
-    for (i = 0; i < host.children.length; i++) {
-      var want = i === index;
-      if (host.children[i].classList.contains('on') !== want) {
-        host.children[i].classList.toggle('on', want);
-        changed = true;
+      if (!(host.children.length < sentences.length && host.children.length >= 80)) {
+        renderSentences(index);
+        return;
       }
     }
-    if (!changed) return;
     var on = host.children[index];
-    if (on && on.scrollIntoView) {
-      try { on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { void e; }
+    var prev = host.querySelector('p.on');
+    if (prev !== on) {
+      if (prev) prev.classList.remove('on');
+      if (on) on.classList.add('on');
     }
+    if (on) ensureVisible(on);
   }
 
   function noTextMessage() {
@@ -862,10 +895,12 @@
     if (!reader) makeReader();
     if (reader.playing()) {
       reader.pause();
+      $('play').textContent = 'Play';
       paintChrome();
       return;
     }
     showError('');
+    $('play').textContent = 'Pause';
     reader.setSpeed(speed);
     reader.setIndex(cursor);
     watch(reader.play());
