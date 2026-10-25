@@ -719,6 +719,87 @@ async function main() {
     pageReader.close();
   }
 
+  {
+    const names = ['Red.', 'Blue.', 'Green.', 'Gold.'];
+    const seen = [];
+    const ttsGate = [];
+    const decGate = [];
+    const once = S.PdfSpeak.createReader({
+      sentences: names.map((text) => ({ text: text, page: 1 })),
+      tts: (req) => {
+        seen.push(req.text);
+        const d = deferred();
+        ttsGate.push(d);
+        return d.promise;
+      },
+      prepare: (audio) => {
+        const d = deferred();
+        decGate.push(d);
+        return d.promise.then(() => ({
+          bytes: audio.bytes.byteLength,
+          drop: function () {},
+          play: function () {
+            const done = deferred();
+            return {
+              done: done.promise,
+              pause: function () {},
+              resume: function () {},
+              stop: function () { done.resolve(); }
+            };
+          }
+        }));
+      }
+    });
+    const running = once.play();
+    await flush();
+    once.pause();
+    once.play();
+    await flush();
+    once.stop();
+    once.play();
+    await flush();
+    once.go(2);
+    await flush();
+    const duringTts = seen.filter((t) => t === 'Red.').length;
+    let spins = 0;
+    while (spins++ < 16) {
+      const pending = ttsGate.filter((g) => !g.settled);
+      if (!pending.length) break;
+      pending.forEach((g) => {
+        g.settled = true;
+        g.resolve({ bytes: new Uint8Array([1]), mime: 'audio/wav' });
+      });
+      await flush();
+      once.pause();
+      once.play();
+      once.stop();
+      once.play();
+      once.go(spins % names.length);
+      await flush();
+    }
+    const counts = {};
+    seen.forEach((t) => { counts[t] = (counts[t] || 0) + 1; });
+    const max = names.reduce((m, t) => Math.max(m, counts[t] || 0), 0);
+    check('a slow voice and a slow decode send each sentence once across play, pause, resume, stop, and seek',
+      duringTts === 1 && names.every((t) => counts[t] === 1) && max === 1 && seen.length === names.length,
+      { duringTts: duringTts, counts: counts, seen: seen.slice() });
+    decGate.forEach((g) => g.resolve());
+    await flush();
+    once.pause();
+    once.play();
+    once.stop();
+    once.play();
+    once.go(1);
+    await flush();
+    const after = {};
+    seen.forEach((t) => { after[t] = (after[t] || 0) + 1; });
+    check('a decoded sentence is not sent again after pause, resume, stop, or seek',
+      seen.length === names.length && names.every((t) => after[t] === 1),
+      seen.slice());
+    once.close();
+    await running.catch(() => {});
+  }
+
   async function miss(label, ttsFn) {
     const heard = [];
     const r = S.PdfSpeak.createReader({

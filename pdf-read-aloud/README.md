@@ -60,6 +60,11 @@ previous call returns. Later PDF pages are included as soon as their sentences
 exist. Clips are decoded before they play. The line `#buffer` shows how many
 sentences are prepared and how many of those sit ahead of the one you are on.
 
+Each sentence is sent to the voice once (1.1.3). While that clip is still
+coming back or being decoded, Play, Pause, resume, Stop, and a jump wait for
+the request already in flight. The sentence is sent again only if that request
+failed, or when a different file, text, or picture replaces this one.
+
 A memory guard holds this at 400 sentences or about 200 MB of audio. Past that,
 synthesis waits until a played clip can be released.
 

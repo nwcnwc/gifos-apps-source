@@ -2,6 +2,9 @@
  * Synthesis does not wait for playback. From the moment a source is ready,
  * clips are requested one at a time, as soon as the previous call returns,
  * for every remaining sentence and then any gap behind the playhead.
+ * A clip that is already requested or still decoding is not requested again.
+ * Play, pause, resume, and seek wait for that work. It is sent again only
+ * if the request failed, or the source was replaced.
  * A memory guard pauses that work. Pause and Stop leave the buffer alone.
  * Only "Stop preparing" halts synthesis. A new source discards the buffer.
  * The first bite of a reading is kept short so the voice starts sooner.
@@ -89,6 +92,8 @@
     var onIndex = typeof opts.onIndex === 'function' ? opts.onIndex : function () {};
     var onBuffer = typeof opts.onBuffer === 'function' ? opts.onBuffer : function () {};
     var preparing = opts.preparing !== false;
+    var sourceId = opts.sourceId == null || opts.sourceId === '' ? '1' : String(opts.sourceId);
+    var sourceGen = 0;
     var token = 0;
     var dead = false;
     var current = null;
@@ -101,6 +106,7 @@
     var settled = true;
     var fetching = false;
     var fault = null;
+    var flight = Object.create(null);
     var waitOrd = 0;
     var cache = [];
     var cacheCount = 0;
@@ -329,12 +335,27 @@
       });
     }
 
+    function flightKey(chunk) {
+      // Source plus sentence. The text keeps the two clips of a split
+      // first sentence, and a rewritten sentence, from sharing one promise.
+      return sourceId + ':' + sourceGen + ':' + chunk.index + ':' + chunk.text;
+    }
+
+    function inFlight(chunk) {
+      return !!(chunk && flight[flightKey(chunk)]);
+    }
+
+    function sameChunk(chunk) {
+      var now = chunks[chunk.ord];
+      return !!(now && now.text === chunk.text && now.index === chunk.index);
+    }
+
     function pickNext() {
       var start = (playing || paused) ? waitOrd : chunkFor(index);
       if (!(start >= 0)) start = 0;
       var i;
-      for (i = start; i < chunks.length; i++) if (!cache[i]) return chunks[i];
-      for (i = 0; i < start; i++) if (!cache[i]) return chunks[i];
+      for (i = start; i < chunks.length; i++) if (!cache[i] && !inFlight(chunks[i])) return chunks[i];
+      for (i = 0; i < start; i++) if (!cache[i] && !inFlight(chunks[i])) return chunks[i];
       return null;
     }
 
@@ -421,8 +442,8 @@
       return true;
     }
 
-    function remember(ticket, chunk, audio, prep) {
-      if (ticket !== token || dead) {
+    function remember(ticket, gen, chunk, audio, prep) {
+      if (ticket !== token || gen !== sourceGen || dead || !sameChunk(chunk)) {
         dropPrep(prep);
         return;
       }
@@ -438,36 +459,92 @@
       maybePlayWaiting();
     }
 
-    function acceptAudio(ticket, chunk, audio) {
-      if (ticket !== token || dead) return;
-      fetching = false;
-      var armed = arm(audio);
-      if (armed && typeof armed.then === 'function') {
-        var reserved = sizeOf(audio, null);
-        pendingCount++;
-        pendingBytes += reserved;
-        if (preparing) pump();
-        armed.then(function (prep) {
-          pendingCount = Math.max(0, pendingCount - 1);
-          pendingBytes = Math.max(0, pendingBytes - reserved);
-          if (ticket !== token || dead) {
-            dropPrep(prep);
-            emitBuffer();
-            return;
-          }
-          remember(ticket, chunk, audio, prep);
-          if (preparing) pump();
-        }, function (err) {
-          pendingCount = Math.max(0, pendingCount - 1);
-          pendingBytes = Math.max(0, pendingBytes - reserved);
-          if (ticket !== token || dead) return;
-          fetching = false;
-          failPlayback(err, /^PLAYBACK:/.test(String(err && err.message || err)) ? 'playback' : 'no-voice');
-        });
-        return;
+    function releaseReserve(ticket, gen, reserved) {
+      if (ticket !== token || gen !== sourceGen || dead) return;
+      pendingCount = Math.max(0, pendingCount - 1);
+      pendingBytes = Math.max(0, pendingBytes - reserved);
+    }
+
+    function stillCurrent(ticket, gen) {
+      return ticket === token && gen === sourceGen && !dead;
+    }
+
+    // One promise per source and sentence, from the voice call through decode.
+    // A second play, seek, resume, or prefetch waits on it.
+    function requestChunk(chunk) {
+      var key = flightKey(chunk);
+      if (flight[key]) return flight[key];
+      var ticket = token;
+      var gen = sourceGen;
+      var settledJob = false;
+      var resolve;
+      var promise = new Promise(function (res) { resolve = res; });
+      function finish(value) {
+        if (settledJob) return;
+        settledJob = true;
+        if (flight[key] === promise) delete flight[key];
+        resolve(value || null);
       }
-      remember(ticket, chunk, audio, armed);
-      if (preparing) pump();
+      flight[key] = promise;
+      fetchChunk(chunk).then(function (audio) {
+        if (!stillCurrent(ticket, gen)) {
+          finish(null);
+          return;
+        }
+        fetching = false;
+        var armed;
+        try { armed = arm(audio); }
+        catch (e) { armed = Promise.reject(e); }
+        if (armed && typeof armed.then === 'function') {
+          var reserved = sizeOf(audio, null);
+          pendingCount++;
+          pendingBytes += reserved;
+          if (preparing && !fault) pump();
+          armed.then(function (prep) {
+            releaseReserve(ticket, gen, reserved);
+            if (!stillCurrent(ticket, gen)) {
+              dropPrep(prep);
+              finish(null);
+              return;
+            }
+            remember(ticket, gen, chunk, audio, prep);
+            finish(prep);
+            if (preparing && !fault) pump();
+          }, function (err) {
+            releaseReserve(ticket, gen, reserved);
+            finish(null);
+            if (!stillCurrent(ticket, gen)) return;
+            fetching = false;
+            failPlayback(err, /^PLAYBACK:/.test(String(err && err.message || err)) ? 'playback' : 'no-voice');
+          });
+          return;
+        }
+        remember(ticket, gen, chunk, audio, armed);
+        finish(armed);
+        if (preparing && !fault) pump();
+      }, function (err) {
+        finish(null);
+        if (!stillCurrent(ticket, gen)) return;
+        fetching = false;
+        failPlayback(err, 'no-voice');
+      });
+      promise.catch(function () {});
+      return promise;
+    }
+
+    function followFlight(ord) {
+      var chunk = chunks[ord];
+      if (!chunk) return;
+      var pending = flight[flightKey(chunk)];
+      if (!pending) return;
+      var ep = playEpoch;
+      var gen = sourceGen;
+      pending.then(function () {
+        if (gen !== sourceGen || ep !== playEpoch || dead) return;
+        if (!playing || paused || current) return;
+        if (waitOrd !== ord) return;
+        startClip(ord);
+      }, function () {});
     }
 
     function pump() {
@@ -476,16 +553,12 @@
       if (overCap()) return;
       var chunk = pickNext();
       if (!chunk) return;
+      if (inFlight(chunk)) {
+        requestChunk(chunk);
+        return;
+      }
       fetching = true;
-      var ticket = token;
-      fetchChunk(chunk).then(function (audio) {
-        if (ticket !== token || dead) return;
-        acceptAudio(ticket, chunk, audio);
-      }, function (err) {
-        if (ticket !== token || dead) return;
-        fetching = false;
-        failPlayback(err, 'no-voice');
-      });
+      requestChunk(chunk);
     }
 
     function invalidateExceptPlaying() {
@@ -494,6 +567,8 @@
       pendingCount = 0;
       pendingBytes = 0;
       fault = null;
+      // The speed or the voice changed, so an in-flight clip is the wrong request.
+      flight = Object.create(null);
       var keep = currentItem;
       var i;
       for (i = 0; i < cache.length; i++) {
@@ -510,6 +585,8 @@
       index = clampIndex(index);
       if (replace) {
         token++;
+        sourceGen++;
+        flight = Object.create(null);
         fetching = false;
         pendingCount = 0;
         pendingBytes = 0;
@@ -587,7 +664,7 @@
         ensureRun();
         if (!current) {
           waitOrd = chunkFor(index);
-          startClip(waitOrd);
+          if (!startClip(waitOrd)) followFlight(waitOrd);
         }
         if (preparing) pump();
         return runPromise;
@@ -640,7 +717,7 @@
         if (wasPlaying) {
           playing = true;
           ensureRun();
-          if (!startClip(waitOrd)) { /* wait for the clip */ }
+          if (!startClip(waitOrd)) followFlight(waitOrd);
         } else {
           playing = false;
         }
@@ -691,6 +768,8 @@
         dead = true;
         preparing = false;
         token++;
+        sourceGen++;
+        flight = Object.create(null);
         fetching = false;
         playEpoch++;
         playing = false;

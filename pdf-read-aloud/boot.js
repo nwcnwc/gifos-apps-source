@@ -23,6 +23,7 @@
   var saveTimer = 0;
   var watchGen = 0;
   var openGen = 0;
+  var sourceSerial = 0;
   var userOpened = false;
   var pwUpdate = null;
   var busyMsg = '';
@@ -127,6 +128,7 @@
     }, 400);
   }
 
+  // The only voice call. Decode is prepareBytes. The reader dedupes both.
   function ttsCall(req) {
     if (!root.gifos || !root.gifos.ai || typeof root.gifos.ai.tts !== 'function') {
       return Promise.reject(new Error('NOT_CONFIGURED:ai:tts'));
@@ -316,11 +318,13 @@
 
   function makeReader() {
     dropReader();
+    sourceSerial++;
     reader = root.PdfSpeak.createReader({
       sentences: sentences,
       index: cursor,
       speed: speed,
       voice: '',
+      sourceId: sourceSerial,
       preparing: preparingOn,
       tts: ttsCall,
       prepare: prepareBytes,
