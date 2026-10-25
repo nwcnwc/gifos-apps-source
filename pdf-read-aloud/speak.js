@@ -1,13 +1,19 @@
 /* Speak sentences through a Text → speech function.
- * The next sentence is fetched while the current one plays.
- * Nothing is fetched two ahead: a provider that speaks slowly would queue
- * a long silence in front of the first sound.
+ * While one sentence plays, the next few are synthesized into a small buffer
+ * so the following one can start the moment this one ends.
+ * Requests go out one at a time and do not wait for playback.
+ * The first bite of a reading is kept short so the voice starts sooner.
+ * Stop, pause, and a move to another sentence drop anything still in flight.
  * If the voice is missing or the call fails, the result is a message.
  * There is no second speaker and no silent success. */
 (function (root) {
   'use strict';
 
   var INSTALL = 'Install Offline TTS from the store, then assign it to Text → speech in Settings.';
+  var LOOKAHEAD = 4;
+  var LEAD_MIN = 8;
+  var LEAD_MAX = 12;
+  var LEAD_TARGET = 10;
 
   function installMessage(err) {
     var detail = '';
@@ -35,6 +41,27 @@
     return 1;
   }
 
+  function splitLead(text) {
+    var t = String(text || '').replace(/\s+/g, ' ').trim();
+    var words = t ? t.split(' ') : [];
+    if (words.length <= LEAD_MAX) return [t];
+    var best = 0;
+    var bestDist = 1000;
+    var i;
+    for (i = LEAD_MIN; i <= LEAD_MAX && i < words.length; i++) {
+      if (/,/.test(words[i - 1])) {
+        var dist = Math.abs(i - LEAD_TARGET);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = i;
+        }
+      }
+    }
+    var cut = best || LEAD_TARGET;
+    if (cut < 1 || cut >= words.length) return [t];
+    return [words.slice(0, cut).join(' '), words.slice(cut).join(' ')];
+  }
+
   function createReader(opts) {
     opts = opts || {};
     var sentences = opts.sentences || [];
@@ -43,12 +70,26 @@
     var voice = opts.voice || '';
     var tts = opts.tts || null;
     var play = opts.play || null;
+    var prepare = typeof opts.prepare === 'function' ? opts.prepare : null;
+    var ahead = opts.lookahead == null ? LOOKAHEAD : (opts.lookahead | 0);
+    if (!(ahead >= 1)) ahead = LOOKAHEAD;
     var onIndex = typeof opts.onIndex === 'function' ? opts.onIndex : function () {};
     var gen = 0;
+    var token = 0;
     var current = null;
     var playing = false;
     var paused = false;
+    var alive = false;
     var runPromise = null;
+    var active = null;
+    var queued = [];
+    var slots = 0;
+    var fetching = false;
+    var nextToFetch = 0;
+    var chunks = [];
+    var clip = null;
+    var fault = null;
+    var started = false;
 
     function result(extra) {
       var out = {
@@ -74,8 +115,44 @@
       }
     }
 
-    function fetchAt(i) {
-      var req = { text: sentenceText(sentences, i), voice: voice, speed: speed };
+    function dropQueued() {
+      var i;
+      var list = queued;
+      queued = [];
+      for (i = 0; i < list.length; i++) {
+        try {
+          if (list[i].prep && list[i].prep.drop) list[i].prep.drop();
+        } catch (e) { void e; }
+      }
+    }
+
+    function clampIndex(n) {
+      if (!sentences.length) return 0;
+      if (!(n >= 0)) return 0;
+      if (n >= sentences.length) return sentences.length - 1;
+      return n;
+    }
+
+    function buildChunks(start) {
+      var out = [];
+      var i;
+      var p;
+      for (i = start; i < sentences.length; i++) {
+        var text = sentenceText(sentences, i);
+        if (out.length === 0) {
+          var parts = splitLead(text);
+          for (p = 0; p < parts.length; p++) {
+            out.push({ text: parts[p], index: i, ord: out.length });
+          }
+        } else {
+          out.push({ text: text, index: i, ord: out.length });
+        }
+      }
+      return out;
+    }
+
+    function fetchChunk(chunk) {
+      var req = { text: chunk.text, voice: voice, speed: speed };
       if (typeof tts !== 'function') {
         return Promise.reject(new Error('NOT_CONFIGURED:ai:tts'));
       }
@@ -87,14 +164,173 @@
           var why = r && r.message ? r.message : 'The voice returned nothing.';
           throw new Error(why);
         }
-        return { bytes: r.bytes, mime: r.mime || 'audio/mpeg', text: req.text, index: i };
+        return { bytes: r.bytes, mime: r.mime || 'audio/mpeg', text: req.text, index: chunk.index };
+      });
+    }
+
+    function arm(audio) {
+      if (typeof prepare !== 'function') {
+        return {
+          play: function () { return typeof play === 'function' ? play(audio) : null; },
+          drop: function () {}
+        };
+      }
+      var prep;
+      try { prep = prepare(audio); }
+      catch (e) { return Promise.reject(e); }
+      function finishArm(p) {
+        if (!p || typeof p.play !== 'function') {
+          return Promise.reject(new Error('PLAYBACK: The audio did not play.'));
+        }
+        if (p.ready && typeof p.ready.then === 'function') {
+          return p.ready.then(function () { return p; });
+        }
+        return p;
+      }
+      if (prep && typeof prep.then === 'function') return prep.then(finishArm);
+      return finishArm(prep);
+    }
+
+    function settleActive(my, res) {
+      if (!active || active.my !== my) return;
+      var done = active;
+      active = null;
+      alive = false;
+      done.settle(res);
+    }
+
+    function failWith(my, err, code) {
+      if (my !== gen) return;
+      playing = false;
+      paused = false;
+      stopHandle();
+      clip = null;
+      token++;
+      dropQueued();
+      fetching = false;
+      slots = 0;
+      settleActive(my, result({
+        code: code || 'no-voice',
+        error: true,
+        message: installMessage(err),
+        index: index
+      }));
+    }
+
+    function kick(my) {
+      if (my !== gen || paused) return;
+      if (clip) return;
+      if (!queued.length) {
+        if (fault && !fetching) {
+          var err = fault;
+          fault = null;
+          failWith(my, err, 'no-voice');
+          return;
+        }
+        if (!fetching && started && nextToFetch >= chunks.length) {
+          playing = false;
+          paused = false;
+          settleActive(my, result({ spoke: true, code: 'ok', index: index }));
+        }
+        return;
+      }
+      var item = queued.shift();
+      if (slots > 0) slots--;
+      clip = item;
+      index = item.chunk.index;
+      try { onIndex(index, sentences[index]); }
+      catch (e2) { void e2; }
+      var handle;
+      try { handle = item.prep.play(); }
+      catch (e) {
+        clip = null;
+        failWith(my, e, 'playback');
+        return;
+      }
+      if (!handle || !handle.done || typeof handle.done.then !== 'function') {
+        clip = null;
+        failWith(my, new Error('PLAYBACK: The audio did not play.'), 'playback');
+        return;
+      }
+      current = handle;
+      started = true;
+      pump(my);
+      handle.done.then(function () {
+        if (my !== gen) return;
+        if (clip !== item) return;
+        if (current === handle) current = null;
+        clip = null;
+        kick(my);
+      }, function (err) {
+        if (my !== gen) return;
+        if (current === handle) current = null;
+        if (clip === item) clip = null;
+        var playback = /^PLAYBACK:/.test(String(err && err.message || err));
+        failWith(my, err, playback ? 'playback' : 'no-voice');
+      });
+    }
+
+    function acceptPrep(my, ticket, prep) {
+      if (ticket !== token || my !== gen) {
+        try { if (prep && prep.drop) prep.drop(); } catch (e) { void e; }
+        return;
+      }
+      fetching = false;
+      queued.push({ prep: prep, chunk: prep.chunk });
+      kick(my);
+      pump(my);
+    }
+
+    function pump(my) {
+      if (my !== gen || paused || fetching || fault) return;
+      if (slots >= ahead) return;
+      if (nextToFetch >= chunks.length) return;
+      fetching = true;
+      slots++;
+      var ticket = token;
+      var chunk = chunks[nextToFetch++];
+      fetchChunk(chunk).then(function (audio) {
+        if (ticket !== token || my !== gen) return;
+        var armed = arm(audio);
+        if (armed && typeof armed.then === 'function') {
+          armed.then(function (prep) {
+            prep.chunk = chunk;
+            acceptPrep(my, ticket, prep);
+          }, function (err) {
+            if (ticket !== token || my !== gen) return;
+            fetching = false;
+            if (slots > 0) slots--;
+            fault = err;
+            kick(my);
+          });
+          return;
+        }
+        armed.chunk = chunk;
+        acceptPrep(my, ticket, armed);
+      }, function (err) {
+        if (ticket !== token || my !== gen) return;
+        fetching = false;
+        if (slots > 0) slots--;
+        fault = err;
+        kick(my);
       });
     }
 
     function runFrom(start) {
-      var my = ++gen;
+      if (active) active.settle(result({ code: 'stopped', stopped: true, index: index }));
+      active = null;
+      alive = false;
+      gen++;
+      token++;
+      dropQueued();
       stopHandle();
+      clip = null;
+      fetching = false;
+      slots = 0;
+      fault = null;
+      started = false;
       paused = false;
+      var my = gen;
       if (!sentences.length) {
         playing = false;
         return Promise.resolve(result({
@@ -102,124 +338,94 @@
           message: 'This PDF has no text to read.'
         }));
       }
-      var i = start;
-      if (!(i >= 0)) i = 0;
-      if (i >= sentences.length) i = sentences.length - 1;
-      index = i;
+      index = clampIndex(start);
+      chunks = buildChunks(index);
+      nextToFetch = 0;
       playing = true;
-      var pending = fetchAt(i);
-      runPromise = null;
-
-      function step() {
-        if (my !== gen) return Promise.resolve(result({ code: 'stopped', stopped: true }));
-        var cur = i;
-        return pending.then(function (audio) {
-          if (my !== gen) return result({ code: 'stopped', stopped: true });
-          index = cur;
-          onIndex(cur, sentences[cur]);
-          if (typeof play !== 'function') {
-            playing = false;
-            return result({
-              code: 'no-voice',
-              error: true,
-              message: installMessage(new Error('NOT_CONFIGURED:ai:tts'))
-            });
-          }
-          var handle = play(audio);
-          if (!handle || !handle.done || typeof handle.done.then !== 'function') {
-            playing = false;
-            return result({
-              code: 'playback',
-              error: true,
-              message: installMessage(new Error('PLAYBACK: The audio did not play.'))
-            });
-          }
-          current = handle;
-          if (paused && handle.pause) handle.pause();
-          // Start the next bite only after this one is in the speaker.
-          // The fetch runs while handle.done is still pending.
-          if (cur + 1 < sentences.length) pending = fetchAt(cur + 1);
-          else pending = null;
-          return handle.done.then(function () {
-            if (my !== gen) return result({ code: 'stopped', stopped: true });
-            if (current === handle) current = null;
-            if (!pending) {
-              playing = false;
-              paused = false;
-              index = cur;
-              return result({ spoke: true, code: 'ok', index: cur });
-            }
-            i = cur + 1;
-            index = i;
-            return step();
-          }, function (err) {
-            if (my !== gen) return result({ code: 'stopped', stopped: true });
-            playing = false;
-            stopHandle();
-            return result({
-              code: /^PLAYBACK:/.test(String(err && err.message || err)) ? 'playback' : 'no-voice',
-              error: true,
-              message: installMessage(err),
-              index: cur
-            });
-          });
-        }).catch(function (err) {
-          if (my !== gen) return result({ code: 'stopped', stopped: true });
-          playing = false;
-          stopHandle();
-          return result({
-            code: 'no-voice',
-            error: true,
-            message: installMessage(err),
-            index: cur
-          });
-        });
+      var resolveRun;
+      var settled = false;
+      runPromise = new Promise(function (resolve) { resolveRun = resolve; });
+      function settle(res) {
+        if (settled) return;
+        settled = true;
+        if (active && active.my === my) {
+          active = null;
+          alive = false;
+        }
+        resolveRun(res);
       }
-      runPromise = step();
+      active = { my: my, settle: settle };
+      alive = true;
+      pump(my);
       return runPromise;
     }
 
-    function moveTo(n, keepPlaying) {
-      if (!sentences.length) return Promise.resolve(result({ code: 'no-text', message: 'This PDF has no text to read.' }));
-      if (n < 0) n = 0;
-      if (n >= sentences.length) n = sentences.length - 1;
-      if (keepPlaying && playing && !paused) return runFrom(n);
-      var was = playing;
+    function cancelSession(code, stopped) {
+      if (active) active.settle(result({ code: code, stopped: !!stopped, index: index }));
+      active = null;
+      alive = false;
       gen++;
+      token++;
+      dropQueued();
       stopHandle();
+      clip = null;
+      fetching = false;
+      slots = 0;
+      fault = null;
       playing = false;
       paused = false;
+    }
+
+    function moveTo(n, keepPlaying) {
+      if (!sentences.length) {
+        return Promise.resolve(result({ code: 'no-text', message: 'This PDF has no text to read.' }));
+      }
+      n = clampIndex(n);
+      if (keepPlaying && playing && !paused) return runFrom(n);
+      var was = playing || paused;
+      cancelSession(was ? 'stopped' : 'ok', was);
       index = n;
-      onIndex(index, sentences[index]);
+      try { onIndex(index, sentences[index]); }
+      catch (e) { void e; }
       return Promise.resolve(result({ code: was ? 'stopped' : 'ok', stopped: was, index: index }));
+    }
+
+    function refillFromHere() {
+      token++;
+      dropQueued();
+      fetching = false;
+      slots = 0;
+      fault = null;
+      if (clip) nextToFetch = clip.chunk.ord + 1;
+      else nextToFetch = 0;
     }
 
     return {
       play: function () {
-        if (paused && current && current.resume) {
+        if (paused && alive) {
           paused = false;
           playing = true;
-          current.resume();
+          if (current && current.resume) current.resume();
+          if (active) {
+            pump(active.my);
+            kick(active.my);
+          }
           return runPromise || Promise.resolve(result({ code: 'ok', resumed: true }));
         }
         return runFrom(index);
       },
       pause: function () {
-        if (!playing || !current) {
-          paused = !!playing;
-          return;
-        }
+        if (!playing || paused) return;
         paused = true;
-        if (current.pause) current.pause();
+        refillFromHere();
+        if (current && current.pause) current.pause();
       },
       stop: function () {
-        gen++;
-        stopHandle();
-        playing = false;
-        paused = false;
+        cancelSession('stopped', true);
       },
       next: function () { return moveTo(index + 1, true); },
       prev: function () { return moveTo(index - 1, true); },
+      go: function (i) { return moveTo(i, true); },
       goPage: function (page) {
         var want = page | 0;
         var n = sentences.length ? sentences.length - 1 : 0;
@@ -231,14 +437,22 @@
       },
       setSpeed: function (s) {
         var n = Number(s);
-        if (n >= 0.25 && n <= 4) speed = n;
+        if (!(n >= 0.25 && n <= 4) || n === speed) return;
+        speed = n;
+        if (playing && !paused && alive && active) refillFromHere();
+        if (playing && !paused && active) pump(active.my);
       },
-      setVoice: function (v) { voice = v || ''; },
+      setVoice: function (v) {
+        var next = v || '';
+        if (next === voice) return;
+        voice = next;
+        if (playing && !paused && alive && active) {
+          refillFromHere();
+          pump(active.my);
+        }
+      },
       setIndex: function (i) {
-        if (!sentences.length) { index = 0; return; }
-        if (i < 0) index = 0;
-        else if (i >= sentences.length) index = sentences.length - 1;
-        else index = i;
+        index = clampIndex(i);
       },
       index: function () { return index; },
       speed: function () { return speed; },
@@ -249,7 +463,9 @@
 
   root.PdfSpeak = {
     INSTALL: INSTALL,
+    LOOKAHEAD: LOOKAHEAD,
     installMessage: installMessage,
+    splitLead: splitLead,
     createReader: createReader
   };
 })(typeof window !== 'undefined' ? window : this);

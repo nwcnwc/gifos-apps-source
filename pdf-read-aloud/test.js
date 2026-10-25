@@ -1,4 +1,4 @@
-// Read Aloud: sentences, headers, prefetch, resume, missing voice,
+// Read Aloud: sentences, headers, lookahead, resume, missing voice,
 // pasted text, the English asset pin, and the vendored engine hash.
 // The checks run the app's own functions on invented fixtures.
 const fs = require('fs');
@@ -352,6 +352,240 @@ async function main() {
   const midResult = await midDone;
   check('resume speaks that sentence', midResult.spoke === true && midResult.index === 2, midResult);
   void mid;
+
+  {
+    const lead = S.PdfSpeak.splitLead('One two three four five six seven eight nine ten eleven twelve thirteen.');
+    check('a long first sentence splits after about ten words',
+      lead.length === 2 && lead[0].split(' ').length === 10 && lead[1] === 'eleven twelve thirteen.', lead);
+    const comma = S.PdfSpeak.splitLead('One two three four five six seven eight, nine ten eleven twelve thirteen fourteen.');
+    check('a comma in the first window is the split',
+      comma.length === 2 && comma[0] === 'One two three four five six seven eight,', comma);
+    check('a short sentence stays one chunk', S.PdfSpeak.splitLead('Then it dipped.').length === 1);
+    const twelve = [];
+    for (let i = 1; i <= 12; i++) twelve.push('w' + i);
+    check('twelve words stay one chunk', S.PdfSpeak.splitLead(twelve.join(' ')).length === 1);
+    check('the lookahead buffer defaults to four', S.PdfSpeak.LOOKAHEAD === 4);
+  }
+
+  async function flush() {
+    for (let n = 0; n < 8; n++) await Promise.resolve();
+  }
+
+  {
+    const names = ['S0.', 'S1.', 'S2.', 'S3.', 'S4.', 'S5.', 'S6.', 'S7.'];
+    const order2 = [];
+    const gates2 = {};
+    function tts2(req) {
+      order2.push('tts:' + req.text);
+      const d = deferred();
+      gates2[req.text] = d;
+      return d.promise;
+    }
+    function play2(audio) {
+      order2.push('play:' + audio.text);
+      const d = deferred();
+      gates2['play:' + audio.text] = d;
+      return {
+        done: d.promise,
+        pause: function () {},
+        resume: function () {},
+        stop: function () { d.resolve(); }
+      };
+    }
+    const ahead = S.PdfSpeak.createReader({
+      sentences: names.map((text, i) => ({ text: text, page: 1 })),
+      lookahead: 4,
+      tts: tts2,
+      play: play2
+    });
+    const aheadDone = ahead.play();
+    await flush();
+    check('lookahead asks for the first sentence before anything plays', order2.length === 1 && order2[0] === 'tts:S0.', order2.slice());
+    for (let n = 0; n < 5; n++) {
+      gates2['S' + n + '.'].resolve({ bytes: new Uint8Array([n + 1]), mime: 'audio/wav' });
+      await flush();
+    }
+    const ttsWhileFirstPlays = order2.filter((x) => x.startsWith('tts:')).length;
+    check('while the first sentence plays, four more are ready and a fifth is not',
+      ttsWhileFirstPlays === 5 && order2.filter((x) => x.startsWith('play:')).join(',') === 'play:S0.',
+      order2.slice());
+    gates2['play:S0.'].resolve();
+    await flush();
+    check('the next sentence starts as soon as the first ends and the buffer refills',
+      order2.indexOf('play:S1.') > order2.indexOf('play:S0.') && order2.filter((x) => x.startsWith('tts:')).length === 6,
+      order2.slice());
+    for (let n = 1; n < names.length; n++) {
+      if (gates2['S' + n + '.'] && order2.indexOf('tts:S' + n + '.') >= 0) {
+        gates2['S' + n + '.'].resolve({ bytes: new Uint8Array([n + 1]), mime: 'audio/wav' });
+      }
+      await flush();
+      if (gates2['play:S' + n + '.']) gates2['play:S' + n + '.'].resolve();
+      await flush();
+    }
+    const aheadResult = await aheadDone;
+    check('lookahead keeps sentence order through the whole read',
+      aheadResult.spoke === true && order2.filter((x) => x.startsWith('play:')).join(',') === names.map((t) => 'play:' + t).join(','),
+      order2.filter((x) => x.startsWith('play:')));
+  }
+
+  {
+    const longA = 'One two three four five six seven eight nine ten eleven twelve thirteen.';
+    const longB = 'Alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november.';
+    const splitOrder = [];
+    const splitGates = {};
+    const splitReader = S.PdfSpeak.createReader({
+      sentences: [
+        { text: longA, page: 1 },
+        { text: longB, page: 1 }
+      ],
+      tts: (req) => {
+        splitOrder.push(req.text);
+        const d = deferred();
+        splitGates[req.text] = d;
+        return d.promise;
+      },
+      play: (audio) => {
+        const d = deferred();
+        splitGates['play:' + audio.text] = d;
+        return { done: d.promise, stop: function () { d.resolve(); } };
+      }
+    });
+    const splitDone = splitReader.play();
+    await flush();
+    check('playback starts by synthesizing only the short first chunk',
+      splitOrder.length === 1 && splitOrder[0] === 'One two three four five six seven eight nine ten', splitOrder.slice());
+    splitGates[splitOrder[0]].resolve({ bytes: new Uint8Array([1]), mime: 'audio/wav' });
+    await flush();
+    check('the rest of the first sentence is next, and the following sentence stays whole',
+      splitOrder.length === 2 && splitOrder[1] === 'eleven twelve thirteen.', splitOrder.slice());
+    splitGates[splitOrder[1]].resolve({ bytes: new Uint8Array([2]), mime: 'audio/wav' });
+    await flush();
+    check('a later sentence is not split into a short chunk',
+      splitOrder.length === 3 && splitOrder[2] === longB, splitOrder.slice());
+    splitReader.stop();
+    await splitDone.catch(() => {});
+    void splitDone;
+  }
+
+  {
+    let drops = 0;
+    const staleOrder = [];
+    const staleGates = {};
+    function ttsStale(req) {
+      staleOrder.push('tts:' + req.text);
+      const d = deferred();
+      d.text = req.text;
+      staleGates[req.text] = d;
+      return d.promise;
+    }
+    function playStale(audio) {
+      staleOrder.push('play:' + audio.text);
+      const d = deferred();
+      staleGates['play:' + audio.text] = d;
+      return { done: d.promise, stop: function () { d.resolve(); } };
+    }
+    const stale = S.PdfSpeak.createReader({
+      sentences: [
+        { text: 'Alpha.', page: 1 },
+        { text: 'Beta.', page: 1 },
+        { text: 'Gamma.', page: 1 },
+        { text: 'Delta.', page: 1 }
+      ],
+      lookahead: 4,
+      tts: ttsStale,
+      play: playStale,
+      prepare: (audio) => ({
+        drop: function () { drops++; },
+        play: function () { return playStale(audio); }
+      })
+    });
+    const staleDone = stale.play();
+    await flush();
+    staleGates['Alpha.'].resolve({ bytes: new Uint8Array([1]), mime: 'audio/wav' });
+    await flush();
+    staleGates['Beta.'].resolve({ bytes: new Uint8Array([2]), mime: 'audio/wav' });
+    await flush();
+    const betaInFlight = staleGates['Gamma.'];
+    check('a prepared sentence is waiting while the first one plays',
+      staleOrder.indexOf('play:Alpha.') >= 0 && staleOrder.indexOf('tts:Gamma.') >= 0 && staleOrder.indexOf('play:Beta.') < 0,
+      staleOrder.slice());
+    const playsBefore = staleOrder.filter((x) => x.startsWith('play:')).length;
+    stale.next();
+    await flush();
+    betaInFlight.resolve({ bytes: new Uint8Array([3]), mime: 'audio/wav' });
+    await flush();
+    check('seeking drops a prepared sentence and ignores a stale result',
+      drops >= 1 && staleOrder.filter((x) => x.startsWith('play:')).length === playsBefore && staleOrder.indexOf('play:Gamma.') < 0,
+      { drops: drops, order: staleOrder.slice() });
+    const betaAgain = staleGates['Beta.'];
+    check('the sentence that was seeked to is fetched again', betaAgain && betaAgain !== undefined && staleOrder.filter((x) => x === 'tts:Beta.').length >= 2, staleOrder.slice());
+    betaAgain.resolve({ bytes: new Uint8Array([9]), mime: 'audio/wav' });
+    await flush();
+    check('only the sentence seeked to starts after the stale result',
+      staleOrder.filter((x) => x.startsWith('play:')).join(',') === 'play:Alpha.,play:Beta.',
+      staleOrder.filter((x) => x.startsWith('play:')));
+    stale.stop();
+    await staleDone.catch(() => {});
+  }
+
+  {
+    const pauseOrder = [];
+    const pauseGates = {};
+    const pauseReader = S.PdfSpeak.createReader({
+      sentences: [
+        { text: 'Alpha.', page: 1 },
+        { text: 'Beta.', page: 1 },
+        { text: 'Gamma.', page: 1 }
+      ],
+      tts: (req) => {
+        pauseOrder.push('tts:' + req.text);
+        const d = deferred();
+        pauseGates[req.text] = d;
+        return d.promise;
+      },
+      play: (audio) => {
+        pauseOrder.push('play:' + audio.text);
+        const d = deferred();
+        pauseGates['play:' + audio.text] = d;
+        return {
+          done: d.promise,
+          pause: function () { pauseOrder.push('pause:' + audio.text); },
+          resume: function () { pauseOrder.push('resume:' + audio.text); },
+          stop: function () { d.resolve(); }
+        };
+      }
+    });
+    const pauseDone = pauseReader.play();
+    await flush();
+    pauseGates['Alpha.'].resolve({ bytes: new Uint8Array([1]), mime: 'audio/wav' });
+    await flush();
+    const oldBeta = pauseGates['Beta.'];
+    pauseReader.pause();
+    check('pause holds the current sentence', pauseReader.paused() === true && pauseReader.playing() === false, pauseOrder.slice());
+    oldBeta.resolve({ bytes: new Uint8Array([2]), mime: 'audio/wav' });
+    await flush();
+    check('a result that arrives while paused does not play',
+      pauseOrder.filter((x) => x.startsWith('play:')).join(',') === 'play:Alpha.' && pauseOrder.indexOf('pause:Alpha.') >= 0,
+      pauseOrder.slice());
+    pauseReader.play();
+    await flush();
+    check('resume continues the same sentence and refills the queue',
+      pauseOrder.indexOf('resume:Alpha.') >= 0 && pauseOrder.filter((x) => x === 'tts:Beta.').length === 2,
+      pauseOrder.slice());
+    const newBeta = pauseGates['Beta.'];
+    newBeta.resolve({ bytes: new Uint8Array([4]), mime: 'audio/wav' });
+    await flush();
+    check('the refilled sentence stays queued until the current one ends',
+      pauseOrder.filter((x) => x.startsWith('play:')).join(',') === 'play:Alpha.',
+      pauseOrder.slice());
+    pauseGates['play:Alpha.'].resolve();
+    await flush();
+    check('after resume the next sentence plays from the refill',
+      pauseOrder.filter((x) => x.startsWith('play:')).join(',') === 'play:Alpha.,play:Beta.',
+      pauseOrder.slice());
+    pauseReader.stop();
+    await pauseDone.catch(() => {});
+  }
 
   async function miss(label, ttsFn) {
     const heard = [];

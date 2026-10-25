@@ -119,6 +119,7 @@ body { overflow: hidden; }
   line-height: 1.45;
   font-size: 17px;
   color: #f3efe8;
+  cursor: pointer;
 }
 .sent.on {
   background: rgba(255, 196, 48, 0.92);

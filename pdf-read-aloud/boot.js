@@ -93,40 +93,72 @@
     });
   }
 
-  function playBytes(audio) {
+  function prepareBytes(audio) {
     var blob = new Blob([audio.bytes], { type: audio.mime || 'audio/mpeg' });
     var url = URL.createObjectURL(blob);
-    var a = new Audio(url);
+    var a = new Audio();
+    a.preload = 'auto';
+    var revoked = false;
     var settled = false;
     var resolve, reject;
     var done = new Promise(function (res, rej) { resolve = res; reject = rej; });
+    function revoke() {
+      if (revoked) return;
+      revoked = true;
+      try { URL.revokeObjectURL(url); } catch (e) { void e; }
+    }
     function finish(err) {
       if (settled) return;
       settled = true;
-      try { URL.revokeObjectURL(url); } catch (e) { void e; }
+      revoke();
       if (err) reject(err); else resolve();
     }
-    a.onended = function () { finish(); };
-    a.onerror = function () { finish(new Error('PLAYBACK: The audio did not play.')); };
-    var handle = {
-      done: done,
-      pause: function () { try { a.pause(); } catch (e) { void e; } },
-      resume: function () {
-        var p = a.play();
-        if (p && p.catch) p.catch(function () {});
-      },
-      stop: function () {
+    var ready = new Promise(function (res) {
+      var over = false;
+      function readyNow() {
+        if (over) return;
+        over = true;
+        res();
+      }
+      a.addEventListener('canplay', readyNow);
+      a.addEventListener('loadeddata', readyNow);
+      a.addEventListener('error', readyNow);
+      a.src = url;
+      try { a.load(); } catch (e) { readyNow(); }
+    });
+    return {
+      ready: ready,
+      drop: function () {
         a.onended = null;
         a.onerror = null;
         try { a.pause(); } catch (e) { void e; }
-        finish();
+        try { a.removeAttribute('src'); a.load(); } catch (e2) { void e2; }
+        revoke();
+      },
+      play: function () {
+        a.onended = function () { finish(); };
+        a.onerror = function () { finish(new Error('PLAYBACK: The audio did not play.')); };
+        var handle = {
+          done: done,
+          pause: function () { try { a.pause(); } catch (e) { void e; } },
+          resume: function () {
+            var p = a.play();
+            if (p && p.catch) p.catch(function () {});
+          },
+          stop: function () {
+            a.onended = null;
+            a.onerror = null;
+            try { a.pause(); } catch (e) { void e; }
+            finish();
+          }
+        };
+        var started = a.play();
+        if (started && started.catch) {
+          started.catch(function () { finish(new Error('PLAYBACK: The audio did not play.')); });
+        }
+        return handle;
       }
     };
-    var started = a.play();
-    if (started && started.catch) {
-      started.catch(function () { finish(new Error('PLAYBACK: The audio did not play.')); });
-    }
-    return handle;
   }
 
   function makeReader() {
@@ -137,7 +169,7 @@
       speed: speed,
       voice: '',
       tts: ttsCall,
-      play: playBytes,
+      prepare: prepareBytes,
       onIndex: function (i, sent) {
         cursor = i;
         if (source.kind === 'pdf') view.showSentence(sent);
@@ -553,6 +585,57 @@
     $('text-sheet').hidden = true;
     userOpened = true;
     openText('Pasted text', text, null);
+  });
+
+  function seekTo(i) {
+    if (busyMsg || !sentences.length) return;
+    if (!(i >= 0) || i >= sentences.length) return;
+    if (!reader) makeReader();
+    showError('');
+    if (reader.playing()) {
+      watch(reader.go(i));
+      return;
+    }
+    if (reader.paused()) reader.stop();
+    cursor = i;
+    reader.setIndex(i);
+    if (source.kind === 'pdf') {
+      var sent = sentences[i];
+      if (sent) view.showSentence(sent);
+    } else markSentence(i);
+    paintChrome();
+    scheduleSave();
+  }
+
+  $('sentences').addEventListener('click', function (e) {
+    var node = e.target;
+    while (node && node !== $('sentences') && node.tagName !== 'P') node = node.parentNode;
+    if (!node || node.tagName !== 'P' || node.parentNode !== $('sentences')) return;
+    var kids = $('sentences').children;
+    var i;
+    for (i = 0; i < kids.length; i++) {
+      if (kids[i] === node) { seekTo(i); return; }
+    }
+  });
+
+  $('text-layer').addEventListener('click', function (e) {
+    if (source.kind !== 'pdf' || !sentences.length) return;
+    var frag = e.target && e.target.textContent ? String(e.target.textContent).replace(/\s+/g, ' ').trim() : '';
+    if (frag.length < 2) return;
+    var page = view.page;
+    var hits = [];
+    var i;
+    for (i = 0; i < sentences.length; i++) {
+      var s = sentences[i];
+      if ((s.page || 1) !== page) continue;
+      if (String(s.text || '').indexOf(frag) >= 0) hits.push(i);
+    }
+    if (!hits.length) return;
+    var pick = hits[0];
+    for (i = 0; i < hits.length; i++) {
+      if (hits[i] >= cursor) { pick = hits[i]; break; }
+    }
+    seekTo(pick);
   });
 
   $('play').onclick = function () {

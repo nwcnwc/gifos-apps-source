@@ -19,7 +19,7 @@ index.html      chrome, stage, paste box
 style.css       dark shell, white paper, sentence mark, phone layout
 vendor/         pdf.js 2.16 legacy, tesseract.js-core 7.0.0, notices
 text.js         lines, headers, sentences, bite size, pasted text
-speak.js        one sentence ahead, no silent fallback
+speak.js        a few sentences ahead, no silent fallback
 store.js        last PDF, text, or picture, and the sentence
 view.js         open / render / highlight a PDF
 ocr.js          picture → text, blob worker, English asset pin
