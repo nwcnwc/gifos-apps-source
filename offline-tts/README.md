@@ -12,15 +12,19 @@ offline: no network capability, no key, nothing leaves the device.
   pattern: `build.mjs` packs `vendor/espeak.js` (the eSpeak core compiled to
   JS, from meSpeak/speak.js, pre-wrapped to `window.__ESpeak`) as an
   executable `engine.js`, and the config + en-us voice as JS string modules
-  (`engine-data.js` / `voice-data.js`). No eval, no wasm hatch — it's plain
-  asm.js-era JavaScript the runtime inlines like any other app file. The
-  install-time **assets** pattern is deliberately NOT used: at 5.6 MB raw
+  (`engine-data.js` / `voice-data.js`). No eval. The engine is plain asm.js,
+  inlined like any other app file. It declares `capabilities.wasm` only so the
+  runtime allows a blob worker: `run()` happens there, not on the main thread.
+  The install-time **assets** pattern is deliberately NOT used: at 5.6 MB raw
   the engine sits well under the 8 MB floor `build-app-catalog.mjs`
   enforces — that pattern is reserved for genuinely huge public model
   weights (docs/providers.md).
 - `app.js` is a compact driver derived from meSpeak's raw-WAV path
   (VFS setup → argstack → `run()` → read `wav.wav`), with the known
-  every-~80th-call FS hiccup handled by a rebuild-and-retry.
+  every-~80th-call FS hiccup handled by a rebuild-and-retry. `run()` is a
+  single synchronous call, so the provider declares `capabilities.wasm` and
+  does that call in a blob worker. The main thread only forwards the request.
+  One sentence is synthesized at a time, and the worker yields before each one.
 - OpenAI-style voice names (`nova`, `onyx`, `whisper`, …) map onto eSpeak
   variants, so consumer apps written against a cloud TTS work unchanged.
   `speed` accepts the OpenAI 0.25–4 multiplier; returns 22.05 kHz mono WAV

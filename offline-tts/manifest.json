@@ -3,7 +3,7 @@
   "appId": "offline-tts",
   "name": "Offline Text to Speech",
   "shortName": "Offline TTS",
-  "version": "1.0",
+  "version": "1.0.1",
   "minBuild": 1177,
   "description": "Offline text-to-speech for your whole computer. A Provider app: put it in your Providers folder, assign it to Text → speech in Settings → AI models, and every app that speaks uses it — no account, no key, nothing leaves your device.",
   "entry": "index.html",
@@ -12,7 +12,9 @@
     92,
     255
   ],
-  "capabilities": {},
+  "capabilities": {
+    "wasm": true
+  },
   "launch": {
     "say": {
       "label": "Say something out loud on this device",
