@@ -1,8 +1,10 @@
-// PDF Read Aloud: sentences, headers, prefetch, resume, missing voice.
+// Read Aloud: sentences, headers, prefetch, resume, missing voice,
+// pasted text, the English asset pin, and the vendored engine hash.
 // The checks run the app's own functions on invented fixtures.
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const crypto = require('crypto');
 
 const APP = __dirname;
 let failures = 0;
@@ -76,6 +78,35 @@ function micro() {
 
 const S = load();
 check('text, speak, and store load', !!(S.PdfRead && S.PdfSpeak && S.PdfStore));
+
+{
+  const got = S.PdfRead.plainToSentences('The paper glides. It stays up.').map((s) => s.text);
+  check('pasted text splits into sentences', got.length === 2 && got[0] === 'The paper glides.' && got[1] === 'It stays up.', got);
+}
+{
+  const got = S.PdfRead.plainToSentences('Mr. Smith folded it.\nHe smiled.').map((s) => s.text);
+  check('pasted text keeps Mr. and splits on a new line', got.length === 2 && got[0] === 'Mr. Smith folded it.' && got[1] === 'He smiled.', got);
+}
+{
+  const words = [];
+  for (let i = 0; i < 80; i++) words.push('alpha' + i);
+  const got = S.PdfRead.plainToSentences(words.join(' ') + '.').map((s) => s.text);
+  check('a long pasted sentence is cut into bites', got.length > 1 && got.every((s) => s.length <= S.PdfRead.MAX_BITE), got.map((s) => s.length));
+}
+
+{
+  const manifest = JSON.parse(fs.readFileSync(path.join(APP, 'manifest.json'), 'utf8'));
+  const pins = JSON.parse(fs.readFileSync(path.join(APP, 'LANG-PINS.json'), 'utf8'));
+  const lang = pins.langs.find((l) => l.asset === 'eng.traineddata');
+  const asset = (manifest.assets || []).find((a) => a.path === 'eng.traineddata');
+  check('the manifest name is Read Aloud', manifest.name === 'Read Aloud' && manifest.shortName === 'Read Aloud' && manifest.appId === 'pdf-read-aloud');
+  check('the English asset pin is present', !!(asset && lang && asset.optional === true && asset.sha256 === lang.sha256 && asset.bytes === lang.bytes && asset.url === lang.url), asset && asset.sha256);
+  const wasmPath = path.join(APP, 'vendor', 'tesseract-core-simd-lstm.wasm');
+  const wasm = fs.readFileSync(wasmPath);
+  const sha = crypto.createHash('sha256').update(wasm).digest('hex');
+  const wasmPin = pins.core.files['tesseract-core-simd-lstm.wasm'];
+  check('the vendored wasm hash matches the pin', sha === wasmPin.sha256 && wasm.length === wasmPin.bytes, sha);
+}
 
 {
   const got = texts([page(1, [
@@ -222,6 +253,15 @@ async function main() {
   check('the save keeps the sentence and the speed', loaded.sentence === 3 && loaded.speed === 1.25 && loaded.page === 2, loaded);
   check('a small file is kept', loaded.bytes === bytes);
   check('resume reads the saved sentence', S.PdfStore.resumeAt(sentences, loaded) === 3);
+
+  const textDb = memDb();
+  const textSaved = await S.PdfStore.save(textDb, {
+    kind: 'text', name: 'Pasted text', sentence: 1, speed: 1, text: 'Hello there. Next.'
+  });
+  const textLoaded = await S.PdfStore.load(textDb);
+  check('pasted text is kept with its sentence',
+    textSaved.kind === 'text' && textLoaded.text === 'Hello there. Next.' && textLoaded.sentence === 1 && !textLoaded.bytes,
+    textLoaded);
 
   const huge = new Uint8Array(S.PdfStore.MAX_BYTES + 1);
   const big = await S.PdfStore.save(db, { name: 'big.pdf', page: 4, sentence: 1, speed: 1, bytes: huge });

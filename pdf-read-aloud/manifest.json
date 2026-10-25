@@ -1,11 +1,11 @@
 {
   "gifos": "1.0",
   "appId": "pdf-read-aloud",
-  "name": "PDF Read Aloud",
+  "name": "Read Aloud",
   "shortName": "Read Aloud",
-  "version": "1.0.0",
-  "minBuild": 947,
-  "description": "Open a PDF and hear it read aloud. The file stays on this device.",
+  "version": "1.1.0",
+  "minBuild": 1381,
+  "description": "Read a PDF, pasted text, or an image of text aloud. The file stays on this device.",
   "entry": "index.html",
   "accent": [196, 92, 42],
   "help": "help.md",
@@ -16,5 +16,14 @@
   },
   "data": {
     "save": { "visibility": "private" }
-  }
+  },
+  "assets": [
+    {
+      "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/9ddc24e750eec0994223a9edc3fcb434a2244f3b/eng.traineddata",
+      "sha256": "8280aed0782fe27257a68ea10fe7ef324ca0f8d85bd2fd145d1c2b560bcb66ba",
+      "path": "eng.traineddata",
+      "bytes": 15400601,
+      "optional": true
+    }
+  ]
 }

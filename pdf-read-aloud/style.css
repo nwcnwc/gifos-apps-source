@@ -24,6 +24,12 @@ body { overflow: hidden; }
   border-bottom: 1px solid #3a322c;
   min-height: 48px;
 }
+.title {
+  margin: 0 6px 0 2px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
 .chip, .btn, button.chip, .speed select {
   display: inline-flex;
   align-items: center;
@@ -93,6 +99,31 @@ body { overflow: hidden; }
   background: #fff;
 }
 #page-canvas { display: block; background: #fff; }
+.readout {
+  max-width: 40em;
+  margin: 16px auto 32px;
+  padding: 0 16px;
+}
+#shot {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto 16px;
+  background: #fff;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+.sent {
+  margin: 0 0 10px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  line-height: 1.45;
+  font-size: 17px;
+  color: #f3efe8;
+}
+.sent.on {
+  background: rgba(255, 196, 48, 0.92);
+  color: #2a160f;
+}
 .text-layer, .hl-layer {
   position: absolute;
   inset: 0;
@@ -172,7 +203,7 @@ body.loaded .empty { display: none !important; }
   width: min(360px, 100%);
 }
 .sheet p { margin: 0 0 10px; }
-.sheet input[type=password] {
+.sheet input[type=password], .sheet textarea {
   width: 100%;
   background: #14110e;
   color: #f3efe8;
@@ -182,6 +213,12 @@ body.loaded .empty { display: none !important; }
   font: inherit;
   margin-bottom: 12px;
 }
+.sheet textarea {
+  min-height: 160px;
+  resize: vertical;
+  line-height: 1.45;
+}
+#text-sheet form { width: min(520px, 100%); }
 .sheet .row { display: flex; gap: 8px; }
 @media (max-width: 640px) {
   #bar { padding: 6px 8px; gap: 6px; }

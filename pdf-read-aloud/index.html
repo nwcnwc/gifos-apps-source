@@ -3,14 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>PDF Read Aloud</title>
+<title>Read Aloud</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="app">
   <header id="bar">
+    <h1 class="title">Read Aloud</h1>
     <label class="chip" for="file-input">Open</label>
-    <input type="file" id="file-input" accept="application/pdf,.pdf">
+    <input type="file" id="file-input" accept="application/pdf,.pdf,image/*">
+    <button type="button" class="chip" id="paste-text">Paste text</button>
     <button type="button" class="chip play" id="play">Play</button>
     <button type="button" class="chip" id="prev" aria-label="Previous sentence">Prev</button>
     <button type="button" class="chip" id="next" aria-label="Next sentence">Next</button>
@@ -35,9 +37,13 @@
       <div id="hl-layer" class="hl-layer"></div>
       <div id="text-layer" class="text-layer"></div>
     </div>
+    <div id="readout" class="readout" hidden>
+      <img id="shot" alt="The picture being read" hidden>
+      <div id="sentences"></div>
+    </div>
     <div id="empty" class="empty">
-      <p>Open a PDF</p>
-      <p class="hint">It stays on this device. A short sample is here the first time, or drag a file onto this page.</p>
+      <p>Read a PDF, pasted text, or a picture of text</p>
+      <p class="hint">It stays on this device. A short sample is here the first time. You can also paste text, or drag a file onto this page.</p>
       <label class="btn" for="file-input">Choose file</label>
     </div>
     <div id="spinner" class="spinner" hidden></div>
@@ -58,14 +64,29 @@
   </form>
 </div>
 
-<!-- Order matters: the runtime inlines each <script src> where it stands. -->
+<div id="text-sheet" class="sheet" hidden>
+  <form id="text-form">
+    <p>Paste or type the text to read.</p>
+    <textarea id="paste-box" rows="8" aria-label="Text to read"></textarea>
+    <div class="row">
+      <button type="submit" class="btn">Read</button>
+      <button type="button" class="chip" id="text-cancel">Cancel</button>
+    </div>
+  </form>
+</div>
+
+<!-- Order matters: the runtime inlines each <script src> where it stands.
+     The wasm engine is not linked here. It is packed under .assets/ and
+     loaded with gifos.assets(). -->
 <script src="vendor/pdf.min.js"></script>
 <script src="pdf-worker.js"></script>
+<script src="ocr-worker.js"></script>
 <script src="sample.js"></script>
 <script src="text.js"></script>
 <script src="speak.js"></script>
 <script src="store.js"></script>
 <script src="view.js"></script>
+<script src="ocr.js"></script>
 <script src="boot.js"></script>
 </body>
 </html>

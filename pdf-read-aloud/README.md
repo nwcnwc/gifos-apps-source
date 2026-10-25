@@ -1,10 +1,12 @@
-# PDF Read Aloud
+# Read Aloud
 
-Open a PDF and hear it read aloud. Mozilla's **[pdf.js](https://github.com/mozilla/pdf.js)**
-(Apache-2.0, the 2.16 legacy UMD build) draws the page. This directory is the
-GifOS surface around it: the file lives in `gifos.db`, the reading position
-comes back with it, and each sentence goes to the computer's Text → speech
-voice. Nothing is uploaded.
+Read a PDF, pasted text, or a picture of text aloud. The file stays on this
+device. Mozilla's **[pdf.js](https://github.com/mozilla/pdf.js)** (Apache-2.0,
+the 2.16 legacy UMD build) draws a PDF page. A picture of text is read with
+**[Tesseract.js](https://github.com/naptha/tesseract.js)** (Apache-2.0,
+tesseract.js-core 7.0.0). This directory is the GifOS surface around them:
+the file lives in the private save, the reading position comes back with it,
+and each sentence goes to the computer's Text → speech voice. Nothing is uploaded.
 
 The voice is not in this app. Install Offline TTS from the store and assign it
 to Text → speech. If that voice is missing or it fails, the app says so. It
@@ -13,17 +15,20 @@ does not substitute another sound.
 pdf-reader is the viewer. This app reads.
 
 ```
-index.html      chrome, stage, transport
-style.css       dark shell, white paper, phone layout
-vendor/         pdf.js 2.16 legacy + Apache-2.0 notice (never fetched)
-text.js         lines, headers, sentences, bite size
+index.html      chrome, stage, paste box
+style.css       dark shell, white paper, sentence mark, phone layout
+vendor/         pdf.js 2.16 legacy, tesseract.js-core 7.0.0, notices
+text.js         lines, headers, sentences, bite size, pasted text
 speak.js        one sentence ahead, no silent fallback
-store.js        last file + sentence in the private save
-view.js         open / render / highlight
-boot.js         file, controls, voice, Back
+store.js        last PDF, text, or picture, and the sentence
+view.js         open / render / highlight a PDF
+ocr.js          picture → text, blob worker, English asset pin
+ocr-worker.js   Tesseract.js-core, instantiated from bytes
+boot.js         file, paste, picture, voice, Back
 sample.mjs      public-domain 2-page sample, packed as sample.js
 icon.mjs        page-and-voice sticker + 1200×720 cover
 build.mjs       packs site/apps/pdf-read-aloud/pdf-read-aloud.gif
+LANG-PINS.json  sha256 pins for the engine and English
 ```
 
 ## Why 2.16, not 4.x
@@ -50,11 +55,15 @@ is cut on a comma or a space.
 
 | capability | why |
 |---|---|
-| `db` | Last file, page, sentence, and speed in a `private` collection. |
-| `wasm` | Blob worker for pdf.js. No `.wasm` file; the hatch is the worker. |
+| `db` | Last file, pasted text, picture, sentence, and speed in a `private` collection. |
+| `wasm` | Blob workers for pdf.js and for Tesseract. The wasm engine is packed under `.assets/` and handed over by `gifos.assets()`. |
 | `ai: ["tts"]` | Asks the computer's Text → speech provider. The call is `gifos.ai.tts({ text, voice, speed })`. |
 
-Needs nothing newer than the App Store itself, so `minBuild` is **947**.
+English (`tessdata_best`, the same optional pin as Tesseract OCR) downloads the first time a picture is read, hash-verified by GifOS, then stays on this device. `minBuild` is **1381** because that is the build that can defer an optional asset pin.
+
+## A picture of text
+
+The page mints one blob worker from the vendored SIMD-LSTM glue plus `ocr-worker.js`. Wasm bytes and English data arrive as transferred buffers. The worker's `instantiateWasm` path is the one that runs. The app does not load a URL of its own.
 
 ## Building
 
@@ -65,5 +74,6 @@ node apps/pdf-read-aloud/test.js
 
 ## Licence
 
-Apache-2.0 for this app. pdf.js is Apache-2.0. The notice is packed **inside the GIF** as
-`COPYING-pdfjs.txt` as well as living in `vendor/`.
+Apache-2.0 for this app. pdf.js is Apache-2.0. Tesseract OCR, tesseract.js, and
+tesseract.js-core are Apache-2.0. The notices are packed **inside the GIF** as
+`COPYING-pdfjs.txt` and `COPYING-tesseract.txt`, and they live in `vendor/`.

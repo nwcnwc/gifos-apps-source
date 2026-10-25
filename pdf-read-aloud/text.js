@@ -368,12 +368,25 @@
     return sentences;
   }
 
+  /* Pasted text uses the same sentence and bite splitter as a page.
+   * There is no margin, so nothing is treated as a running header. */
+  function plainToSentences(text) {
+    var ranges = sentenceRanges(String(text || '').replace(/\r\n/g, '\n'));
+    var out = [];
+    var i;
+    for (i = 0; i < ranges.length; i++) {
+      out.push({ text: ranges[i].text, page: 1, runs: [] });
+    }
+    return out;
+  }
+
   root.PdfRead = {
     MAX_BITE: MAX_BITE,
     isPageNumber: isPageNumber,
     linesFromItems: linesFromItems,
     dropChrome: dropChrome,
     sentenceRanges: sentenceRanges,
-    pagesToSentences: pagesToSentences
+    pagesToSentences: pagesToSentences,
+    plainToSentences: plainToSentences
   };
 })(typeof window !== 'undefined' ? window : this);

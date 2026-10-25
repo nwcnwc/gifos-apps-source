@@ -1,5 +1,6 @@
-/* The last PDF and the reading position live in the private save collection.
- * A file over 8 MB is opened for this visit and not kept. The position is still kept. */
+/* The last PDF, pasted text, or picture, and the reading position, live in
+ * the private save collection. A file over 8 MB is opened for this visit and
+ * not kept. The position is still kept. Pasted text is kept the same way. */
 (function (root) {
   'use strict';
 
@@ -14,15 +15,20 @@
 
   function toRecord(state) {
     state = state || {};
+    var kind = state.kind === 'text' || state.kind === 'image' ? state.kind : 'pdf';
     var rec = {
       id: 'last',
+      kind: kind,
       name: state.name || '',
       page: state.page || 1,
       sentence: state.sentence | 0,
       speed: state.speed || 1,
       fit: state.fit || 'width'
     };
-    if (state.bytes && byteLength(state.bytes) <= MAX_BYTES) rec.bytes = state.bytes;
+    if (state.mime) rec.mime = state.mime;
+    var text = state.text == null ? '' : String(state.text);
+    if ((kind === 'text' || kind === 'image') && text && text.length <= MAX_BYTES) rec.text = text;
+    if (kind !== 'text' && state.bytes && byteLength(state.bytes) <= MAX_BYTES) rec.bytes = state.bytes;
     return rec;
   }
 

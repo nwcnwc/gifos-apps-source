@@ -1,7 +1,10 @@
 // Pack pdf-read-aloud/ into site/apps/pdf-read-aloud/pdf-read-aloud.gif.
 // pdf.js 2.16 legacy rides IN the GIF. The worker source becomes
 // window.PDF_WORKER_SRC (app mints a blob: Worker). Sample PDF becomes
-// window.SAMPLE_PDF_B64. Same CompressionStream polyfill as PDF Reader.
+// window.SAMPLE_PDF_B64. Tesseract.js-core rides the same way: glue plus
+// ocr-worker.js become window.OCR_WORKER_SRC, and the wasm is packed under
+// .assets/tesseract-core.wasm. English is an optional asset pin.
+// Same CompressionStream polyfill as PDF Reader.
 import { pdfReadAloudIcon, screenshotPng } from './icon.mjs';
 import { samplePdfBytes } from './sample.mjs';
 import { deflateRawSync } from 'node:zlib';
@@ -76,7 +79,36 @@ if (sha256(bin('vendor/pdf.worker.min.js')) !== WORKER_SHA) {
   throw new Error('vendor/pdf.worker.min.js sha256 drifted from UPSTREAM.txt');
 }
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947');
+const pins = JSON.parse(read('LANG-PINS.json'));
+const glue = read('vendor/tesseract-core-simd-lstm.js');
+const wasm = bin('vendor/tesseract-core-simd-lstm.wasm');
+const gluePin = pins.core.files['tesseract-core-simd-lstm.js'];
+const wasmPin = pins.core.files['tesseract-core-simd-lstm.wasm'];
+if (!gluePin || !wasmPin) throw new Error('LANG-PINS.json is missing the core pin');
+if (sha256(Buffer.from(glue)) !== gluePin.sha256) {
+  throw new Error('vendor/tesseract-core-simd-lstm.js sha256 drifted from LANG-PINS.json');
+}
+if (sha256(wasm) !== wasmPin.sha256 || wasm.length !== wasmPin.bytes) {
+  throw new Error('vendor/tesseract-core-simd-lstm.wasm drifted from LANG-PINS.json');
+}
+if (wasm.subarray(0, 4).toString() !== '\0asm') throw new Error('vendor wasm is not a WebAssembly module');
+if (!glue.startsWith('var TesseractCore=')) throw new Error('glue no longer assigns var TesseractCore=');
+if (!glue.includes('instantiateWasm')) throw new Error('glue lost instantiateWasm');
+if (glue.includes('import.meta')) throw new Error('glue uses import.meta — cannot run as a classic worker');
+
+const lang = (pins.langs || []).find((l) => l.asset === 'eng.traineddata');
+if (!lang) throw new Error('LANG-PINS.json has no English pin');
+const asset = (manifest.assets || []).find((a) => a.path === 'eng.traineddata');
+if (!asset) throw new Error('manifest.json is missing the English asset pin');
+if (asset.sha256 !== lang.sha256 || asset.bytes !== lang.bytes || asset.url !== lang.url) {
+  throw new Error('English asset pin does not match LANG-PINS.json');
+}
+if (asset.optional !== true) throw new Error('eng.traineddata must be an optional asset pin');
+
+if (manifest.minBuild !== 1381) throw new Error('minBuild must be 1381');
+if (manifest.name !== 'Read Aloud' || manifest.shortName !== 'Read Aloud') {
+  throw new Error('name and shortName must be Read Aloud');
+}
 if (manifest.appId !== 'pdf-read-aloud') throw new Error('appId must be pdf-read-aloud');
 if (!manifest.capabilities || manifest.capabilities.db !== true) {
   throw new Error('manifest must declare capabilities.db');
@@ -106,6 +138,12 @@ for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage',
 if (/\bDrop\b/.test(listing.tagline) || /\bDrop\b/.test(listing.description)) {
   throw new Error('listing copy: say Open, not Drop');
 }
+if (!/pasted text/.test(listing.tagline) || !/image of text/.test(listing.tagline)) {
+  throw new Error('tagline must say pasted text and an image of text');
+}
+for (const tag of ['pdf', 'ocr', 'text']) {
+  if (!listing.tags || listing.tags.indexOf(tag) < 0) throw new Error('listing.tags must include ' + tag);
+}
 
 const sample = samplePdfBytes();
 if (sample.subarray(0, 5).toString() !== '%PDF-') throw new Error('sample PDF is not a PDF');
@@ -120,10 +158,14 @@ writeFileSync(join(dir, 'sample.pdf'), sample);
 
 const workerJs = ('window.PDF_WORKER_SRC=' + JSON.stringify(pdfWorker) + ';').split('</').join('<\\/');
 const sampleJs = 'window.SAMPLE_PDF_B64=' + JSON.stringify(sample.toString('base64')) + ';';
+const workerBody = read('ocr-worker.js');
+const workerBundle = glue + '\n' + workerBody;
+if (/<\/script/i.test(workerBundle)) throw new Error('ocr worker bundle contains </script');
+const ocrWorkerJs = ('window.OCR_WORKER_SRC=' + JSON.stringify(workerBundle) + ';').split('</').join('<\\/');
 
 const SCRIPTS = [
-  'vendor/pdf.min.js', 'pdf-worker.js', 'sample.js',
-  'text.js', 'speak.js', 'store.js', 'view.js', 'boot.js'
+  'vendor/pdf.min.js', 'pdf-worker.js', 'ocr-worker.js', 'sample.js',
+  'text.js', 'speak.js', 'store.js', 'view.js', 'ocr.js', 'boot.js'
 ];
 
 const files = {
@@ -132,14 +174,19 @@ const files = {
   'style.css': read('style.css'),
   'vendor/pdf.min.js': pdfLib,
   'pdf-worker.js': workerJs,
+  'ocr-worker.js': ocrWorkerJs,
   'sample.js': sampleJs,
   'text.js': read('text.js'),
   'speak.js': read('speak.js'),
   'store.js': read('store.js'),
   'view.js': read('view.js'),
+  'ocr.js': read('ocr.js'),
   'boot.js': read('boot.js'),
   'COPYING-pdfjs.txt': read('vendor/COPYING-pdfjs.txt'),
+  'COPYING-tesseract.txt': read('vendor/COPYING-tesseract.txt'),
   'UPSTREAM.txt': read('vendor/UPSTREAM.txt'),
+  'UPSTREAM-tesseract.txt': read('vendor/UPSTREAM-tesseract.txt'),
+  '.assets/tesseract-core.wasm': wasm,
   'sample.pdf': sample,
 };
 
@@ -154,6 +201,8 @@ for (const s of SCRIPTS) {
   if (!html.includes('src="' + s + '"')) throw new Error('index.html does not load ' + s);
 }
 if (!html.includes('href="style.css"')) throw new Error('index.html does not load style.css');
+if (!html.includes('<title>Read Aloud</title>')) throw new Error('title must be Read Aloud');
+if (!html.includes('>Read Aloud<')) throw new Error('heading must be Read Aloud');
 if (/type=["']module["']/.test(html)) throw new Error('classic scripts only — no type=module');
 if (/https?:\/\//i.test(html.replace(/<!--[\s\S]*?-->/g, ''))) {
   throw new Error('index.html has an external URL');
@@ -175,13 +224,32 @@ if (files['view.js'].includes('GlobalWorkerOptions.workerPort')) {
 if (!files['view.js'].includes('PDFWorker') || !files['view.js'].includes('mintWorker')) {
   throw new Error('view.js must mint a fresh PDFWorker per open');
 }
+if (!files['ocr.js'].includes('gifos.assets')) throw new Error('ocr.js must call gifos.assets');
+if (!files['ocr.js'].includes('eng.traineddata')) throw new Error('ocr.js must ask for eng.traineddata');
+if (!files['ocr.js'].includes('tesseract-core.wasm')) throw new Error('ocr.js must ask for tesseract-core.wasm');
+if (!files['ocr.js'].includes('OCR_WORKER_SRC')) throw new Error('ocr.js must mint the blob worker');
+if (!files['boot.js'].includes('Reading text from image…')) throw new Error('boot.js must show image progress');
+if (!files['boot.js'].includes('plainToSentences')) throw new Error('boot.js must split pasted text with text.js');
+if (!files['text.js'].includes('plainToSentences')) throw new Error('text.js must split pasted text');
+if (!files['COPYING-tesseract.txt'].includes('Apache License')) {
+  throw new Error('COPYING-tesseract.txt is not the Apache-2.0 notice');
+}
+const codeLines = (s) => s.split('\n').filter((l) => {
+  const t = l.trim();
+  return t && !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*');
+}).join('\n');
+for (const [n, s] of [['ocr.js', codeLines(files['ocr.js'])], ['ocr-worker.js', codeLines(workerBody)]]) {
+  for (const bad of ['new Function(', 'eval(', 'XMLHttpRequest', 'importScripts(', 'fetch(']) {
+    if (s.includes(bad)) throw new Error(n + ' uses ' + bad);
+  }
+}
 
 for (const [n, s] of Object.entries(files)) {
   if (typeof s !== 'string' || !n.endsWith('.js')) continue;
   if (/<\/script/i.test(s) && n !== 'pdf-worker.js') {
     throw new Error(n + ' contains </script — cannot inline safely');
   }
-  if (n === 'vendor/pdf.min.js' || n === 'pdf-worker.js' || n === 'sample.js') continue;
+  if (n === 'vendor/pdf.min.js' || n === 'pdf-worker.js' || n === 'ocr-worker.js' || n === 'sample.js') continue;
   if (/^\s*export\s|export\{|import\.meta/m.test(s) || /^\s*import\s/m.test(s)) {
     throw new Error(n + ' uses ESM syntax — the classic-script inline path cannot carry it.');
   }

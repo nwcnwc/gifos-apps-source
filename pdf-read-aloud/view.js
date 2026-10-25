@@ -323,5 +323,20 @@
     }
   };
 
+  View.prototype.close = function () {
+    this._gen++;
+    var old = this._teardown();
+    this.bytes = null;
+    this.name = '';
+    this.numPages = 0;
+    this.sentences = [];
+    this.sentence = null;
+    this.page = 1;
+    this._lastCssVp = null;
+    if (this.hlLayer) this.hlLayer.innerHTML = '';
+    if (this.textLayer) this.textLayer.innerHTML = '';
+    return Promise.resolve(old);
+  };
+
   root.PdfView = View;
 })(typeof window !== 'undefined' ? window : this);

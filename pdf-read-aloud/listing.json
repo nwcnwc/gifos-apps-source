@@ -1,13 +1,16 @@
 {
-  "tagline": "Open a PDF and hear it read aloud. The file stays on this device.",
-  "description": "Open a PDF and this app reads it sentence by sentence. The page follows along, and the sentence you hear is marked.\n\nThe file stays on this device. It is not sent to a server. Close the app, come back, and you are on the same sentence.\n\nThe voice is the computer's Text → speech voice. Install Offline TTS from the store, keep it in Providers, and assign it to Text → speech in Settings. If no voice is installed, or the voice fails, the app says so. It does not substitute another sound.\n\nA two-page public-domain note is already open the first time, so you can press Play before you pick a file of your own.\n\nThe pages are drawn by Mozilla's pdf.js (Apache-2.0), packed in.",
+  "tagline": "Read a PDF, pasted text, or an image of text aloud. The file stays on this device.",
+  "description": "Read a PDF, pasted text, or an image of text aloud. The file stays on this device.\n\nOpen a PDF and this app reads it sentence by sentence. The page follows along, and the sentence you hear is marked. Paste or type text and it is read the same way. Open a picture of text, or paste one, and the words are read on this device, then spoken.\n\nThe file stays on this device. It is not sent to a server. Close the app, come back, and you are on the same sentence.\n\nThe voice is the computer's Text → speech voice. Install Offline TTS from the store, keep it in Providers, and assign it to Text → speech in Settings. If no voice is installed, or the voice fails, the app says so. It does not substitute another sound.\n\nA two-page public-domain note is already open the first time, so you can press Play before you pick a file of your own.\n\nThe pages are drawn by Mozilla's pdf.js (Apache-2.0), packed in. Words in a picture are read with Tesseract (Apache-2.0). English reading data downloads the first time you open an image, then stays on this device.",
   "author": "GifOS",
   "releaseDate": "2026-10-11",
+  "updated": "2026-10-24",
   "categories": [
     "Utilities"
   ],
   "tags": [
     "pdf",
+    "ocr",
+    "text",
     "read-aloud",
     "reader",
     "accessibility",

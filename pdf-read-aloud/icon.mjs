@@ -1,4 +1,4 @@
-// PDF Read Aloud icon: a white page, a copper bar, a line that lights up,
+// Read Aloud icon: a white page, a copper bar, a line that lights up,
 // and sound waves that pulse. Cover is the reader mid-sentence. Pure Node.
 import { deflateSync } from 'node:zlib';
 
