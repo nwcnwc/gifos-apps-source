@@ -57,8 +57,11 @@ a space.
 Synthesis does not wait for playback. From the moment the text is ready, the
 app asks for every remaining sentence, one call at a time, as soon as the
 previous call returns. Later PDF pages are included as soon as their sentences
-exist. Clips are decoded before they play. The line `#buffer` shows how many
-sentences are prepared and how many of those sit ahead of the one you are on.
+exist. Each prepared clip is kept as the compact bytes the voice returned.
+An AudioBuffer is built only for the sentence that is playing and about three
+ahead of it, and that buffer is dropped after it plays. The line `#buffer`
+shows how many sentences are prepared and how many of those sit ahead of the
+one you are on. The count is not limited.
 
 Each sentence is sent to the voice once (1.1.4). A decoded clip is placed on
 the audio clock as soon as it is ready, at the end of the clip already
@@ -68,8 +71,11 @@ coming back or being decoded, Play, Pause, resume, Stop, and a jump wait for
 the request already in flight. The sentence is sent again only if that request
 failed, or when a different file, text, or picture replaces this one.
 
-A memory guard holds this at 400 sentences or about 200 MB of audio. Past that,
-synthesis waits until a played clip can be released.
+A memory guard caps how much prepared audio is held. On a device that reports
+4 GB or less (`navigator.deviceMemory`), that cap is about 60 MB of voice
+bytes and the sentence count is not capped. Otherwise the cap stays 400
+sentences or about 200 MB. Past the cap, synthesis waits until a played clip
+can be released.
 
 **Pause** holds the audio only. Preparation keeps going, so **Play** continues
 from the clip that is already decoded. **Stop** stops the audio and returns to

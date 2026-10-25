@@ -193,6 +193,14 @@
         function finish(err) {
           if (settled) return;
           settled = true;
+          var n = node;
+          node = null;
+          if (n) {
+            try { n.onended = null; } catch (e) { void e; }
+            try { n.disconnect(); } catch (e2) { void e2; }
+            try { n.buffer = null; } catch (e3) { void e3; }
+          }
+          decoded = null;
           if (err) reject(err); else resolve();
         }
         function halt() {
@@ -202,6 +210,7 @@
           try { n.onended = null; } catch (e) { void e; }
           try { n.stop(); } catch (e2) { void e2; }
           try { n.disconnect(); } catch (e3) { void e3; }
+          try { n.buffer = null; } catch (e4) { void e4; }
         }
         function place(off) {
           var now = ctx.currentTime;
@@ -323,20 +332,64 @@
     };
   }
 
+  function holdBytes(bytes) {
+    var u = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || 0);
+    var copy = new Uint8Array(u.byteLength);
+    copy.set(u);
+    return copy;
+  }
+
+  // The voice bytes stay compact. decode() builds an AudioBuffer only when
+  // the reader asks, for the clip that is about to play.
   function prepareBytes(audio) {
     var ctx = sharedCtx();
-    var encoded = audio && audio.bytes && audio.bytes.byteLength || 0;
-    if (!ctx || typeof ctx.decodeAudioData !== 'function' || !audio || audio.bytes == null) {
+    var hold;
+    try { hold = holdBytes(audio && audio.bytes); }
+    catch (e) { return prepareElement(audio); }
+    if (!ctx || typeof ctx.decodeAudioData !== 'function' || !hold || !hold.byteLength) {
       return prepareElement(audio);
     }
-    var copy;
-    try { copy = copyAudioBuffer(audio.bytes); }
-    catch (e) { return prepareElement(audio); }
-    return ctx.decodeAudioData(copy).then(function (decoded) {
-      return prepareBuffer(ctx, decoded, encoded);
-    }, function () {
-      return prepareElement(audio);
-    });
+    var decoded = null;
+    var element = null;
+    var shell = {
+      bytes: hold.byteLength,
+      schedules: false,
+      ready: Promise.resolve(),
+      resetClock: function () { playClock.end = 0; },
+      decode: function () {
+        if (decoded || element) {
+          shell.schedules = true;
+          return Promise.resolve();
+        }
+        var copy;
+        try { copy = copyAudioBuffer(hold); }
+        catch (e) { return Promise.reject(e); }
+        return ctx.decodeAudioData(copy).then(function (buf) {
+          decoded = buf;
+          shell.schedules = true;
+        }, function () {
+          element = prepareElement({ bytes: hold, mime: (audio && audio.mime) || 'audio/wav' });
+          shell.schedules = true;
+        });
+      },
+      releaseDecoded: function () {
+        decoded = null;
+        if (!element) shell.schedules = false;
+      },
+      drop: function () {
+        decoded = null;
+        hold = null;
+        shell.schedules = false;
+        if (element && element.drop) element.drop();
+        element = null;
+      },
+      play: function () {
+        if (element) return element.play();
+        if (!decoded) throw new Error('PLAYBACK: The audio did not play.');
+        return prepareBuffer(ctx, decoded, shell.bytes).play();
+      }
+    };
+    return shell;
   }
 
   function dropReader() {
@@ -350,6 +403,9 @@
   function makeReader() {
     dropReader();
     sourceSerial++;
+    var limits = root.PdfSpeak.limitsFor
+      ? root.PdfSpeak.limitsFor(root.navigator && root.navigator.deviceMemory)
+      : { maxBytes: root.PdfSpeak.MAX_BYTES, maxSentences: root.PdfSpeak.MAX_SENTENCES };
     reader = root.PdfSpeak.createReader({
       sentences: sentences,
       index: cursor,
@@ -357,6 +413,8 @@
       voice: '',
       sourceId: sourceSerial,
       preparing: preparingOn,
+      maxBytes: limits.maxBytes,
+      maxSentences: limits.maxSentences,
       tts: ttsCall,
       prepare: prepareBytes,
       onBuffer: function () { scheduleUi(); },

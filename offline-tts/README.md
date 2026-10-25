@@ -20,11 +20,15 @@ offline: no network capability, no key, nothing leaves the device.
   enforces — that pattern is reserved for genuinely huge public model
   weights (docs/providers.md).
 - `app.js` is a compact driver derived from meSpeak's raw-WAV path
-  (VFS setup → argstack → `run()` → read `wav.wav`), with the known
-  every-~80th-call FS hiccup handled by a rebuild-and-retry. `run()` is a
-  single synchronous call, so the provider declares `capabilities.wasm` and
-  does that call in a blob worker. The main thread only forwards the request.
-  One sentence is synthesized at a time, and the worker yields before each one.
+  (VFS setup → argstack → `run()` → read `wav.wav`). `run()` is one
+  synchronous call, so the provider declares `capabilities.wasm` and does
+  that call in a blob worker. The worker keeps a single eSpeak instance.
+  Each call reuses that instance's static heap instead of allocating another,
+  and the WAV samples are transferred out and dropped. Every 40 calls, or if
+  the worker heap grows past its cap, the page terminates the worker and
+  starts a fresh one. Requests still waiting are sent to the new worker.
+  The main thread only forwards the request. One sentence is synthesized at
+  a time, and the worker yields before each one.
 - OpenAI-style voice names (`nova`, `onyx`, `whisper`, …) map onto eSpeak
   variants, so consumer apps written against a cloud TTS work unchanged.
   `speed` accepts the OpenAI 0.25–4 multiplier; returns 22.05 kHz mono WAV

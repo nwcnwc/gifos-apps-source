@@ -5,6 +5,8 @@
  * A clip that is already requested or still decoding is not requested again.
  * When the voice returns a clip that can be scheduled, it is armed at once
  * so the next sentence is already on the audio clock before this one ends.
+ * Prepared clips stay as the compact bytes the voice returned. Only the
+ * clip that is playing and a few ahead of it are decoded.
  * Play, pause, resume, and seek wait for an in-flight request. It is sent
  * again only if the request failed, or the source was replaced.
  * A memory guard pauses that work. Pause and Stop leave the buffer alone.
@@ -18,6 +20,15 @@
   var INSTALL = 'Install Offline TTS from the store, then assign it to Text → speech in Settings.';
   var MAX_SENTENCES = 400;
   var MAX_BYTES = 200 * 1024 * 1024;
+  var LOW_BYTES = 60 * 1024 * 1024;
+  var DECODE_AHEAD = 3;
+
+  function limitsFor(deviceMemory) {
+    if (typeof deviceMemory === 'number' && isFinite(deviceMemory) && deviceMemory <= 4) {
+      return { maxBytes: LOW_BYTES, maxSentences: 0x7fffffff };
+    }
+    return { maxBytes: MAX_BYTES, maxSentences: MAX_SENTENCES };
+  }
 
   function installMessage(err) {
     var detail = '';
@@ -407,6 +418,56 @@
       return null;
     }
 
+    function anchorOrd() {
+      if (playing || paused || currentItem) return waitOrd;
+      return chunkFor(index);
+    }
+
+    function clipSchedulable(item) {
+      if (!item || !item.prep) return false;
+      if (typeof item.prep.decode === 'function') return !!item.prep.schedules;
+      return true;
+    }
+
+    function releaseDecoded(item) {
+      if (!item || !item.prep || item.handle) return;
+      if (typeof item.prep.releaseDecoded !== 'function') return;
+      try { item.prep.releaseDecoded(); }
+      catch (e) { void e; }
+      item.warm = null;
+    }
+
+    function warmDecode() {
+      var start = anchorOrd();
+      if (!(start >= 0)) start = 0;
+      var last = start + DECODE_AHEAD;
+      var i;
+      for (i = 0; i < cache.length; i++) {
+        var item = cache[i];
+        if (!item || !item.prep || typeof item.prep.decode !== 'function') continue;
+        if (i >= start && i <= last) {
+          if (!item.prep.schedules && !item.warm) {
+            (function (held) {
+              var pending;
+              try { pending = held.prep.decode(); }
+              catch (e) { pending = Promise.reject(e); }
+              held.warm = Promise.resolve(pending).then(function () {
+                held.warm = null;
+                if (dead) return;
+                maybePlayWaiting();
+              }, function (err) {
+                held.warm = null;
+                if (dead) return;
+                failPlayback(err, /^PLAYBACK:/.test(String(err && err.message || err)) ? 'playback' : 'no-voice');
+              });
+            })(item);
+          }
+        } else if (!item.handle) {
+          releaseDecoded(item);
+        }
+      }
+    }
+
     function oldestConsumed() {
       var i;
       for (i = 0; i < cache.length; i++) {
@@ -502,6 +563,7 @@
       if (!item || item.handle !== handle || item.consumed) return;
       item.consumed = true;
       item.handle = null;
+      releaseDecoded(item);
       if (current === handle) {
         current = null;
         currentItem = null;
@@ -512,6 +574,7 @@
         return;
       }
       waitOrd = next;
+      warmDecode();
       if (next >= chunks.length) {
         relax();
         finishOk();
@@ -529,6 +592,7 @@
     }
 
     function maybePlayWaiting() {
+      warmDecode();
       if (!playing || paused) return;
       if (!current) {
         if (!startClip(waitOrd)) return;
@@ -542,6 +606,10 @@
       if (ord < 0 || ord >= chunks.length) return false;
       var item = cache[ord];
       if (!item || !item.prep) return false;
+      if (!clipSchedulable(item)) {
+        warmDecode();
+        return false;
+      }
       if (item.handle) return adopt(ord);
       var handle = callPlay(item);
       if (!handle) return false;
@@ -940,6 +1008,9 @@
     INSTALL: INSTALL,
     MAX_SENTENCES: MAX_SENTENCES,
     MAX_BYTES: MAX_BYTES,
+    LOW_BYTES: LOW_BYTES,
+    DECODE_AHEAD: DECODE_AHEAD,
+    limitsFor: limitsFor,
     bufferLabel: bufferLabel,
     installMessage: installMessage,
     splitLead: splitLead,

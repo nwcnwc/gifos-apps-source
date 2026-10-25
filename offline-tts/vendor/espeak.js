@@ -81837,6 +81837,20 @@ Module.callMain = function callMain(args) {
 
 function run(args) {
   args = args || Module.arguments;
+  // ALLOC_STATIC never returns memory. run() repeats that bump on every
+  // sentence, walks off the 50 MB heap after a few dozen calls, and a second
+  // ESpeak() then allocates another heap while the first is still alive.
+  // The filesystem and stdio live below the mark. Everything run() allocates
+  // above it is redone from scratch, so put the bump back on each call.
+  if (run.__mark == null) {
+    if (!FS.init.initialized) FS.init();
+    run.__mark = STATICTOP;
+    run.__stack = STACKTOP;
+  } else {
+    STATICTOP = run.__mark;
+    STACKTOP = run.__stack;
+    ABORT = false;
+  }
 
 
 _path_home=allocate(150, "i8", ALLOC_STATIC);
@@ -83301,6 +83315,7 @@ FUNCTION_TABLE = [0,0,__ZL13rgroup_sorterP6RGROUPS0_,0,__Z13string_sorterPPcS0_,
     ret = Module.callMain(args);
     __shutdownRuntime__();
   }
+  Module.__staticTop = STATICTOP;
   return ret;
 }
 Module.run = run;

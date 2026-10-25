@@ -402,6 +402,11 @@ async function main() {
     check('twelve words stay one chunk', S.PdfSpeak.splitLead(twelve.join(' ')).length === 1);
     check('the memory guard defaults to four hundred sentences', S.PdfSpeak.MAX_SENTENCES === 400);
     check('the memory guard defaults to about two hundred megabytes', S.PdfSpeak.MAX_BYTES === 200 * 1024 * 1024);
+    check('a small device caps prepared audio around sixty megabytes and does not cap the count',
+      S.PdfSpeak.limitsFor(4).maxBytes === 60 * 1024 * 1024 && S.PdfSpeak.limitsFor(4).maxSentences > S.PdfSpeak.MAX_SENTENCES);
+    check('a larger device keeps the existing guard',
+      S.PdfSpeak.limitsFor(8).maxBytes === S.PdfSpeak.MAX_BYTES && S.PdfSpeak.limitsFor(8).maxSentences === S.PdfSpeak.MAX_SENTENCES &&
+      S.PdfSpeak.limitsFor(undefined).maxBytes === S.PdfSpeak.MAX_BYTES);
     check('the buffer line names prepared and ready',
       S.PdfSpeak.bufferLabel({ prepared: 37, total: 120, ahead: 12 }) === 'Prepared 37 / 120 · 12 ready ahead');
   }
@@ -869,6 +874,62 @@ async function main() {
     check('a ready clip is armed before the one playing it ends',
       armed.join(',') === 'A.,B.,C.' && gates.length === 3 && !gates[0].settled, armed.slice());
     ahead.close();
+  }
+
+  {
+    const texts = ['A.', 'B.', 'C.', 'D.', 'E.', 'F.', 'G.', 'H.'];
+    const decoded = [];
+    const released = [];
+    const windowGates = [];
+    const windowReader = S.PdfSpeak.createReader({
+      sentences: texts.map((text) => ({ text: text, page: 1 })),
+      maxSentences: 100,
+      tts: (req) => Promise.resolve({ bytes: new Uint8Array(32), mime: 'audio/wav' }),
+      prepare: (audio) => {
+        const prep = {
+          bytes: 32,
+          schedules: false,
+          drop: function () {},
+          releaseDecoded: function () {
+            if (!prep.schedules) return;
+            prep.schedules = false;
+            released.push(audio.text);
+          },
+          decode: function () {
+            decoded.push(audio.text);
+            prep.schedules = true;
+            return Promise.resolve();
+          },
+          play: function () {
+            const d = deferred();
+            windowGates.push(d);
+            return {
+              done: d.promise,
+              endingSoon: function () { return false; },
+              pause: function () {},
+              resume: function () {},
+              stop: function () { d.resolve(); },
+              schedules: true
+            };
+          }
+        };
+        return prep;
+      }
+    });
+    windowReader.play();
+    for (let n = 0; n < 30; n++) await flush();
+    const aheadN = S.PdfSpeak.DECODE_AHEAD;
+    check('prepared clips stay counted while only a few are decoded',
+      windowReader.stats().prepared === texts.length &&
+      decoded.length === aheadN + 1 &&
+      decoded.join(',') === texts.slice(0, aheadN + 1).join(','),
+      { decoded: decoded.slice(), prepared: windowReader.stats() });
+    windowGates[0].resolve();
+    for (let n = 0; n < 20; n++) await flush();
+    check('the next clip is decoded when one finishes and the played buffer is dropped',
+      decoded.indexOf('E.') >= 0 && released.indexOf('A.') >= 0 && decoded.length === aheadN + 2,
+      { decoded: decoded.slice(), released: released.slice() });
+    windowReader.close();
   }
 
   async function miss(label, ttsFn) {
