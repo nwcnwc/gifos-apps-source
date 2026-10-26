@@ -125,6 +125,9 @@
     var flight = Object.create(null);
     var waitOrd = 0;
     var cache = [];
+    // Ords already played and released. pickNext must not wrap back and
+    // synthesize them again.
+    var released = [];
     var cacheCount = 0;
     var cacheBytes = 0;
     var pendingCount = 0;
@@ -270,6 +273,7 @@
         if (cache[i]) dropPrep(cache[i].prep);
       }
       cache = [];
+      released = [];
       cacheCount = 0;
       cacheBytes = 0;
       pendingCount = 0;
@@ -437,7 +441,7 @@
       if (!(start >= 0)) start = 0;
       var i;
       for (i = start; i < chunks.length; i++) if (!cache[i] && !inFlight(chunks[i])) return chunks[i];
-      for (i = 0; i < start; i++) if (!cache[i] && !inFlight(chunks[i])) return chunks[i];
+      for (i = 0; i < start; i++) if (!cache[i] && !released[i] && !inFlight(chunks[i])) return chunks[i];
       return null;
     }
 
@@ -514,6 +518,7 @@
         if (!item.consumed) continue;
         dropPrep(item.prep);
         cache[i] = null;
+        released[i] = true;
         changed = true;
       }
       if (changed) {
@@ -545,6 +550,7 @@
         if (ord == null) break;
         dropPrep(cache[ord].prep);
         cache[ord] = null;
+        released[ord] = true;
         recount();
       }
       emitBuffer();
@@ -837,6 +843,7 @@
         dropPrep(cache[i].prep);
         cache[i] = null;
       }
+      released = [];
       resetClock();
       restoreClock();
       recount();
@@ -882,6 +889,7 @@
         playEpoch++;
         haltHandle();
       }
+      if (released.length > n) released.length = n;
       chunks = nextChunks;
       recount();
       index = clampIndex(index);
