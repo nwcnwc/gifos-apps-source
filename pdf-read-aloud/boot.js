@@ -18,9 +18,7 @@
   var placeSaved = null;
   var audioCtx = null;
   var playClock = { end: 0 };
-  var uiQueued = false;
   var uiAt = 0;
-  var bufferQueued = false;
   var bufferAt = 0;
   var pendingHighlight = false;
   var saveTimer = 0;
@@ -86,25 +84,16 @@
   }
 
   // The prepared count used to be rewritten on every clip, which laid out the
-  // bar hundreds of times a second. Paint it on a frame, and at most four
-  // times a second. No timer: a hidden tab clamps setTimeout, and this text
-  // is not what keeps preparation moving.
+  // bar hundreds of times a second. Paint on the event that asked for it, and
+  // at most four times a second. No timer and no animation frame: on this
+  // phone a frame inside the player never got a requestAnimationFrame callback
+  // at all, so a frame-gated counter stayed at zero while audio played, and a
+  // hidden tab clamps setTimeout. Preparation itself does not wait on this text.
   function scheduleBuffer() {
-    if (bufferQueued) return;
-    bufferQueued = true;
-    var tick = function () {
-      var now = Date.now();
-      if (bufferAt && now - bufferAt < 250) {
-        if (root.requestAnimationFrame) root.requestAnimationFrame(tick);
-        else bufferQueued = false;
-        return;
-      }
-      bufferQueued = false;
-      bufferAt = now;
-      paintBuffer();
-    };
-    if (root.requestAnimationFrame) root.requestAnimationFrame(tick);
-    else tick();
+    var now = Date.now();
+    if (bufferAt && now - bufferAt < 250) return;
+    bufferAt = now;
+    paintBuffer();
   }
 
   function flushUi() {
@@ -120,21 +109,10 @@
 
   function scheduleUi() {
     pendingHighlight = true;
-    if (uiQueued) return;
-    uiQueued = true;
-    var kick = function () {
-      uiQueued = false;
-      var now = Date.now();
-      if (uiAt && now - uiAt < 250) {
-        uiQueued = true;
-        setTimeout(kick, 250 - (now - uiAt));
-        return;
-      }
-      uiAt = Date.now();
-      flushUi();
-    };
-    if (root.requestAnimationFrame) root.requestAnimationFrame(function () { kick(); });
-    else setTimeout(kick, 16);
+    var now = Date.now();
+    if (uiAt && now - uiAt < 250) return;
+    uiAt = now;
+    flushUi();
   }
 
   function scheduleSave() {
