@@ -20,6 +20,8 @@
   var playClock = { end: 0 };
   var uiQueued = false;
   var uiAt = 0;
+  var bufferQueued = false;
+  var bufferAt = 0;
   var pendingHighlight = false;
   var saveTimer = 0;
   var watchGen = 0;
@@ -79,7 +81,30 @@
     var el = $('buffer');
     if (!el || !root.PdfSpeak || !root.PdfSpeak.bufferLabel) return;
     var info = reader ? reader.stats() : { prepared: 0, total: sentences.length, ahead: 0 };
-    el.textContent = root.PdfSpeak.bufferLabel(info);
+    var next = root.PdfSpeak.bufferLabel(info);
+    if (el.textContent !== next) el.textContent = next;
+  }
+
+  // The prepared count used to be rewritten on every clip, which laid out the
+  // bar hundreds of times a second. Paint it on a frame, and at most four
+  // times a second. No timer: a hidden tab clamps setTimeout, and this text
+  // is not what keeps preparation moving.
+  function scheduleBuffer() {
+    if (bufferQueued) return;
+    bufferQueued = true;
+    var tick = function () {
+      var now = Date.now();
+      if (bufferAt && now - bufferAt < 250) {
+        if (root.requestAnimationFrame) root.requestAnimationFrame(tick);
+        else bufferQueued = false;
+        return;
+      }
+      bufferQueued = false;
+      bufferAt = now;
+      paintBuffer();
+    };
+    if (root.requestAnimationFrame) root.requestAnimationFrame(tick);
+    else tick();
   }
 
   function flushUi() {
@@ -417,7 +442,7 @@
       maxSentences: limits.maxSentences,
       tts: ttsCall,
       prepare: prepareBytes,
-      onBuffer: function () { scheduleUi(); },
+      onBuffer: function () { scheduleBuffer(); },
       onIndex: function (i) {
         cursor = i;
         scheduleUi();

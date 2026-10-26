@@ -1,12 +1,13 @@
 /* Speak sentences through a Text → speech function.
- * Synthesis does not wait for playback. From the moment a source is ready,
- * clips are requested one at a time, as soon as the previous call returns,
- * for every remaining sentence and then any gap behind the playhead.
- * A clip that is already requested or still decoding is not requested again.
- * When the voice returns a clip that can be scheduled, it is armed at once
- * so the next sentence is already on the audio clock before this one ends.
+ * Synthesis does not wait for playback. Two requests stay in flight so the
+ * voice is never idle waiting for this page. A clip that is already
+ * requested or still decoding is not requested again. When the voice returns
+ * a clip that can be scheduled, it is armed at once so the next sentence is
+ * already on the audio clock before this one ends.
  * Prepared clips stay as the compact bytes the voice returned. Only the
- * clip that is playing and a few ahead of it are decoded.
+ * clip that is playing and a few ahead of it are decoded, one decode at a
+ * time. Clips that have already played are dropped once they are more than
+ * two behind the playhead, so the byte cap counts what is still ahead.
  * Play, pause, resume, and seek wait for an in-flight request. It is sent
  * again only if the request failed, or the source was replaced.
  * A memory guard pauses that work. Pause and Stop leave the buffer alone.
@@ -18,15 +19,18 @@
   'use strict';
 
   var INSTALL = 'Install Offline TTS from the store, then assign it to Text → speech in Settings.';
-  var MAX_SENTENCES = 400;
-  var MAX_BYTES = 200 * 1024 * 1024;
-  var LOW_BYTES = 60 * 1024 * 1024;
+  // No sentence-count cap. The byte cap is the same on every device, including
+  // ones that report 4 GB. Played clips are released, so this is room for
+  // audio still ahead of the playhead (plus two sentences kept for back-skip).
+  var MAX_SENTENCES = 0x7fffffff;
+  var MAX_BYTES = 300 * 1024 * 1024;
+  var LOW_BYTES = MAX_BYTES;
   var DECODE_AHEAD = 3;
+  var PIPELINE = 2;
+  var KEEP_BEHIND = 2;
 
   function limitsFor(deviceMemory) {
-    if (typeof deviceMemory === 'number' && isFinite(deviceMemory) && deviceMemory <= 4) {
-      return { maxBytes: LOW_BYTES, maxSentences: 0x7fffffff };
-    }
+    void deviceMemory;
     return { maxBytes: MAX_BYTES, maxSentences: MAX_SENTENCES };
   }
 
@@ -117,7 +121,6 @@
     var runPromise = null;
     var runResolve = null;
     var settled = true;
-    var fetching = false;
     var fault = null;
     var flight = Object.create(null);
     var waitOrd = 0;
@@ -129,7 +132,6 @@
     var leadSentence = 0;
     var chunks = [];
     var lastNotified = -1;
-    var holdTimer = 0;
 
     function result(extra) {
       var out = {
@@ -231,8 +233,30 @@
       };
     }
 
+    function flightCount() {
+      var n = 0;
+      var k;
+      for (k in flight) {
+        if (Object.prototype.hasOwnProperty.call(flight, k)) n++;
+      }
+      return n;
+    }
+
+    function synthCount() {
+      var n = 0;
+      var k;
+      for (k in flight) {
+        if (flight[k] && flight[k].synth) n++;
+      }
+      return n;
+    }
+
     function overCap() {
-      return (cacheCount + pendingCount) >= maxSentences || (cacheBytes + pendingBytes) >= maxBytes;
+      // In-flight requests count toward a sentence cap so a tight cap cannot
+      // be overrun by the pipeline. Byte size is known only once the voice
+      // returns, so the byte cap is the stored audio plus anything still decoding.
+      if ((cacheCount + pendingCount + flightCount()) >= maxSentences) return true;
+      return (cacheBytes + pendingBytes) >= maxBytes;
     }
 
     function dropPrep(prep) {
@@ -328,7 +352,6 @@
       playEpoch++;
       haltHandle();
       fault = err;
-      fetching = false;
       settle(result({
         code: code || 'no-voice',
         error: true,
@@ -442,11 +465,17 @@
       if (!(start >= 0)) start = 0;
       var last = start + DECODE_AHEAD;
       var i;
+      var started = false;
       for (i = 0; i < cache.length; i++) {
         var item = cache[i];
         if (!item || !item.prep || typeof item.prep.decode !== 'function') continue;
         if (i >= start && i <= last) {
           if (!item.prep.schedules && !item.warm) {
+            // One decode per turn. The copy and decodeAudioData stay off the
+            // tap that just ran; the rest of the window follows when this one
+            // settles, still from the decode promise rather than a timer.
+            if (started) continue;
+            started = true;
             (function (held) {
               var pending;
               try { pending = held.prep.decode(); }
@@ -454,6 +483,7 @@
               held.warm = Promise.resolve(pending).then(function () {
                 held.warm = null;
                 if (dead) return;
+                warmDecode();
                 maybePlayWaiting();
               }, function (err) {
                 held.warm = null;
@@ -468,6 +498,31 @@
       }
     }
 
+    // Free compact bytes of clips that have already played and fallen more
+    // than KEEP_BEHIND behind the playhead. The two kept behind are for
+    // back-skip. Clips that were jumped over and never played stay.
+    function releasePlayed() {
+      var head = anchorOrd();
+      if (!(head >= 0)) head = 0;
+      var keepFrom = head - KEEP_BEHIND;
+      if (keepFrom <= 0) return false;
+      var changed = false;
+      var i;
+      for (i = 0; i < keepFrom && i < cache.length; i++) {
+        var item = cache[i];
+        if (!item || item === currentItem || item.handle) continue;
+        if (!item.consumed) continue;
+        dropPrep(item.prep);
+        cache[i] = null;
+        changed = true;
+      }
+      if (changed) {
+        recount();
+        emitBuffer();
+      }
+      return changed;
+    }
+
     function oldestConsumed() {
       var i;
       for (i = 0; i < cache.length; i++) {
@@ -480,6 +535,7 @@
     }
 
     function relax() {
+      releasePlayed();
       if (!overCap()) {
         if (preparing) pump();
         return;
@@ -674,7 +730,7 @@
     // A second play, seek, resume, or prefetch waits on it.
     function requestChunk(chunk) {
       var key = flightKey(chunk);
-      if (flight[key]) return flight[key];
+      if (flight[key]) return flight[key].promise;
       var ticket = token;
       var gen = sourceGen;
       var settledJob = false;
@@ -683,16 +739,18 @@
       function finish(value) {
         if (settledJob) return;
         settledJob = true;
-        if (flight[key] === promise) delete flight[key];
+        if (flight[key] && flight[key].promise === promise) delete flight[key];
         resolve(value || null);
       }
-      flight[key] = promise;
+      var entry = { promise: promise, synth: true };
+      flight[key] = entry;
       fetchChunk(chunk).then(function (audio) {
+        if (flight[key] === entry) entry.synth = false;
         if (!stillCurrent(ticket, gen)) {
           finish(null);
           return;
         }
-        fetching = false;
+        if (preparing && !fault) pump();
         var armed;
         try { armed = arm(audio); }
         catch (e) { armed = Promise.reject(e); }
@@ -715,7 +773,6 @@
             releaseReserve(ticket, gen, reserved);
             finish(null);
             if (!stillCurrent(ticket, gen)) return;
-            fetching = false;
             failPlayback(err, /^PLAYBACK:/.test(String(err && err.message || err)) ? 'playback' : 'no-voice');
           });
           return;
@@ -726,7 +783,6 @@
       }, function (err) {
         finish(null);
         if (!stillCurrent(ticket, gen)) return;
-        fetching = false;
         failPlayback(err, 'no-voice');
       });
       promise.catch(function () {});
@@ -740,7 +796,7 @@
       if (!pending) return;
       var ep = playEpoch;
       var gen = sourceGen;
-      pending.then(function () {
+      pending.promise.then(function () {
         if (gen !== sourceGen || ep !== playEpoch || dead) return;
         if (!playing || paused || current) return;
         if (waitOrd !== ord) return;
@@ -750,33 +806,20 @@
     }
 
     function pump() {
-      if (dead || !preparing || fetching || fault || holdTimer) return;
-      if (playing && !paused && current && typeof current.endingSoon === 'function') {
-        var soon = false;
-        try { soon = !!current.endingSoon(); } catch (e) { soon = false; }
-        if (soon) {
-          holdTimer = setTimeout(function () {
-            holdTimer = 0;
-            pump();
-          }, 40);
-          return;
-        }
-      }
+      if (dead || !preparing || fault) return;
       if (!chunks.length) return;
-      if (overCap()) return;
-      var chunk = pickNext();
-      if (!chunk) return;
-      if (inFlight(chunk)) {
+      releasePlayed();
+      var spins = 0;
+      while (synthCount() < PIPELINE && !overCap()) {
+        var chunk = pickNext();
+        if (!chunk || inFlight(chunk)) return;
         requestChunk(chunk);
-        return;
+        if (++spins > PIPELINE) return;
       }
-      fetching = true;
-      requestChunk(chunk);
     }
 
     function invalidateExceptPlaying() {
       token++;
-      fetching = false;
       pendingCount = 0;
       pendingBytes = 0;
       fault = null;
@@ -807,7 +850,6 @@
         token++;
         sourceGen++;
         flight = Object.create(null);
-        fetching = false;
         pendingCount = 0;
         pendingBytes = 0;
         fault = null;
@@ -862,7 +904,7 @@
             message: 'This PDF has no text to read.'
           }));
         }
-        if (fault && !cacheCount && !fetching) {
+        if (fault && !cacheCount && !flightCount()) {
           return Promise.resolve(result({
             code: 'no-voice',
             error: true,
@@ -987,7 +1029,6 @@
         token++;
         sourceGen++;
         flight = Object.create(null);
-        fetching = false;
         playing = false;
         paused = false;
         silenceHandles();
@@ -1010,6 +1051,8 @@
     MAX_BYTES: MAX_BYTES,
     LOW_BYTES: LOW_BYTES,
     DECODE_AHEAD: DECODE_AHEAD,
+    PIPELINE: PIPELINE,
+    KEEP_BEHIND: KEEP_BEHIND,
     limitsFor: limitsFor,
     bufferLabel: bufferLabel,
     installMessage: installMessage,

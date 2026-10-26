@@ -131,32 +131,35 @@
 
   // The engine is one long synchronous call. The worker keeps that call off
   // the main thread. One eSpeak lives in the worker. A second heap is never
-  // built beside it: if the call fails, or the worker has served enough
-  // sentences, the page terminates that worker and the next sentence starts
-  // in a fresh one. Jobs waiting on the page stay queued across that swap.
+  // built beside a live one. The static-top reset keeps a healthy worker
+  // flat, so the page recycles on a memory signal, not on a fixed call
+  // count. The replacement is booted first and the old worker keeps
+  // speaking until that replacement is ready. The engine Blob URL is built
+  // once. Config and voice are decoded once and transferred as bytes.
   var worker = null;
-  var workerUrl = null;
   var workerReady = null;
   var workerWaiters = Object.create(null);
   var workerSeq = 0;
-  var workerCalls = 0;
   var jobQueue = [];
-  var jobLive = null;
-  var recycling = null;
-  var CALLS_PER_WORKER = 40;
+  var spare = null;
+  var sparePromise = null;
+  var engineUrl = null;
+  var decodedVoice = null;
+  var workerGen = 0;
+  var PIPELINE = 2;
   var HEAP_CAP = 128 * 1024 * 1024;
   var STATIC_CAP = 48 * 1024 * 1024;
   var WORKER_FOOT = [
     'var espeak=null,cfgData=null,voiceData=null,optionFiles=null,voiceMap=null;',
     'function b64ToArr(str){var bin=atob(String(str||"").replace(/\\s+/g,""));var out=new Array(bin.length);for(var i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);return out;}',
     'function strToArr(s){var out=new Array(s.length);for(var i=0;i<s.length;i++)out[i]=s.charCodeAt(i);return out;}',
-    'function bootInstance(){if(espeak)throw new Error("voice engine already booted");espeak=new self.__ESpeak();var FS=espeak.FS;var put=function(path,fname,data){if(!FS.findObject(path))FS.createPath("/",path.substring(1),true,true);FS.createDataFile(path,fname,data,true,false);};var vdir="/espeak/espeak-data/voices/!v";FS.createPath("/",vdir.substring(1),true,true);FS.root.write=true;for(var fn in optionFiles)FS.createDataFile(vdir,fn,strToArr(optionFiles[fn]),true,true);["config","phontab","phonindex","phondata","intonations"].forEach(function(k){put("/espeak/espeak-data",k,b64ToArr(cfgData[k]));});if(voiceData.dict_id)put("/espeak/espeak-data",voiceData.dict_id,b64ToArr(voiceData.dict));var parts=voiceData.voice_id.split("/");var vpath="/espeak/espeak-data/voices"+(parts.length>1?"/"+parts.slice(0,-1).join("/"):"");put(vpath,parts[parts.length-1],voiceData.voice_encoding==="text"?strToArr(voiceData.voice):b64ToArr(voiceData.voice));}',
+    'function bytesOf(data){if(data==null)return [];if(typeof data==="string")return b64ToArr(data);var out=new Array(data.length);var i;for(i=0;i<data.length;i++)out[i]=data[i];return out;}',
+    'function bootInstance(){if(espeak)throw new Error("voice engine already booted");espeak=new self.__ESpeak();var FS=espeak.FS;var put=function(path,fname,data){if(!FS.findObject(path))FS.createPath("/",path.substring(1),true,true);FS.createDataFile(path,fname,data,true,false);};var vdir="/espeak/espeak-data/voices/!v";FS.createPath("/",vdir.substring(1),true,true);FS.root.write=true;for(var fn in optionFiles)FS.createDataFile(vdir,fn,strToArr(optionFiles[fn]),true,true);["config","phontab","phonindex","phondata","intonations"].forEach(function(k){put("/espeak/espeak-data",k,bytesOf(cfgData[k]));});if(voiceData.dict_id)put("/espeak/espeak-data",voiceData.dict_id,bytesOf(voiceData.dict));var parts=voiceData.voice_id.split("/");var vpath="/espeak/espeak-data/voices"+(parts.length>1?"/"+parts.slice(0,-1).join("/"):"");put(vpath,parts[parts.length-1],voiceData.voice_encoding==="text"?strToArr(voiceData.voice):bytesOf(voiceData.voice));}',
     'function takeWav(engine){var root=engine&&engine.FS&&engine.FS.root&&engine.FS.root.contents;var outfile=root&&root["wav.wav"];if(!outfile||!outfile.contents||!outfile.contents.length)throw new Error("engine produced no audio");var raw=outfile.contents;var buf=new ArrayBuffer(raw.length);var u8=new Uint8Array(buf);var i,v;for(i=0;i<raw.length;i++){v=raw[i];u8[i]=v>=0?v:256+v;}outfile.contents=null;delete root["wav.wav"];var streams=engine.FS.streams;if(streams&&streams.length>4){for(i=4;i<streams.length;i++){if(streams[i])delete streams[i];}streams.length=4;}return buf;}',
     'function heapNow(){try{var m=self.performance&&self.performance.memory;return m&&m.usedJSHeapSize||0;}catch(e){return 0;}}',
     'function synthesize(req){var text=String(req.text||"").slice(0,20000);if(!text.trim())throw new Error("Nothing to say — empty text.");if(!espeak)throw new Error("The voice engine is not ready.");var variant=voiceMap[String(req.voice||"").toLowerCase()]||(optionFiles[req.voice]?req.voice:"");var voice="en/en-us"+(variant?"+"+variant:"");var mult=Number(req.speed);var wpm=(mult>=0.25&&mult<=4)?Math.round(175*mult):175;var pitch=(Number(req.pitch)>=0&&Number(req.pitch)<=100)?Math.round(Number(req.pitch)):50;espeak.Module.arguments=["-w","wav.wav","-a","100","-g","0","-p",String(pitch),"-s",String(wpm),"-b","1","-v",voice,"--path=/espeak",text];espeak.run();return {buf:takeWav(espeak),heap:heapNow(),staticTop:espeak.Module.__staticTop||0};}',
     'var q=Promise.resolve();',
-    'function later(){return new Promise(function(ok){var go=function(){ok();};if(self.scheduler&&typeof self.scheduler.postTask==="function"){self.scheduler.postTask(go,{priority:"background"}).then(function(){},function(){setTimeout(go,16);});}else setTimeout(go,16);});}',
-    'self.onmessage=function(ev){var m=ev.data||{};if(m.type==="init"){if(espeak){self.postMessage({type:"ready",error:"voice engine already booted"});return;}optionFiles=m.optionFiles;voiceMap=m.voiceMap;try{cfgData=JSON.parse(m.config);voiceData=JSON.parse(m.voice);bootInstance();self.postMessage({type:"ready"});}catch(err){self.postMessage({type:"ready",error:String(err&&err.message||err)});}return;}if(m.type==="synth"){q=q.then(later).then(function(){try{var out=synthesize(m.req||{});self.postMessage({type:"wav",id:m.id,bytes:out.buf,heap:out.heap,staticTop:out.staticTop},[out.buf]);}catch(err){self.postMessage({type:"wav",id:m.id,error:String(err&&err.message||err)});}});}};'
+    'self.onmessage=function(ev){var m=ev.data||{};if(m.type==="init"){if(espeak){self.postMessage({type:"ready",error:"voice engine already booted"});return;}optionFiles=m.optionFiles;voiceMap=m.voiceMap;try{if(m.configBytes){cfgData=m.configBytes;voiceData={voice_id:m.voiceId,dict_id:m.dictId||"",dict:m.dict,voice:m.voiceBody,voice_encoding:m.voiceEncoding||""};}else{cfgData=JSON.parse(m.config);voiceData=JSON.parse(m.voice);}bootInstance();self.postMessage({type:"ready"});}catch(err){self.postMessage({type:"ready",error:String(err&&err.message||err)});}return;}if(m.type==="synth"){q=q.then(function(){try{var out=synthesize(m.req||{});self.postMessage({type:"wav",id:m.id,bytes:out.buf,heap:out.heap,staticTop:out.staticTop},[out.buf]);}catch(err){self.postMessage({type:"wav",id:m.id,error:String(err&&err.message||err)});}});}};'
   ].join('\n');
 
   function engineSource() {
@@ -169,17 +172,92 @@
     return '';
   }
 
+  function b64ToU8(str) {
+    var bin = atob(String(str || '').replace(/\s+/g, ''));
+    var out = new Uint8Array(bin.length);
+    var i;
+    for (i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function copyU8(src, transfers) {
+    if (!src) return null;
+    var copy = new Uint8Array(src.byteLength);
+    copy.set(src);
+    transfers.push(copy.buffer);
+    return copy;
+  }
+
+  function voiceDecoded() {
+    if (decodedVoice) return decodedVoice;
+    if (!window.PV_CONFIG_JSON || !window.PV_VOICE_JSON) return null;
+    var cfg = JSON.parse(window.PV_CONFIG_JSON);
+    var voice = JSON.parse(window.PV_VOICE_JSON);
+    var config = {};
+    var keys = ['config', 'phontab', 'phonindex', 'phondata', 'intonations'];
+    var i;
+    for (i = 0; i < keys.length; i++) config[keys[i]] = b64ToU8(cfg[keys[i]]);
+    var textVoice = voice.voice_encoding === 'text';
+    decodedVoice = {
+      config: config,
+      voiceId: voice.voice_id,
+      dictId: voice.dict_id || '',
+      dict: voice.dict_id ? b64ToU8(voice.dict) : null,
+      voiceEncoding: voice.voice_encoding || '',
+      voiceBody: textVoice ? String(voice.voice || '') : b64ToU8(voice.voice)
+    };
+    return decodedVoice;
+  }
+
+  function initMessage() {
+    var src = voiceDecoded();
+    if (!src) return null;
+    var transfers = [];
+    var config = {};
+    var k;
+    for (k in src.config) {
+      if (Object.prototype.hasOwnProperty.call(src.config, k)) config[k] = copyU8(src.config[k], transfers);
+    }
+    var textVoice = src.voiceEncoding === 'text';
+    return {
+      transfers: transfers,
+      msg: {
+        type: 'init',
+        optionFiles: OPTION_FILES,
+        voiceMap: VOICE_MAP,
+        configBytes: config,
+        voiceId: src.voiceId,
+        dictId: src.dictId,
+        dict: copyU8(src.dict, transfers),
+        voiceEncoding: src.voiceEncoding,
+        voiceBody: textVoice ? src.voiceBody : copyU8(src.voiceBody, transfers)
+      }
+    };
+  }
+
+  function engineUrlOnce() {
+    if (engineUrl) return engineUrl;
+    var src = engineSource();
+    if (!src || typeof Worker !== 'function') return '';
+    var blob = new Blob(['var window=self;\n', src, '\n', WORKER_FOOT], { type: 'text/javascript' });
+    engineUrl = URL.createObjectURL(blob);
+    return engineUrl;
+  }
+
+  function waiterCount() {
+    var n = 0;
+    var k;
+    for (k in workerWaiters) {
+      if (Object.prototype.hasOwnProperty.call(workerWaiters, k)) n++;
+    }
+    return n;
+  }
+
   function dropWorker() {
     var w = worker;
     worker = null;
     workerReady = null;
     workerWaiters = Object.create(null);
-    workerCalls = 0;
-    jobLive = null;
-    if (workerUrl) {
-      try { URL.revokeObjectURL(workerUrl); } catch (e) { void e; }
-      workerUrl = null;
-    }
     if (w) {
       w.onmessage = null;
       w.onerror = null;
@@ -187,24 +265,9 @@
     }
   }
 
-  function recycleWorker() {
-    if (recycling) return recycling;
-    recycling = Promise.resolve().then(function () {
-      dropWorker();
-    }).then(function () {
-      recycling = null;
-      pumpJobs();
-    }, function () {
-      recycling = null;
-      pumpJobs();
-    });
-    return recycling;
-  }
-
   function finishJob(job, err, bytes) {
     if (!job || job.done) return;
     job.done = true;
-    if (jobLive === job) jobLive = null;
     var i;
     for (i = 0; i < jobQueue.length; i++) {
       if (jobQueue[i] === job) {
@@ -212,76 +275,141 @@
         break;
       }
     }
+    var id;
+    for (id in workerWaiters) {
+      if (workerWaiters[id] === job) delete workerWaiters[id];
+    }
     if (err) job.reject(err);
     else job.resolve(bytes);
   }
 
-  function onWorkerWav(m) {
+  function waitersOn(host) {
+    var n = 0;
+    var id;
+    for (id in workerWaiters) {
+      if (workerWaiters[id] && workerWaiters[id].host === host) n++;
+    }
+    return n;
+  }
+
+  function retireWhenIdle(old) {
+    if (!old || old === worker) return;
+    if (waitersOn(old) > 0) return;
+    old.onmessage = null;
+    old.onerror = null;
+    try { old.terminate(); } catch (e) { void e; }
+  }
+
+  function adoptSpare() {
+    if (!spare) return false;
+    var old = worker;
+    var born = spare;
+    spare = null;
+    worker = born;
+    workerReady = Promise.resolve(born);
+    workerGen++;
+    retireWhenIdle(old);
+    pumpJobs();
+    return true;
+  }
+
+  // Boot the next worker beside the one that is speaking. The old worker
+  // keeps taking jobs until the new one has reported ready and the sentence
+  // already posted to the old one has come back.
+  function ensureReplacement() {
+    if (spare || sparePromise) return sparePromise || Promise.resolve(spare);
+    sparePromise = spawnWorker().then(function (born) {
+      sparePromise = null;
+      spare = born;
+      adoptSpare();
+      return born;
+    }, function (err) {
+      sparePromise = null;
+      throw err;
+    });
+    return sparePromise;
+  }
+
+  function onWorkerWav(born, m) {
     var job = workerWaiters[m.id];
     delete workerWaiters[m.id];
-    if (!job || job.done) return;
-    if (m.error) {
-      job.fails = (job.fails || 0) + 1;
-      jobLive = null;
-      if (job.fails <= 1) {
-        recycleWorker();
-        return;
-      }
-      finishJob(job, new Error(m.error));
+    if (born !== worker) retireWhenIdle(born);
+    if (!job || job.done) {
       pumpJobs();
       return;
     }
-    workerCalls++;
+    if (m.error) {
+      job.posted = false;
+      job.host = null;
+      job.fails = (job.fails || 0) + 1;
+      job.minGen = workerGen + 1;
+      if (job.fails <= 1) ensureReplacement();
+      else finishJob(job, new Error(m.error));
+      pumpJobs();
+      return;
+    }
     var heap = m.heap || 0;
     var staticTop = m.staticTop || 0;
-    var recycle = workerCalls >= CALLS_PER_WORKER ||
-      (heap > 0 && heap > HEAP_CAP) ||
-      (staticTop > STATIC_CAP);
     finishJob(job, null, m.bytes);
-    if (recycle) recycleWorker();
-    else pumpJobs();
-  }
-
-  function onWorkerCrash(message) {
-    var job = jobLive;
-    if (job) {
-      job.fails = (job.fails || 0) + 1;
-      jobLive = null;
-      if (job.fails <= 1) {
-        recycleWorker();
-        return;
-      }
-      finishJob(job, new Error(message));
-    }
-    dropWorker();
+    if ((heap > 0 && heap > HEAP_CAP) || staticTop > STATIC_CAP) ensureReplacement();
     pumpJobs();
   }
 
-  function ensureWorker() {
-    if (workerReady) return workerReady;
-    workerReady = new Promise(function (resolve, reject) {
-      var src = '';
-      try { src = engineSource(); }
+  function onWorkerCrash(born, message) {
+    var k;
+    var stuck = [];
+    for (k in workerWaiters) {
+      if (!Object.prototype.hasOwnProperty.call(workerWaiters, k)) continue;
+      if (workerWaiters[k] && workerWaiters[k].host === born) {
+        stuck.push(workerWaiters[k]);
+        delete workerWaiters[k];
+      }
+    }
+    if (worker === born) dropWorker();
+    else if (born) {
+      born.onmessage = null;
+      born.onerror = null;
+      try { born.terminate(); } catch (e) { void e; }
+    }
+    var i;
+    for (i = 0; i < stuck.length; i++) {
+      var job = stuck[i];
+      if (!job || job.done) continue;
+      job.posted = false;
+      job.fails = (job.fails || 0) + 1;
+      if (job.fails > 1) finishJob(job, new Error(message));
+    }
+    pumpJobs();
+  }
+
+  function spawnWorker() {
+    return new Promise(function (resolve, reject) {
+      var url;
+      try { url = engineUrlOnce(); }
       catch (e) { reject(e); return; }
-      if (!src || typeof Worker !== 'function') { reject(new Error('no worker')); return; }
-      var blob = new Blob(['var window=self;\n', src, '\n', WORKER_FOOT], { type: 'text/javascript' });
-      var url = URL.createObjectURL(blob);
-      workerUrl = url;
+      if (!url) { reject(new Error('no worker')); return; }
+      var init;
+      try { init = initMessage(); }
+      catch (e2) { reject(e2); return; }
+      if (!init) { reject(new Error('The voice data failed to load.')); return; }
       var born;
       try { born = new Worker(url); }
-      catch (e) { reject(e); return; }
+      catch (e3) { reject(e3); return; }
       var settled = false;
-      worker = born;
       born.onmessage = function (ev) {
         var m = ev.data || {};
         if (m.type === 'ready') {
           if (settled) return;
           settled = true;
-          if (m.error) reject(new Error(m.error));
-          else resolve(born);
+          if (m.error) {
+            try { born.terminate(); } catch (e4) { void e4; }
+            reject(new Error(m.error));
+            return;
+          }
+          resolve(born);
           return;
         }
-        if (m.type === 'wav') onWorkerWav(m);
+        if (m.type === 'wav') onWorkerWav(born, m);
       };
       born.onerror = function (e) {
         var message = (e && e.message) || 'voice worker failed';
@@ -290,59 +418,90 @@
           reject(new Error(message));
           return;
         }
-        if (worker === born) onWorkerCrash(message);
+        onWorkerCrash(born, message);
       };
-      if (!window.PV_CONFIG_JSON || !window.PV_VOICE_JSON) {
-        reject(new Error('The voice data failed to load.'));
-        return;
+      try { born.postMessage(init.msg, init.transfers); }
+      catch (e5) {
+        if (!settled) {
+          settled = true;
+          reject(e5);
+        }
       }
-      born.postMessage({
-        type: 'init',
-        optionFiles: OPTION_FILES,
-        voiceMap: VOICE_MAP,
-        config: window.PV_CONFIG_JSON,
-        voice: window.PV_VOICE_JSON
-      });
+    });
+  }
+
+  function ensureWorker() {
+    if (workerReady) return workerReady;
+    workerReady = spawnWorker().then(function (born) {
+      if (worker && worker !== born) {
+        try { born.terminate(); } catch (e) { void e; }
+        return worker;
+      }
+      worker = born;
+      return born;
     });
     var ready = workerReady;
     ready.catch(function () {
       if (workerReady !== ready) return;
+      workerReady = null;
       if (worker) dropWorker();
-      else workerReady = null;
     });
     return workerReady;
   }
 
   function pumpJobs() {
-    if (recycling || jobLive || !jobQueue.length) return;
-    var job = jobQueue[0];
+    if (!jobQueue.length) return;
+    if (waiterCount() >= PIPELINE) return;
+    var job = null;
+    var i;
+    for (i = 0; i < jobQueue.length; i++) {
+      var candidate = jobQueue[i];
+      if (candidate.done || candidate.posted) continue;
+      if (candidate.minGen && candidate.minGen > workerGen) continue;
+      job = candidate;
+      break;
+    }
+    if (!job) return;
+    job.posted = true;
     ensureWorker().then(function (w) {
-      if (recycling || job.done || jobLive || jobQueue[0] !== job) return;
-      if (w !== worker) return;
+      if (job.done) {
+        pumpJobs();
+        return;
+      }
+      if (!w || w !== worker || (job.minGen && job.minGen > workerGen)) {
+        job.posted = false;
+        pumpJobs();
+        return;
+      }
       var id = ++workerSeq;
-      jobLive = job;
+      job.host = w;
       workerWaiters[id] = job;
       try { w.postMessage({ type: 'synth', id: id, req: job.req || {} }); }
       catch (e) {
         delete workerWaiters[id];
-        jobLive = null;
+        job.posted = false;
+        job.host = null;
         job.fails = (job.fails || 0) + 1;
-        if (job.fails <= 1) recycleWorker();
+        if (job.fails <= 1) ensureReplacement();
         else {
           finishJob(job, e);
           pumpJobs();
         }
+        return;
       }
-    }, function () {
-      if (job.done || jobQueue[0] !== job) return;
-      finishJob(job, new Error('no worker'));
       pumpJobs();
+    }, function () {
+      if (job.done) return;
+      job.posted = false;
+      job.fails = (job.fails || 0) + 1;
+      if (job.fails > 1) finishJob(job, new Error('no worker'));
+      else pumpJobs();
     });
   }
 
   function synthOnWorker(req) {
     return new Promise(function (resolve, reject) {
-      jobQueue.push({ req: req || {}, resolve: resolve, reject: reject, fails: 0, done: false });
+      jobQueue.push({ req: req || {}, resolve: resolve, reject: reject, fails: 0, done: false, posted: false, minGen: 0 });
       pumpJobs();
     });
   }
