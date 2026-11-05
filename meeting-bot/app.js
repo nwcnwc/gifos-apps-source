@@ -13,6 +13,7 @@
     lines: {},
     chats: {},
     probeBeat: null,
+    runSince: 0,
     warned: {},
     ctrlItems: [],
     people: {},
@@ -27,6 +28,8 @@
     speakingId: '',
     speakGen: 0,
     replying: false,
+    thinking: {},
+    filler: null,
     commands: [],
     errors: []
   };
@@ -69,6 +72,9 @@
         hand: !!c.hand, mic: !!c.mic, camera: !!c.camera, watch: !!c.watch
       };
     });
+  }
+  function thinkingNow() {
+    return Object.keys(state.thinking).length > 0;
   }
   function listeningNow() {
     var works = workMeetings();
@@ -152,7 +158,7 @@
       (state.aiReady.smartest ? 'Smartest is set.' : 'Smartest is not set.') + ' ' +
       (state.aiReady.tts ? 'Text to speech is set.' : 'Text to speech is not set.');
     var ear = document.getElementById('ops-ear');
-    var earText = state.speaking ? 'Speaking' : (state.listen ? 'Listening' : 'Quiet');
+    var earText = state.speaking ? 'Speaking' : (thinkingNow() ? 'Thinking' : (state.listen ? 'Listening' : 'Quiet'));
     ear.textContent = earText;
     ear.classList.toggle('speaking', earText === 'Speaking');
     ear.classList.toggle('listening', earText === 'Listening');
@@ -526,6 +532,49 @@
   function aborted(e) {
     return !!(e && (e.name === 'AbortError' || /abort/i.test(String(e && e.message || e))));
   }
+  function playAudio(play, id, audio) {
+    return Promise.resolve(play.length >= 2 ? play(id, audio) : play(Object.assign({ meetingId: id }, audio)));
+  }
+  // The thought bubble on the bot's tile. The host ends it when the bot next
+  // speaks, so a line about to play drops it here too.
+  function setThinking(id, on) {
+    var flag = !!on;
+    if (!!state.thinking[id] === flag) return Promise.resolve({ id: id, thinking: flag });
+    if (flag) state.thinking[id] = true; else delete state.thinking[id];
+    paint();
+    var fn = meetCall('thinking');
+    if (!fn) return Promise.resolve({ id: id, thinking: flag });
+    return Promise.resolve().then(function () { return fn(id, flag); }).then(function () { return { id: id, thinking: flag }; });
+  }
+  // The filler is made once and kept, so it plays as soon as it is needed.
+  function fillerSound(tts) {
+    if (state.filler) return Promise.resolve(state.filler);
+    return Promise.resolve().then(function () { return tts({ text: BotVoice.FILLER }); }).then(function (audio) {
+      if (!audio || !audio.bytes) return null;
+      var bytes = new Uint8Array(audio.bytes).slice();
+      state.filler = { bytes: bytes, mime: audio.mime || 'audio/wav', ms: BotVoice.wavMs(bytes) || BotVoice.FILLER_MS };
+      return state.filler;
+    });
+  }
+  function warmFiller() {
+    var tts = gifos.ai && gifos.ai.tts;
+    if (!state.speak || state.filler || typeof tts !== 'function') return;
+    fillerSound(tts).catch(function () {});
+  }
+  // Resolves once the filler has had its time on the bot microphone. A filler
+  // that cannot play does not hold the answer back.
+  function sayFiller(id, tts, play) {
+    rememberSpoken(BotVoice.FILLER);
+    return fillerSound(tts).then(function (f) {
+      if (!f) return;
+      return playAudio(play, id, { bytes: f.bytes.slice().buffer, mime: f.mime, text: BotVoice.FILLER, filler: true }).then(function (r) {
+        if (r && r.spoken === false) return;
+        return new Promise(function (res) { setTimeout(res, f.ms); });
+      });
+    }).catch(function (e) {
+      if (!aborted(e)) noteError(scrubSecrets(e && e.message || e, []));
+    });
+  }
   // The bot's operations. RUN answers them for the admin meeting (handleCommand)
   // and for whoever drives this page directly (window.MeetingBot). Each one
   // resolves with a plain result or rejects with an Error.
@@ -555,6 +604,7 @@
         delete state.meetings[id];
         delete state.people[id];
         delete state.controls[id];
+        delete state.thinking[id];
         if (state.speakingId === id) { state.speaking = false; state.speakingId = ''; }
         paint();
         return { id: id, left: true };
@@ -607,6 +657,7 @@
       }
       noteCommand('set_voice', (state.speak ? 'speak' : 'quiet') + (state.listen ? ' listen' : ''));
       return refreshAi().then(function () { return Promise.all(turns); }).then(function () {
+        warmFiller();
         paint();
         return voicePublic();
       });
@@ -631,6 +682,7 @@
         var mime = (audio && audio.mime) || 'audio/wav';
         return play.length >= 2 ? play(id, { bytes: bytes, mime: mime, text: body }) : play({ meetingId: id, bytes: bytes, mime: mime, text: body });
       }).then(function (r) {
+        delete state.thinking[id];
         if (r && r.text) rememberSpoken(r.text);
         var stopped = gen !== state.speakGen;
         if (!stopped) { state.speaking = false; state.speakingId = ''; }
@@ -656,7 +708,15 @@
       noteCommand('stop_speaking', target || '');
       paint();
       if (!target) return Promise.resolve({ stopped: true });
-      return hostStop(target).then(function () { return { id: target, stopped: true }; });
+      return hostStop(target).then(function () {
+        if (state.thinking[target]) return setThinking(target, false).catch(function () {});
+      }).then(function () { return { id: target, stopped: true }; });
+    },
+    thinking: function (id, on) {
+      try { needWork(id); } catch (e) { return Promise.reject(e); }
+      if (!meetCall('thinking')) return Promise.reject(new Error('This meeting cannot show the bot thinking.'));
+      noteCommand('thinking', on ? 'on' : 'off');
+      return setThinking(id, on);
     },
     raiseHand: function (id, on) { return roomControl(id, 'raiseHand', on, 'hand'); },
     setMic: function (id, on) { return roomControl(id, 'setMic', on, 'mic'); },
@@ -745,6 +805,12 @@
     state.replying = true;
     noteCommand(command ? 'command' : 'conversation', line.by || 'Someone');
     paint();
+    // A short filler right away, then the thought bubble until the answer
+    // plays. The model starts at the same time as the filler.
+    var answered = false;
+    var filled = sayFiller(id, tts, play).then(function () {
+      if (!answered) return setThinking(id, true).catch(function () {});
+    });
     Promise.resolve().then(function () {
       return chat({
         model: 'smartest',
@@ -757,9 +823,15 @@
       var said = String(r && r.text || '').trim();
       if (!said) return null;
       return tts({ text: said }).then(function (audio) {
+        answered = true;
         var bytes = audio && audio.bytes;
         var mime = (audio && audio.mime) || 'audio/wav';
-        return Promise.resolve(play.length >= 2 ? play(id, { bytes: bytes, mime: mime, text: said }) : play({ meetingId: id, bytes: bytes, mime: mime, text: said })).then(function () { return said; });
+        return filled.then(function () {
+          return playAudio(play, id, { bytes: bytes, mime: mime, text: said });
+        }).then(function () {
+          delete state.thinking[id];
+          return said;
+        });
       });
     }).then(function (said) {
       if (!said) return;
@@ -768,6 +840,11 @@
       if (kept) emitTranscript(id, kept);
     }).catch(function (e) {
       if (!aborted(e)) noteError(scrubSecrets(e && e.message || e, []));
+    }).then(function () {
+      answered = true;
+      return filled.then(function () {
+        if (state.thinking[id]) return setThinking(id, false).catch(function () {});
+      });
     }).then(function () {
       state.replying = false;
       paint();
@@ -784,7 +861,7 @@
       return reply({
         op: 'meetings', ref: ref, items: workMeetings(),
         respond_to_command: pub.respond_to_command, speak: pub.speak, listen: pub.listen, text_role: pub.text_role,
-        speaking: !!state.speaking, listening: !!state.listen && !state.speaking
+        speaking: !!state.speaking, listening: !!state.listen && !state.speaking, thinking: thinkingNow()
       });
     }
     if (msg.op === 'create') {
@@ -845,6 +922,11 @@
     if ((msg.op === 'set_camera' || msg.op === 'setCamera') && id) {
       return ops.setCamera(id, !!msg.on).then(function (r) {
         return reply({ op: 'ok', ref: ref, text: r.camera ? 'camera on' : 'camera off', camera: r.camera, items: workMeetings() });
+      }).catch(fail);
+    }
+    if (msg.op === 'thinking' && id) {
+      return ops.thinking(id, !!msg.on).then(function (r) {
+        return reply({ op: 'ok', ref: ref, text: r.thinking ? 'thinking' : 'done thinking', thinking: r.thinking });
       }).catch(fail);
     }
     if ((msg.op === 'meeting_state' || msg.op === 'meetingState') && id) {
@@ -942,6 +1024,13 @@
     }
     if (state.phase === 'run') {
       if (msg.role === 'bot' && msg.op === 'beat' && msg.instance && msg.instance !== state.instance) {
+        // The probe can miss a running bot: its 4.5 s look ends before a slow
+        // box has seated it next to the bot. Two bots then run under one
+        // name. The newer one steps down, unless the user asked for a second.
+        if (!document.getElementById('override').checked && olderThanMe(msg)) {
+          stepDown();
+          return;
+        }
         warn(DUP);
         if (!state.warned[msg.instance]) {
           state.warned[msg.instance] = true;
@@ -993,9 +1082,9 @@
   function beat() {
     if (state.phase !== 'run' || !state.adminId) return;
     gifos.meet.sendChat(state.adminId, BotProto.encode({
-      v: 1, role: 'bot', op: 'beat', instance: state.instance, meetings: workMeetings(),
+      v: 1, role: 'bot', op: 'beat', instance: state.instance, since: state.runSince, meetings: workMeetings(),
       respond_to_command: !!state.respond, speak: !!state.speak, listen: !!state.listen, text_role: 'smartest',
-      speaking: !!state.speaking, listening: !!state.listen && !state.speaking
+      speaking: !!state.speaking, listening: !!state.listen && !state.speaking, thinking: thinkingNow()
     })).catch(function () {});
   }
   function autoJoin() {
@@ -1003,7 +1092,12 @@
     var chain = Promise.resolve();
     links.forEach(function (link) {
       chain = chain.then(function () {
+        if (state.phase !== 'run') return;
+        var gen = state.runSince;
         return gifos.meet.join(link, '', state.name, { bot: true }).then(function (sess) {
+          if (state.phase !== 'run' || state.runSince !== gen) {
+            return gifos.meet.leave(sess.meetingId).catch(function () {});
+          }
           remember(sess, link, false);
           paint();
           log('joined ' + sess.meetingId);
@@ -1012,12 +1106,41 @@
     });
     return chain;
   }
+  // A beat from an older bot. A beat without `since` comes from a bot that
+  // predates this rule, and it was running first. Ties go to the lower id.
+  function olderThanMe(msg) {
+    var since = Number(msg.since) || 0;
+    if (!since) return true;
+    if (since !== state.runSince) return since < state.runSince;
+    return String(msg.instance) < String(state.instance);
+  }
+  function stepDown() {
+    clearInterval(state.beatTimer);
+    state.beatTimer = null;
+    var ids = Object.keys(state.meetings);
+    state.phase = 'idle';
+    state.adminId = '';
+    state.runSince = 0;
+    ids.forEach(function (id) {
+      delete state.meetings[id];
+      delete state.people[id];
+      delete state.controls[id];
+      gifos.meet.leave(id).catch(function () {});
+    });
+    state.speaking = false;
+    state.speakingId = '';
+    warn(DUP);
+    log('stepped down: another bot with this name was already running');
+    paint();
+  }
   function becomeBot(sawOther) {
     return gifos.meet.join(state.admin.room, state.admin.password, state.name, { bot: true, control: true }).then(function (sess) {
       state.phase = 'run';
+      state.runSince = Date.now();
       state.adminId = sess.meetingId;
       remember(sess, sess.link, true);
       if (sawOther) warn(DUP);
+      warmFiller();
       paint();
       beat();
       state.beatTimer = setInterval(beat, 3000);
@@ -1141,6 +1264,7 @@
       text_role: 'smartest',
       speaking: !!state.speaking,
       listening: !!state.listen && !state.speaking,
+      thinking: thinkingNow(),
       commands: state.commands.slice(-8),
       errors: state.errors.slice(-8)
     };
@@ -1197,6 +1321,7 @@
     interject: guard(ops.interject),
     stopSpeaking: guard(ops.stopSpeaking),
     stop_speaking: guard(ops.stopSpeaking),
+    thinking: guard(ops.thinking),
     raiseHand: guard(ops.raiseHand),
     setMic: guard(ops.setMic),
     setCamera: guard(ops.setCamera),
