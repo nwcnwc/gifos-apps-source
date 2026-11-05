@@ -326,7 +326,7 @@ function appCase() {
       check('setVoice uses Smartest and stores no key', pub.text_role === 'smartest' && pub.speak === true && pub.listen === true && pub.respond_to_command === true && !pub.llm && !pub.tts && blob.indexOf(KEY) < 0 && calls.cc.some(function (c) { return c[0] === id && c[1] === true; }), blob);
       return Bot.say(id, 'hello in chat');
     }).then(function (said) {
-      check('say posts chat and does not speak', said.sent === true && calls.chat.some(function (c) { return c.text === 'hello in chat'; }) && calls.speak.length === 0 && calls.tts.length === 0);
+      check('say posts chat and does not speak', said.sent === true && calls.chat.some(function (c) { return c.text === 'hello in chat'; }) && calls.speak.length === 0 && calls.tts.every(function (t) { return t.text === box.BotVoice.FILLER; }));
       return Bot.chatFile(id).then(function (chat) {
         return Bot.transcript(id).then(function (spoken) {
           check('the bot chat is saved in the chat file', chat.lines.some(function (l) { return l.by === 'harbor-maple' && l.text === 'hello in chat'; }) && chat.text.indexOf('harbor-maple: hello in chat') >= 0 && chat.name.indexOf('chat-') === 0, JSON.stringify(chat.lines));
@@ -412,13 +412,111 @@ function appCase() {
   });
 }
 
+// Two bots under one name, the second started after its probe missed the first.
+// Every case starts one real bot from the app source and hands it a beat.
+function runningBot(opts) {
+  const nodes = {};
+  const box = {
+    console, Math, Object, Array, JSON, Date, String, Number, Boolean, Error, RegExp, Promise, Uint8Array, TextEncoder, TextDecoder,
+    crypto, setTimeout: function (fn) { fn(); return 0; }, clearTimeout: function () {},
+    setInterval: function () { return 0; }, clearInterval: function () {},
+    document: {
+      body: el('body'),
+      getElementById: function (id) { return nodes[id] || (nodes[id] = el(id)); },
+      createElement: function () { return el(''); }
+    }
+  };
+  box.window = box;
+  box.globalThis = box;
+  const chats = [];
+  const left = [];
+  const joined = [];
+  let n = 0;
+  const stubMeet = {
+    join: function (room, password, name, o) {
+      const s = { meetingId: 'mt_' + (++n), room: String(room), link: 'https://gifos.app/run.html#v=' + room };
+      joined.push(s.meetingId);
+      if (opts.holdWorkJoin && !(o && o.control)) return new Promise(function (res) { opts.holdWorkJoin.release = function () { res(s); }; });
+      return Promise.resolve(s);
+    },
+    leave: function (id) { left.push(id); return Promise.resolve({}); },
+    sendChat: function () { return Promise.resolve({ ok: true }); },
+    onChat: function (cb) { chats.push(cb); }
+  };
+  box.gifos = {
+    launch: function () { return Promise.resolve(null); },
+    db: function () { return { get: function () { return Promise.resolve(null); }, put: function () { return Promise.resolve(); } }; },
+    ai: { models: function () { return Promise.resolve({ available: [] }); } },
+    meet: new Proxy(stubMeet, { get: function (t, k) { return t[k] || function () { return Promise.resolve({}); }; } })
+  };
+  vm.createContext(box);
+  ['protocol.js', 'voice.js', 'app.js'].forEach(function (f) { vm.runInContext(fs.readFileSync(path.join(APP, f), 'utf8'), box, { filename: f }); });
+  const started = box.MeetingBot.start({ mode: 'run', name: 'harbor-maple', password: suggestion.password, override: !!opts.override, rules: 'roomcode' });
+  const ticks = function () { return new Promise(function (res) { setTimeout(res, 20); }); };
+  return ticks().then(function () {
+    const adminId = 'mt_2'; // mt_1 is the probe, which has left by now.
+    return {
+      Bot: box.MeetingBot, left: left, joined: joined, started: started, ticks: ticks,
+      beat: function (fields) {
+        const text = box.BotProto.encode(Object.assign({ v: 1, role: 'bot', op: 'beat', instance: 'other-bot', meetings: [] }, fields));
+        chats.forEach(function (cb) { cb({ control: true, meetingId: adminId, text: text }); });
+      }
+    };
+  });
+}
+function stepDownCase() {
+  const DUP_WORDS = /already running/;
+  const stepsDown = function (name, fields) {
+    return runningBot({}).then(function (b) {
+      return b.started.then(function () {
+        check(name + ': the bot was running', b.Bot.status().phase === 'run');
+        const inMeetings = b.joined.slice(1);
+        b.beat(fields);
+        const st = b.Bot.status();
+        check(name + ': it goes idle and warns', st.phase === 'idle' && !st.connected && DUP_WORDS.test(st.warning), JSON.stringify([st.phase, st.warning]));
+        check(name + ': it leaves every meeting', inMeetings.every(function (id) { return b.left.indexOf(id) >= 0; }), JSON.stringify([inMeetings, b.left]));
+      });
+    });
+  };
+  return stepsDown('older beat', { since: 1000 }).then(function () {
+    return stepsDown('beat without since', {});
+  }).then(function () {
+    return runningBot({}).then(function (b) {
+      return b.started.then(function () {
+        b.beat({ since: Date.now() + 3600000 });
+        const st = b.Bot.status();
+        check('newer beat: the older bot keeps running and warns', st.phase === 'run' && DUP_WORDS.test(st.warning), JSON.stringify([st.phase, st.warning]));
+      });
+    });
+  }).then(function () {
+    return runningBot({ override: true }).then(function (b) {
+      return b.started.then(function () {
+        b.beat({ since: 1000 });
+        check('override: an older beat does not stop the bot', b.Bot.status().phase === 'run');
+      });
+    });
+  }).then(function () {
+    const hold = {};
+    return runningBot({ holdWorkJoin: hold }).then(function (b) {
+      check('in-flight join: it is still held', typeof hold.release === 'function' && b.Bot.status().phase === 'run');
+      b.beat({ since: 1000 });
+      hold.release();
+      // start() reports the step-down as the duplicate error.
+      return b.started.catch(function (e) { check('in-flight join: start reports the duplicate', DUP_WORDS.test(e.message), e.message); }).then(b.ticks).then(function () {
+        const late = b.joined[b.joined.length - 1];
+        check('in-flight join: a join that lands after the step-down is left', b.Bot.status().phase === 'idle' && b.left.indexOf(late) >= 0, JSON.stringify([b.joined, b.left]));
+      });
+    });
+  });
+}
+
 P.derive('harbor-maple', suggestion.password).then(function (a) {
   return P.derive('harbor-maple', suggestion.password).then(function (b) {
     return P.derive('harbor-maple', suggestion.password + 'x').then(function (c) {
       check('KDF room is stable and 32 hex chars', a.room === b.room && /^[a-f0-9]{32}$/.test(a.room), a.room);
       check('KDF password is stable and not the room', a.password === b.password && a.password !== a.room && /^[a-f0-9]{32}$/.test(a.password));
       check('a different password derives a different room', c.room !== a.room);
-      return voiceUnits().then(appCase).then(function () {
+      return voiceUnits().then(appCase).then(stepDownCase).then(function () {
         console.log(failures ? ('\n' + failures + ' FAILURE(S)') : '\nALL PASS');
         process.exit(failures ? 1 : 0);
       });
