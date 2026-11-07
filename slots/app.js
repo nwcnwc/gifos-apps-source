@@ -80,13 +80,16 @@
     } catch (e) {}
   }
 
+  var countGen = 0;
   function countTo(target) {
     var from = shown;
+    var gen = ++countGen; // a newer count-up owns the counter; stale ticks stop
     shown = target;
     if (from === target) { showCredits(target); return; }
     var t0 = Date.now ? Date.now() : 0;
     var dur = Math.min(600, 80 + Math.abs(target - from) * 2);
     function tick() {
+      if (gen !== countGen) return;
       var t = Date.now ? Date.now() : t0 + dur;
       var p = Math.min(1, (t - t0) / dur);
       showCredits(Math.round(from + (target - from) * p));

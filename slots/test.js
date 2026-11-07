@@ -413,11 +413,32 @@ function bootApp(appDir, o) {
 }
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// Wait for a condition, not a fixed sleep; fails loudly if it never holds.
+const waitFor = async (f, ms) => { const end = Date.now() + (ms || 10000); while (!f()) { if (Date.now() > end) throw new Error('waitFor timed out'); await wait(5); } };
 const credits = (W) => +W.$('jp').textContent;
 // The credit counter animates on requestAnimationFrame: give it frames.
 const raf = (f) => setTimeout(() => f(Date.now()), 5);
 const roomSpins = (W) => W.puts.filter((p) => p.db === 'room' && p.row.spin).map((p) => p.row.spin);
 async function shell() {
+  // ---- Two spins back to back: a slow count-up must not overwrite a newer one --
+  // Forced grids (a big hit, then a miss) make the old count-up (long: big
+  // change) outlive the new one (short): the stale tick used to land last.
+  {
+    const W = bootApp(APP, { raf, me: { id: 'p1', name: 'Avery' } });
+    await flushAsync(20);
+    const grids = [M.grid(['cherry', 'cherry', 'cherry', 'cherry', 'cherry']), M.grid(['lemon', 'bar', 'bell', 'star', 'seven'])];
+    W.w.SlotsMath.randomGrid = () => grids.shift() || M.grid(['lemon', 'bar', 'bell', 'star', 'seven']);
+    W.$('autoplay').checked = true;
+    W.$('spin').click();
+    await waitFor(() => roomSpins(W).length >= 2);
+    W.$('autoplay').checked = false;
+    await waitFor(() => !W.$('slot').classList.contains('play'));
+    await wait(900);
+    const spins = roomSpins(W).slice(0, 2);
+    let expect = M.START;
+    for (const sp of spins) expect = M.applySpin(expect, sp.symbols, 10).credits;
+    check('two quick spins: the counter ends on the true credits (no stale count-up overwrite)', credits(W) === expect, { shown: credits(W), expect, spins: spins.length });
+  }
   // ---- Spin takes the stake; Auto keeps pulling THROUGH pull() --------------
   {
     const W = bootApp(APP, { raf, me: { id: 'p1', name: 'Avery' } });
