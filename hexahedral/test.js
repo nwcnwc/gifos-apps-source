@@ -443,7 +443,10 @@ function drag(W, dx, dy, id) {
   return st;
 }
 async function shell() {
-  const W = bootApp(APP);
+  // The app's own after-win/after-loss timers (1.6 s / 1.8 s) are held past
+  // the run: this walk clicks the Next card itself, and a timer that fired
+  // first on a loaded box (the old 50 ms cap) removed the card under the click.
+  const W = bootApp(APP, { maxTimer: 60000 });
   await flushAsync();
   check('first open is the menu', W.$('menu').hidden === false && W.$('level').hidden === true);
   W.dom.document.querySelector('button[data-diff="0"]').click();
