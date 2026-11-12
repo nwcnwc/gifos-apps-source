@@ -71,7 +71,7 @@
       // the money was not taken.
       var declined = /DECLINED_BY_USER/.test(msg);
       note.textContent = declined
-        ? supportLine('GifOS did not record a payment. If you approved one in PayPal, that charge is real — check your PayPal activity before trying again.')
+        ? supportLine('GifOS did not record a payment. If you approved one in PayPal, that charge is real — check your PayPal activity before trying again. A USDC tip that went through shows in your wallet.')
         : supportLine(msg);
       sendBtn.disabled = false;
       paint();
@@ -80,7 +80,7 @@
 
   $('again').addEventListener('click', function () {
     thanks.hidden = true; sendBtn.hidden = false; note.hidden = false;
-    note.textContent = 'You’ll approve the payment on the next screen — it names who receives it, and you can still change the amount or say no there.';
+    note.textContent = 'You’ll approve the payment on the next screen — PayPal, or USDC on Base from your wallet. It names who receives it, and you can still change the amount or say no there.';
     paint();
   });
 
