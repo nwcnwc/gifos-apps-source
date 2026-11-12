@@ -44,7 +44,7 @@ Every method returns a Promise, except `status`, which is synchronous. A failure
 | `status()` | `{ phase, connected, name, meetings, warning }` | Synchronous. `phase` is `'idle'`, `'probe'`, `'run'` or `'control'`. `connected` turns true once the admin meeting is joined. Wait for it before you send commands. In CONTROL, `meetings` is the last list the bot reported. Version 2 adds `respond_to_command`, `speak`, `listen`, `text_role` (`smartest`), `speaking`, `listening`, and `thinking`. It never includes a key, a model URL, or an engine name. |
 | `create()` | `{ id, room, link }` | Hosts a new meeting with an unguessable 16-character room code. `link` is the invite to give people. |
 | `join(link, password?)` | `{ id, room, link }` | `link` is a meeting link or a room code. `password` is the room password, if it has one. |
-| `list()` | `[{ id, room, link, rec, cc, created, people, hand, mic, camera }]` | The work meetings, without the admin meeting. `people` holds the names of everyone except the bot. The hand, microphone, and camera flags are the last ones this bot set. |
+| `list()` | `[{ id, room, link, rec, cc, created, people, hand, mic, camera, blur }]` | The work meetings, without the admin meeting. `people` holds the names of everyone except the bot. The hand, microphone, and camera flags are the last ones this bot set. |
 | `people(id)` | `[{ id, name, bot, me }]` | Who is in the meeting now. `me` is the bot itself. |
 | `transcribe(id, on)` | `{ id, cc }` | Turns writing everyone down on or off. With it on, the bot keeps the room's transcript and shares the lines it writes with the room, and everyone sees a transcript badge (sharing a transcript) on the bot's tile; off, it still keeps the lines the others send. People's own pages send their own captions by default, so the bot mostly writes down the people whose browser cannot. The bot writes down each person who is unmuted, credited to that person. People join muted, so a person has to unmute to be written down. The bot never writes down its own computer's microphone. A line it spoke is written down separately, credited to the bot. |
 | `record(id, on)` | `{ id, rec }` | Turns recording on or off. Everyone sees ⏺ recording on the bot's tile. |
@@ -58,7 +58,7 @@ Every method returns a Promise, except `status`, which is synchronous. A failure
 | `stopSpeaking(id?)` | `{ id, stopped: true }` or `{ stopped: true }` | Stops the bot's current speech. An in-flight `interject` then rejects with "Stopped." |
 | `raiseHand(id, on)` | `{ id, hand }` | Raises the bot's hand when `on` is true, and lowers it when `on` is false. Rejects when the meeting page cannot. |
 | `setMic(id, on)` | `{ id, mic }` | Unmutes the bot's microphone when `on` is true, and mutes it when `on` is false. Rejects when the meeting page cannot. |
-| `setCamera(id, on)` | `{ id, camera }` | Shows the bot's camera when `on` is true, and turns it off when `on` is false. Rejects when the meeting page cannot. |
+| `setCamera(id, on, blur?)` | `{ id, camera, blur? }` | Shows the bot's camera when `on` is true, and turns it off when `on` is false. `blur` is `"max"` (Max blur), `"min"` (Min blur) or `"none"` (No blur, clear video); `2`, `1` and `0` mean the same. Left out, the camera comes on at Max blur: video is clear only on an explicit `"none"`. Any other value rejects with "Pick Max blur, Min blur or No blur." The answer names the blur used. Rejects when the meeting page cannot. |
 | `meetingState(id)` | `{ id, hand, mic, camera, people }` | The hand, microphone, camera, and the people list. Read-only. |
 | `snapshot(id)` | `{ id, hand, mic, camera, people }` | Same fields as `meetingState`. Read-only. It does not change the meeting and it does not open a browser. A connector may also save a PNG of the Meet Bot page it already has open. |
 | `watch(id, on)` | `{ id, watch }` | Opens a tile that shows this meeting through the bot's eyes and ears when `on` is true, and closes it when `on` is false. A person can watch and listen. The tile has no microphone and no camera for that person. Only the bot talks. |
@@ -91,7 +91,7 @@ When the bot answers a line itself (`speak` on), it first says "One moment while
 
 The app frame cannot `fetch`. Smartest and Text to speech are GifOS AI roles declared on the manifest as `capabilities.ai`. The host holds the key. The app asks `gifos.ai.chat` and `gifos.ai.tts` and never sees a URL. The manifest does not put those roles in `requires`, so the bot can still join while speech stays quiet until Settings is filled in.
 
-Meeting control is the same `capabilities.meet` grant as joining. The new ops are the Meet buttons, plus playing audio the app already produced, plus the watch tile and the thought bubble: `gifos.meet.raiseHand(id, on)`, `gifos.meet.setMic(id, on)`, `gifos.meet.setCamera(id, on)`, `gifos.meet.speak(id, { bytes, mime, text, filler? })`, `gifos.meet.stopSpeaking(id)`, `gifos.meet.watch(id, on)`, and `gifos.meet.thinking(id, on)`. A published GifOS build that does not know one of these answers "Unknown meet op." `raiseHand`, `setMic`, `setCamera`, `interject`, `watch`, and `thinking` then reject, and the room is left as it is. A build without `thinking` still plays the filler and the answer.
+Meeting control is the same `capabilities.meet` grant as joining. The new ops are the Meet buttons, plus playing audio the app already produced, plus the watch tile and the thought bubble: `gifos.meet.raiseHand(id, on)`, `gifos.meet.setMic(id, on)`, `gifos.meet.setCamera(id, on, blur)` (blur 0 No, 1 Min, 2 Max; GifOS turns a camera on only with one of the three), `gifos.meet.speak(id, { bytes, mime, text, filler? })`, `gifos.meet.stopSpeaking(id)`, `gifos.meet.watch(id, on)`, and `gifos.meet.thinking(id, on)`. A published GifOS build that does not know one of these answers "Unknown meet op." `raiseHand`, `setMic`, `setCamera`, `interject`, `watch`, and `thinking` then reject, and the room is left as it is. A build without `thinking` still plays the filler and the answer.
 
 In every meeting the bot picks No blur, so it consents to clear video. It is never the reason a password room stays blurred.
 
@@ -109,7 +109,7 @@ A line the bot spoke is stored and announced, with `by` set to the bot's name. T
 | `admit` | No call needed. GifOS meetings have no waiting room. Anyone with the link (and the password, if the room has one) is let in by a member who is already seated. In a meeting the bot created, that member is the bot. Poll `people(id)` to see who has arrived. |
 | `mute` | `setMic(id, false)` |
 | `set_mic` | `setMic(id, on)` |
-| `set_camera` | `setCamera(id, on)` |
+| `set_camera` | `setCamera(id, on, blur)` |
 | `raise_hand` | `raiseHand(id, on)` |
 | `get_meeting_state` | `people(id)` and `meetingState(id)` |
 | `snapshot` | `snapshot(id)`. Read-only. |
@@ -170,7 +170,7 @@ Controller to bot:
 | `set_voice` | `respond_to_command?`, `speak?`, `listen?` | `ok` with `respond_to_command`, `speak`, `listen`, and `text_role`. A `conversation_voice`, `llm`, `tts`, or `stt` field replies `err`. The reply, the log, and the page do not contain a key or a URL. |
 | `raise_hand` | `meetingId`, `on` | `ok` with `hand` and `items` |
 | `set_mic` | `meetingId`, `on` | `ok` with `mic` and `items` |
-| `set_camera` | `meetingId`, `on` | `ok` with `camera` and `items` |
+| `set_camera` | `meetingId`, `on`, `blur` (optional: `max`, `min`, `none`) | `ok` with `camera`, `blur` and `items` |
 | `meeting_state` | `meetingId` | `meeting_state` with `hand`, `mic`, `camera`, `people` |
 | `snapshot` | `meetingId` | `snapshot` with `hand`, `mic`, `camera`, `people`. Read-only. |
 | `watch` | `meetingId`, `on` | `ok` with `watch` and `items`. The tile is watch and listen only. |

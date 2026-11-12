@@ -293,7 +293,11 @@ function appCase() {
       stopSpeaking: function () { return Promise.resolve({ stopped: true }); },
       raiseHand: function (id, on) { calls.hand.push([id, on]); return Promise.resolve({ ok: true }); },
       setMic: function (id, on) { calls.mic.push([id, on]); return Promise.resolve({ ok: true }); },
-      setCamera: function (id, on) { calls.cam.push([id, on]); return Promise.resolve({ ok: true }); },
+      // Like GifOS 0.9.25+ run.html: a camera comes on only with a blur pick.
+      setCamera: function (id, on, blur) {
+        if (on && blur !== 0 && blur !== 1 && blur !== 2) return Promise.reject(new Error('Pick Max blur, Min blur or No blur.'));
+        calls.cam.push([id, on, blur]); return Promise.resolve({ ok: true });
+      },
       onTranscriptLine: function (cb) { subs.tr.push(cb); },
       onParticipants: function (cb) { subs.pe.push(cb); },
       onChat: function (cb) { subs.ch.push(cb); },
@@ -377,7 +381,18 @@ function appCase() {
               return Bot.raiseHand(id, true);
             }).then(function (hand) {
               return Bot.setMic(id, true).then(function (mic) {
-                return Bot.setCamera(id, false).then(function () {
+                return Bot.setCamera(id, true).then(function (camMax) {
+                  const last = calls.cam[calls.cam.length - 1];
+                  check('camera on with no blur given comes on at Max blur', camMax.camera === true && camMax.blur === 'max' && last[1] === true && last[2] === 2, JSON.stringify([camMax, last]));
+                  return Bot.setCamera(id, true, 'none');
+                }).then(function (camClear) {
+                  const last = calls.cam[calls.cam.length - 1];
+                  check('an explicit No blur pick shows clear video', camClear.blur === 'none' && last[2] === 0, JSON.stringify([camClear, last]));
+                  return Bot.setCamera(id, true, 'fuzzy').then(function () { return 'took'; }, function (e) { return String(e && e.message); });
+                }).then(function (bad) {
+                  check('an unknown blur is refused', /Pick Max blur/.test(bad), bad);
+                  return Bot.setCamera(id, false);
+                }).then(function () {
                   return Bot.meetingState(id).then(function (state) {
                     return Bot.snapshot(id).then(function (shot) {
                       check('hand, mic, and camera are reported', hand.hand === true && mic.mic === true && state.hand === true && state.mic === true && state.camera === false && shot.hand === true && shot.people);

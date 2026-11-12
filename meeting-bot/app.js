@@ -69,7 +69,7 @@
       return {
         id: m.meetingId, room: m.room || '', link: m.link || '', rec: !!m.rec, cc: !!m.cc,
         created: !!m.created, people: people.map(function (x) { return x.name || ''; }),
-        hand: !!c.hand, mic: !!c.mic, camera: !!c.camera, watch: !!c.watch
+        hand: !!c.hand, mic: !!c.mic, camera: !!c.camera, blur: c.camera && c.blur != null ? BLUR_NAMES[c.blur] : '', watch: !!c.watch
       };
     });
   }
@@ -131,9 +131,11 @@
       act(c.mic ? 'Mic off' : 'Mic on', function () {
         ops.setMic(m.id, !c.mic).catch(function (e) { noteError(e && e.message || e); paint(); });
       });
+      var runBlur = blurSelect(m.id);
       act(c.camera ? 'Camera off' : 'Camera on', function () {
-        ops.setCamera(m.id, !c.camera).catch(function (e) { noteError(e && e.message || e); paint(); });
+        ops.setCamera(m.id, !c.camera, runBlur.value).catch(function (e) { noteError(e && e.message || e); paint(); });
       });
+      actions.appendChild(runBlur);
       act(c.watch ? 'Close watch' : 'Watch', function () {
         ops.watch(m.id, !c.watch).catch(function (e) { noteError(e && e.message || e); paint(); });
       });
@@ -314,7 +316,8 @@
       var cam = document.createElement('button');
       cam.type = 'button';
       cam.textContent = m.camera ? 'Camera off' : 'Camera on';
-      cam.onclick = function () { sendCtrl({ op: 'set_camera', meetingId: m.id, on: !m.camera, id: qid() }); };
+      var camBlur = blurSelect(m.id);
+      cam.onclick = function () { sendCtrl({ op: 'set_camera', meetingId: m.id, on: !m.camera, blur: camBlur.value, id: qid() }); };
       var shot = document.createElement('button');
       shot.type = 'button';
       shot.textContent = 'Snapshot';
@@ -322,7 +325,7 @@
       row.appendChild(title);
       row.appendChild(sub);
       row.appendChild(flags);
-      [rec, tr, say, sayGo, speak, hand, mic, cam, shot, eye, dl, chatDl, dlr, voice, resp, stop, leave].forEach(function (el) { row.appendChild(el); });
+      [rec, tr, say, sayGo, speak, hand, mic, cam, camBlur, shot, eye, dl, chatDl, dlr, voice, resp, stop, leave].forEach(function (el) { row.appendChild(el); });
       box.appendChild(row);
     });
   }
@@ -519,6 +522,33 @@
     return function () {
       state.transcriptListeners = state.transcriptListeners.filter(function (x) { return x !== fn; });
     };
+  }
+  var BLUR_NAMES = ['none', 'min', 'max'];
+  // Missing means Max blur; a value given must be one of the three picks.
+  function blurPick(v) {
+    if (v == null || v === '') return 2;
+    if (v === 0 || v === 1 || v === 2) return v;
+    var t = String(v).trim().toLowerCase().replace(/[\s_-]+/g, '');
+    if (t === '0' || t === 'none' || t === 'noblur' || t === 'off' || t === 'clear') return 0;
+    if (t === '1' || t === 'min' || t === 'minblur' || t === 'low') return 1;
+    if (t === '2' || t === 'max' || t === 'maxblur' || t === 'high') return 2;
+    return undefined;
+  }
+  // The blur the next Camera on uses, per meeting. Max blur until changed.
+  function blurSelect(id) {
+    var sel = document.createElement('select');
+    sel.className = 'blur-pick';
+    sel.setAttribute('aria-label', 'Camera blur');
+    [['max', 'Max blur'], ['min', 'Min blur'], ['none', 'No blur']].forEach(function (o) {
+      var opt = document.createElement('option');
+      opt.value = o[0];
+      opt.textContent = o[1];
+      sel.appendChild(opt);
+    });
+    state.camBlur = state.camBlur || {};
+    sel.value = state.camBlur[id] || 'max';
+    sel.onchange = function () { state.camBlur[id] = sel.value; };
+    return sel;
   }
   function meetCall(name) {
     var fn = gifos.meet && gifos.meet[name];
@@ -720,7 +750,26 @@
     },
     raiseHand: function (id, on) { return roomControl(id, 'raiseHand', on, 'hand'); },
     setMic: function (id, on) { return roomControl(id, 'setMic', on, 'mic'); },
-    setCamera: function (id, on) { return roomControl(id, 'setCamera', on, 'camera'); },
+    // GifOS shows a camera only with a blur pick (0 No blur, 1 Min, 2 Max).
+    // Clear video only on an explicit No blur pick; otherwise Max blur.
+    setCamera: function (id, on, blur) {
+      try { needWork(id); } catch (e) { return Promise.reject(e); }
+      var fn = meetCall('setCamera');
+      if (!fn) return Promise.reject(new Error('This meeting cannot change camera.'));
+      var flag = !!on;
+      var lvl = flag ? blurPick(blur) : null;
+      if (lvl === undefined) return Promise.reject(new Error('Pick Max blur, Min blur or No blur.'));
+      return Promise.resolve().then(function () { return flag ? fn(id, true, lvl) : fn(id, false); }).then(function () {
+        var c = ensureControls(id);
+        c.camera = flag;
+        if (flag) c.blur = lvl;
+        noteCommand('setCamera', flag ? 'on ' + BLUR_NAMES[lvl] : 'off');
+        paint();
+        var out = { id: id, camera: flag };
+        if (flag) out.blur = BLUR_NAMES[lvl];
+        return out;
+      });
+    },
     meetingState: function (id) {
       try { needWork(id); } catch (e) { return Promise.reject(e); }
       var local = ensureControls(id);
@@ -920,8 +969,8 @@
       }).catch(fail);
     }
     if ((msg.op === 'set_camera' || msg.op === 'setCamera') && id) {
-      return ops.setCamera(id, !!msg.on).then(function (r) {
-        return reply({ op: 'ok', ref: ref, text: r.camera ? 'camera on' : 'camera off', camera: r.camera, items: workMeetings() });
+      return ops.setCamera(id, !!msg.on, msg.blur).then(function (r) {
+        return reply({ op: 'ok', ref: ref, text: r.camera ? 'camera on (' + r.blur + ' blur)' : 'camera off', camera: r.camera, blur: r.blur, items: workMeetings() });
       }).catch(fail);
     }
     if (msg.op === 'thinking' && id) {
