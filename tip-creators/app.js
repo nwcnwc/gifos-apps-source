@@ -2,10 +2,10 @@
  *
  * One call: gifos.charge() with an editable amount and no sku. The OS shows
  * its own approval sheet (verified author, amount, rail choice) — this app
- * never sees a card, a wallet, or a balance, and keeps no record of anything.
+ * never sees how a payment is made, and keeps no record of anything.
  * DECLINED_BY_USER is kept by name. On the current OS it is "No thanks"
  * before any order. The released OS also used that name when it stopped
- * looking after the PayPal window closed. Those two cannot be told apart
+ * looking after the payment window closed. Those two cannot be told apart
  * here, so that name is never shown as "nothing was charged."
  */
 (function () {
@@ -49,16 +49,14 @@
     if (usd < MIN_USD) return;
     sendBtn.disabled = true;
     sendBtn.textContent = 'Waiting for your approval…';
-    // Base units: $1 = 1000000 (the one unit space both rails share).
+    // Amounts are in millionths of a dollar: $1 = 1000000.
     gifos.charge({
       amount: String(usd) + '000000',
       reason: 'Tip the GifOS creators',
       editable: true
     }).then(function (receipt) {
       thanks.hidden = false;
-      var how = { paypal: ' by PayPal.', x402: ' in USDC.', transfer: ' in USDC.', fednow: ' from your bank.' };
-      $('thanks-line').textContent = supportLine('Your tip went through' +
-        (how[receipt && receipt.rail] || '.') +
+      $('thanks-line').textContent = supportLine('Thank you. Your $' + usd + ' tip went through.' +
         ' It goes straight to the people who build GifOS.');
       sendBtn.hidden = true; note.hidden = true;
       paint();
@@ -66,12 +64,12 @@
       var msg = String(err && err.message || err || '');
       // DECLINED_BY_USER on the current OS is "No thanks" before any order.
       // The released OS also used that same name when it stopped looking
-      // after the PayPal window closed, which is a payment it had not
+      // after the payment window closed, which is a payment it had not
       // checked. This app cannot tell those apart, so it does not claim
       // the money was not taken.
       var declined = /DECLINED_BY_USER/.test(msg);
       note.textContent = declined
-        ? supportLine('GifOS did not record a payment. If you approved one in PayPal, that charge is real — check your PayPal activity before trying again. A USDC tip that went through shows in your wallet.')
+        ? supportLine('GifOS did not record a payment. If you were charged, that charge is real: check your payment history before trying again.')
         : supportLine(msg);
       sendBtn.disabled = false;
       paint();
@@ -80,7 +78,7 @@
 
   $('again').addEventListener('click', function () {
     thanks.hidden = true; sendBtn.hidden = false; note.hidden = false;
-    note.textContent = 'You’ll approve the payment on the next screen — PayPal, or USDC on Base from your wallet. It names who receives it, and you can still change the amount or say no there.';
+    note.textContent = 'You’ll approve the payment on the next screen. It names who receives it, and you can still change the amount or say no there.';
     paint();
   });
 

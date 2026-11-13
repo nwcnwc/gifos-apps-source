@@ -3,9 +3,9 @@
   "appId": "tip-creators",
   "name": "Tip GifOS Creators",
   "shortName": "Tip",
-  "version": "1.2",
+  "version": "1.3",
   "minBuild": 947,
-  "description": "Say thanks with a few dollars, by PayPal or in USDC on Base. Every payment shows you exactly who gets it before anything is charged.",
+  "description": "Say thanks with a few dollars. Every payment shows you exactly who gets it before anything is charged.",
   "entry": "index.html",
   "accent": [
     255,
