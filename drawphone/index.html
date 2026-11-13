@@ -2,60 +2,90 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Drawphone</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
   <div class="brand"><span class="logo" aria-hidden="true"></span> Drawphone</div>
-  <div class="engine-chip ready" id="chip"><span class="dot"></span><span id="chipState">Ready</span></div>
+  <div class="engine-chip ready" id="chip"><span class="dot"></span><span id="chipState"></span></div>
 </header>
 
 <main>
-  <section class="card setup" id="setup">
-    <h2>Telephone with pictures</h2>
-    <p class="lead">Draw a word, pass it on, guess what they drew — the chain is the joke.</p>
-    <label class="row">First word
-      <div class="seg" id="firstSeg">
-        <button type="button" data-first="pack" class="on">From the pack</button>
-        <button type="button" data-first="write">We write it</button>
+  <!-- Everyone in the meeting (or the app room) is at the table: nobody types a name, nobody presses Join. -->
+  <section class="card setup" id="lobby" hidden>
+    <h2 id="lobbyTitle" data-i18n="lobby.title">Draw together</h2>
+    <div class="row"><span data-i18n="lobby.game">Game</span>
+      <div class="seg" id="gameSeg">
+        <button type="button" data-game="guess" class="on" data-i18n="game.guess">Draw &amp; guess</button>
+        <button type="button" data-game="chain" data-i18n="game.chain">Telephone</button>
       </div>
-    </label>
-    <p class="lvlnote" id="firstNote">Each chain starts with a simple word to draw.</p>
-    <button class="ghost wide" id="hereBtn" type="button">Pass this device</button>
-    <button class="primary" id="friendBtn" type="button">Play with friends</button>
-    <p class="hint">Friends: sit down, then press Invite in the top bar. Two people is enough.</p>
+    </div>
+    <p class="lvlnote" id="gameNote"></p>
+    <div class="row"><span data-i18n="lobby.time">Time to draw</span>
+      <div class="seg" id="timeSeg">
+        <button type="button" data-ms="45000">45 s</button>
+        <button type="button" data-ms="60000" class="on">60 s</button>
+        <button type="button" data-ms="80000">80 s</button>
+      </div>
+    </div>
+    <h3 id="peopleHead"></h3>
+    <div class="seats" id="lobbySeats"></div>
+    <button class="primary" id="startBtn" type="button" data-i18n="lobby.start">Start a round</button>
+    <p class="hint" id="lobbyHint"></p>
     <div id="archiveBox" hidden>
-      <h3>Rounds in this file</h3>
+      <h3 data-i18n="archive.title">Telephone rounds in this file</h3>
       <ul class="plist" id="archiveList"></ul>
     </div>
   </section>
 
-  <section class="card" id="hereSetup" hidden>
-    <div class="vhead"><h2>Pass this device</h2><button class="ghost" id="hereBack" type="button">← Back</button></div>
-    <p class="lvlnote">Add everyone at the table. Hand the phone to whoever is up. A splash hides the last turn so nobody peeks.</p>
-    <ul class="plist" id="hereList"></ul>
-    <div class="addrow">
-      <input id="hereName" type="text" maxlength="24" placeholder="Name" autocomplete="off" enterkeyhint="done">
-      <button class="ghost" id="hereAdd" type="button">Add</button>
+  <!-- Draw & guess -->
+  <section class="game" id="gg" hidden>
+    <div class="ghead">
+      <span id="ggRound" class="count"></span>
+      <span id="ggClock" class="clock"></span>
     </div>
-    <button class="primary" id="hereStart" type="button">Start</button>
+    <div class="bar" id="ggBar"><i id="ggBarFill"></i></div>
+    <p class="roleline" id="ggRole"></p>
+    <p class="prompt" id="ggWord"></p>
+    <div class="padslot" id="ggSlot">
+      <div class="padwrap" id="ggWrap">
+        <canvas id="ggPad" width="400" height="400" aria-label="Drawing pad"></canvas>
+        <canvas id="ggView" width="400" height="400" aria-label="The drawing" hidden></canvas>
+        <div class="reveal" id="ggReveal" hidden></div>
+      </div>
+    </div>
+    <div id="ggTools" hidden>
+      <div class="tools" id="ggColors"></div>
+      <div class="tools">
+        <button type="button" class="ghost slim" data-w="3" data-i18n="pad.thin">Thin</button>
+        <button type="button" class="ghost slim on" data-w="7" data-i18n="pad.medium">Medium</button>
+        <button type="button" class="ghost slim" data-w="14" data-i18n="pad.thick">Thick</button>
+        <button type="button" class="ghost slim" id="ggUndo" data-i18n="pad.undo">Undo</button>
+        <button type="button" class="ghost slim" id="ggClear" data-i18n="pad.clear">Clear</button>
+        <button type="button" class="ghost slim" id="rewordBtn" data-i18n="gg.reword">Another word</button>
+      </div>
+    </div>
+    <form class="guessrow" id="ggGuess" hidden autocomplete="off">
+      <input id="guessIn" type="text" maxlength="40" autocomplete="off" autocapitalize="off" enterkeyhint="send">
+      <button class="primary slimbtn" id="guessBtn" type="submit" data-i18n="gg.send">Guess</button>
+    </form>
+    <ul class="feed" id="ggFeed"></ul>
+    <div id="ggOver" hidden>
+      <h2 id="overTitle"></h2>
+      <ol class="standings" id="standings"></ol>
+      <button class="primary" id="nextRoundBtn" type="button" data-i18n="gg.next">Next round</button>
+      <button class="ghost wide" id="otherGameBtn" type="button" data-i18n="gg.otherGame">Play Telephone instead</button>
+    </div>
+    <div class="scores" id="ggScores"></div>
   </section>
 
-  <section class="game" id="lobby" hidden>
-    <div class="vhead"><h2>The table</h2><button class="ghost" id="lobbyLeave" type="button">← Leave</button></div>
-    <p class="lead lobby-lead">The people who open the invite sit here.</p>
-    <div class="seats" id="lobbySeats"></div>
-    <p class="statusline" id="lobbyStatus"></p>
-    <button class="primary" id="lobbyStart" type="button" hidden>Start the round</button>
-    <p class="hint" id="lobbyHint">Press Invite in the top bar to bring someone in. Two or more to start.</p>
-  </section>
-
+  <!-- Telephone -->
   <section class="game" id="play" hidden>
     <div class="vhead">
-      <h2 id="playTitle">Your turn</h2>
-      <button class="ghost" id="playLeave" type="button">← Leave</button>
+      <h2 id="playTitle"></h2>
+      <span id="playClock" class="clock"></span>
     </div>
     <p class="statusline" id="playStatus"></p>
     <p class="count" id="playCount"></p>
@@ -65,11 +95,11 @@
     <div id="wordPane" hidden>
       <div class="padslot" id="guessSlot">
         <div class="padwrap showwrap" id="guessArtWrap" hidden>
-          <canvas id="guessArt" width="400" height="400" aria-label="Someone’s drawing"></canvas>
+          <canvas id="guessArt" width="400" height="400" aria-label="The drawing"></canvas>
         </div>
       </div>
-      <input id="wordIn" type="text" maxlength="80" placeholder="A word or a short guess" autocomplete="off" autocapitalize="off" enterkeyhint="done">
-      <button class="primary" id="wordSend" type="button">Send</button>
+      <input id="wordIn" type="text" maxlength="80" autocomplete="off" autocapitalize="off" enterkeyhint="done">
+      <button class="primary" id="wordSend" type="button" data-i18n="chain.send">Send</button>
     </div>
 
     <div id="drawPane" hidden>
@@ -81,18 +111,18 @@
       </div>
       <div class="tools" id="colors"></div>
       <div class="tools">
-        <button type="button" class="ghost slim" data-w="3" id="w3">Thin</button>
-        <button type="button" class="ghost slim on" data-w="7" id="w7">Medium</button>
-        <button type="button" class="ghost slim" data-w="14" id="w14">Thick</button>
-        <button type="button" class="ghost slim" id="undoBtn">Undo</button>
-        <button type="button" class="ghost slim" id="redoBtn">Redo</button>
-        <button type="button" class="ghost slim" id="clearBtn">Clear</button>
+        <button type="button" class="ghost slim" data-w="3" id="w3" data-i18n="pad.thin">Thin</button>
+        <button type="button" class="ghost slim on" data-w="7" id="w7" data-i18n="pad.medium">Medium</button>
+        <button type="button" class="ghost slim" data-w="14" id="w14" data-i18n="pad.thick">Thick</button>
+        <button type="button" class="ghost slim" id="undoBtn" data-i18n="pad.undo">Undo</button>
+        <button type="button" class="ghost slim" id="redoBtn" data-i18n="pad.redo">Redo</button>
+        <button type="button" class="ghost slim" id="clearBtn" data-i18n="pad.clear">Clear</button>
       </div>
-      <button class="primary" id="drawSend" type="button">Send drawing</button>
+      <button class="primary" id="drawSend" type="button" data-i18n="chain.sendDrawing">Send drawing</button>
     </div>
 
     <div id="waitPane" hidden>
-      <p class="lead" id="waitLead">Waiting for everyone to send…</p>
+      <p class="lead" id="waitLead"></p>
       <ul class="plist" id="waitList"></ul>
     </div>
 
@@ -101,21 +131,15 @@
       <div class="chainnav" id="chainNav"></div>
       <div class="chain" id="chainView"></div>
       <div class="went" id="wentFrom" hidden></div>
-      <button class="primary" id="revealNext" type="button">Next</button>
-      <button class="ghost wide" id="againBtn" type="button">Play again</button>
+      <button class="primary" id="revealNext" type="button"></button>
+      <button class="primary" id="againBtn" type="button" data-i18n="chain.again">Play again</button>
+      <button class="ghost wide" id="otherGameBtn2" type="button" data-i18n="chain.otherGame">Play Draw &amp; guess instead</button>
+      <button class="ghost wide" id="archiveBack" type="button" data-i18n="archive.back" hidden>Back</button>
     </div>
   </section>
 </main>
 
-<div id="passSplash" hidden>
-  <div class="pass-card">
-    <p class="pass-kicker">Don’t peek</p>
-    <p class="lead" id="passName">Pass the phone</p>
-    <p class="lvlnote">Hand it over. They tap when they have it.</p>
-    <button class="primary" id="passGo" type="button">I’m up</button>
-  </div>
-</div>
-
+<script src="i18n-en.js"></script>
 <script src="words.js"></script>
 <script src="game.js"></script>
 <script src="draw.js"></script>

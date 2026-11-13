@@ -81,8 +81,7 @@ button{font:inherit}
 .plist li button.linkish{background:none;border:0;color:var(--text);font:inherit;font-weight:700;
   cursor:pointer;text-align:left;flex:1;padding:0}
 .plist li .sub{color:var(--muted);font-size:12px;font-weight:600}
-.addrow{display:flex;gap:8px;margin:10px 0}
-.addrow input,#wordIn{flex:1;padding:11px 12px;border-radius:10px;border:1px solid var(--border);
+#wordIn{flex:1;padding:11px 12px;border-radius:10px;border:1px solid var(--border);
   background:var(--paper);color:var(--ink);font:inherit}
 #wordIn{width:100%;margin:8px 0;font-size:18px;font-weight:700}
 
@@ -113,23 +112,6 @@ button{font:inherit}
 .went p{margin:0 0 10px;font-size:24px;font-weight:800;
   font-family:ui-rounded,'Segoe Print','Chalkboard SE','Comic Sans MS',cursive,system-ui,sans-serif}
 
-button.row-del{
-  background:none;border:0;color:var(--muted);cursor:pointer;padding:.15rem;line-height:0;
-}
-button.row-del:hover{color:var(--bad)}
-button.row-del svg{display:block;pointer-events:none}
-
-#passSplash{
-  position:fixed;inset:0;z-index:20;background:rgba(16,12,8,.92);
-  display:flex;align-items:center;justify-content:center;padding:24px;
-}
-#passSplash[hidden]{display:none!important}
-.pass-card{width:100%;max-width:360px;background:var(--surface);border:1px solid var(--border);
-  border-radius:20px;padding:28px 20px;text-align:center}
-.pass-kicker{margin:0 0 8px;letter-spacing:.16em;text-transform:uppercase;font-size:11px;
-  font-weight:800;color:var(--accent2)}
-.pass-card .lead{font-size:26px;font-weight:800;color:var(--text);margin:0 0 10px}
-
 #wordPane,#drawPane,#waitPane,#resultsPane{
   display:flex;flex-direction:column;gap:8px;flex:1;min-height:0;width:100%
 }
@@ -145,7 +127,6 @@ body.on-draw #play,body.on-guess #play{
 body.on-draw #playStatus,body.on-draw #playCount,
 body.on-guess #playStatus{display:none}
 body.on-draw .vhead h2{font-size:15px}
-body.on-pass header,body.on-pass main{visibility:hidden}
 
 #archiveBox{margin-top:8px}
 
@@ -160,3 +141,49 @@ body.on-pass header,body.on-pass main{visibility:hidden}
   header{padding:8px 12px}
   .primary{padding:11px;margin-top:6px}
 }
+
+/* ---- Draw & guess (meeting edition) ---- */
+.ghead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex:none}
+.clock{font-weight:800;font-variant-numeric:tabular-nums;color:var(--accent2);min-width:3.2em;text-align:right}
+.bar{height:6px;border-radius:999px;background:var(--surface2);overflow:hidden;flex:none}
+.bar i{display:block;height:100%;width:0;background:var(--good);transition:width .4s linear}
+.bar.low i{background:var(--bad)}
+.roleline{margin:0;text-align:center;color:var(--muted);font-weight:700;font-size:13.5px;flex:none}
+#gg .prompt{margin:0;letter-spacing:.06em;word-break:break-word;flex:none}
+#ggWrap{position:relative}
+#ggPad,#ggView{width:100%;height:100%;display:block;touch-action:none}
+#ggView{cursor:default}
+.reveal{position:absolute;inset:0;background:rgba(28,24,20,.86);color:var(--text);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center;padding:14px;animation:pop .28s ease;overflow:auto}
+.reveal .big{font-size:30px;font-weight:800;margin:0 0 10px;color:var(--accent2)}
+.reveal ul{list-style:none;margin:0;padding:0;font-size:15px}
+.reveal li{margin:3px 0}
+#ggTools{display:flex;flex-direction:column;gap:6px;flex:none}
+.guessrow{display:flex;gap:8px;flex:none;margin:0}
+.guessrow input{flex:1;min-width:0;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--paper);
+  color:var(--ink);font:inherit;font-size:17px;font-weight:700}
+.guessrow input:disabled{opacity:.7}
+.primary.slimbtn{width:auto;margin:0;padding:0 18px;min-height:46px}
+.feed{list-style:none;margin:0;padding:0;font-size:13.5px;display:flex;flex-direction:column;gap:2px;flex:none;min-height:1.4em}
+.feed li{color:var(--muted)}
+.feed li b{color:var(--text)}
+.feed .hit{color:var(--good);font-weight:800}
+.feed .sub{font-style:italic}
+.scores{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;flex:none}
+.scores .sc{background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:3px 10px;font-size:12.5px;white-space:nowrap}
+.scores .sc.me{border-color:var(--accent)}
+.scores .sc.hit{border-color:var(--good);color:var(--good)}
+.scores .sc.dr::before{content:"✎ "}
+#ggOver{display:flex;flex-direction:column;gap:8px}
+.standings{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.standings li{display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:9px 12px}
+.standings li.me{border-color:var(--accent)}
+.standings .rk{width:1.6em;font-weight:800;color:var(--accent2)}
+.standings .nm{flex:1;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.standings .pt{font-weight:800;color:var(--good)}
+.standings .tot{color:var(--muted);font-size:12px;white-space:nowrap}
+body.on-game header{display:none}
+body.on-game main{max-width:none;padding:8px 10px 10px;height:100%}
+body.on-game #gg{max-width:560px;margin:0 auto;width:100%;height:100%;gap:6px}
+#gg .padslot{min-height:150px}
+@media (max-height:620px){ #gg .prompt{font-size:22px} .feed li:nth-child(-n+2){display:none} }

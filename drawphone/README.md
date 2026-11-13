@@ -1,6 +1,6 @@
 # Drawphone
 
-Draw a word. Pass it on. Guess what they drew.
+Draw & guess and Telephone for meetings: one draws, everyone guesses; or draw, pass it on, guess what they drew.
 
 An unofficial port of **[Drawphone](https://github.com/tannerkrewson/drawphone)**
 by Tanner Krewson (MIT). Upstream is a party game that **needs a Node room** —
@@ -9,35 +9,37 @@ Express + socket.io hold the table, shuffle the chains, and store the drawings.
 and every `localhost:3000` path stay behind. The GifOS meeting is the room.
 
 ```
-index.html          setup / pass this device / play with friends
-style.css           cream paper on dark wood
-words.js            Simple words pack, vendored from upstream
-game.js             chains, rotation, host applies intents
+index.html          the table, Draw & guess, Telephone
+style.css           cream paper on dark wood; phone-first
+i18n/*.json         words on screen in en, de, es, ru, zh-Hans (i18n-en.js is built from en.json)
+words.js            the word pack: ~130 work-safe drawable things, each in five languages
+game.js             Telephone chains + Draw & guess rules (pure; test/game-unit.js)
 draw.js             touch pad (finger or mouse), stroke model
-app.js              lobby, turns, results
-icon.mjs            procedural cat-on-paper icon + 1200×720 cover
-build.mjs           packs the GIF into site/apps/drawphone/drawphone.gif
+app.js              roster from the meeting, the host loop, screens
+icon.mjs            procedural cat-on-paper icon + 1200x720 cover
+build.mjs           packs the GIF into gifos-app/apps/drawphone/drawphone.gif
+test/               game-unit.js (node), meet-room.js (a meet.js meeting), eval-old.js (1.0 as shipped)
 vendor/COPYING-drawphone.txt   upstream MIT notice (also packed inside the GIF)
 ```
 
-## What you can play
+## In a meeting (1.1)
 
-- **Pass this device** — add names, start, hand the phone to whoever is up.
-  A splash hides the last turn so the next person does not peek.
-- **Play with friends** — send the invite (top bar; that button is OS chrome).
-  Everyone who opens it sits at the same table. Two or more to start. Each
-  person writes only their own row. The host of the table (lowest live id)
-  is the only writer of the board row: a player publishes a word or a
-  drawing, the host advances the chain when everyone has sent.
-- **Rounds in the file** — a finished chain is saved in `gifos.db('save')`.
-  Open the GIF later and the last rounds are still there. Sharing the file
-  shares the jokes.
-
-Each chain starts with a simple word (or one you write). Then draw, guess,
-draw, guess, until it has been around the table, always ending on a word.
-There is no score. The fun is how far it drifted.
-
-Draw with a finger or a mouse. Colours, thickness, undo, clear.
+- **The players are the meeting.** Everyone with the app open is at the table:
+  each page writes a heartbeat row and counts the rows it sees moving. No typed
+  names, no Join, no pass-this-device roster.
+- **One writer per row.** Each person writes only `p:<id>` (heartbeat, a pending
+  request, this turn's guesses) and `ink:<id>` (the live pad or a Telephone
+  drawing). The host (lowest live id) is the only writer of `board`; it applies
+  requests, judges guesses, keeps the clock and the scores, so every page shows
+  the same numbers. A new host picks the board up where it was.
+- **Anyone starts a round** (a request on their own row, keyed to the board
+  version it saw). People who arrive mid-round watch and play the next one.
+  A drawer who leaves ends their turn; a Telephone player who leaves (or runs
+  out of time) is skipped.
+- **Clock without clock sync**: the board says how many ms were left when it was
+  written; each page counts from when it first saw that version.
+- **Draw & guess** scoring: 10, 8, 6, then 5 for right guesses in order; the drawer
+  3 each (max 12). Three drawers a round. Telephone is capped at six steps.
 
 ## Why the server is gone
 

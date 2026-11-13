@@ -1,0 +1,57 @@
+'use strict';
+// node drawphone/test/game-unit.js — the pure rules (words.js + game.js), no browser.
+const vm = require('vm'); const fs = require('fs'); const path = require('path');
+const ctx = { console }; ctx.window = ctx; vm.createContext(ctx);
+for (const f of ['words.js', 'game.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), ctx);
+const { DP } = ctx; const GG = DP.GG;
+let fails = 0; const ok = (c, d, x) => { console.log((c ? 'PASS' : 'FAIL') + ' — ' + d + (c ? '' : ' ' + JSON.stringify(x))); if (!c) fails++; };
+let n = 0; const rng = () => { n = (n + 0.37) % 1; return n; };
+const cat = DP.PACK.findIndex((w) => w[0] === 'cat');
+ok(GG.isHit(cat, 'Cat') && GG.isHit(cat, ' the cats!') && GG.isHit(cat, 'Katze') && GG.isHit(cat, 'gato') && GG.isHit(cat, 'кошка') && GG.isHit(cat, '猫'), 'a guess counts in any of the five languages, any case, with an article or plural');
+ok(!GG.isHit(cat, 'dog') && !GG.isHit(cat, '') && !GG.isHit(cat, 'ca'), 'a wrong or empty guess does not count');
+const ice = DP.PACK.findIndex((w) => w[0] === 'ice cream');
+ok(GG.isHit(ice, 'icecream') && GG.isHit(ice, 'Ice-Cream') && GG.isHit(ice, 'helado'), 'spaces and dashes do not matter');
+const people = [{ id: 'a', name: 'Ann' }, { id: 'b', name: 'Bob' }, { id: 'c', name: 'Cy' }, { id: 'd', name: 'Di' }];
+ok(GG.startRound(null, people.slice(0, 1), { rng }) === null, 'one person cannot start a round');
+let b = GG.startRound(null, people, { rng, ms: 60000, host: 'a' });
+ok(b.phase === 'draw' && b.drawers.length === 3 && b.players.length === 4 && b.turn.drawer === b.drawers[0], 'a round of 4: 3 drawers, the first draws', b);
+const d0 = b.turn.drawer; const w = DP.PACK[b.turn.word];
+const live = ['a', 'b', 'c', 'd'];
+const g = {}; for (const id of live) g[id] = ['nope'];
+ok(GG.applyGuesses(b, g, live) === null, 'wrong guesses change nothing');
+const others = live.filter((x) => x !== d0);
+g[others[1]] = ['nope', w[1]]; // German
+let b2 = GG.applyGuesses(b, g, live);
+ok(b2 && b2.turn.hits.length === 1 && b2.scores[others[1]] === 10 && b2.phase === 'draw', 'the first right guess scores 10, the turn goes on', b2 && b2.turn);
+ok(GG.applyGuesses(b2, g, live) === null, 'the same guess again is not scored twice');
+g[d0] = [w[0]];
+ok(GG.applyGuesses(b2, g, live) === null, 'the drawer cannot score by guessing');
+g[others[0]] = [w[0]]; g[others[2]] = [w[3]];
+let b3 = GG.applyGuesses(b2, g, live);
+ok(b3 && b3.phase === 'reveal' && b3.turn.hits.map((h) => h.pts).join() === '10,8,6' && b3.scores[d0] === 9, 'all in: the turn closes; 10, 8, 6 and the drawer 3 each', b3 && b3.turn);
+const b4 = GG.afterReveal(b3, live, rng);
+ok(b4.phase === 'draw' && b4.ti === 1 && b4.turn.drawer === b.drawers[1] && b4.turn.word !== b3.turn.word, 'after the reveal the next drawer gets a new word');
+const live2 = live.filter((x) => x !== b.drawers[2]);
+let b5 = GG.timeUp(b4);
+ok(b5.phase === 'reveal' && b5.turn.drawerPts === 0, 'time up with no right guess: no points');
+const b6 = GG.afterReveal(b5, live2, rng);
+ok(b6.phase === 'over', 'the last drawer left the meeting: the round ends instead of waiting', b6.phase);
+const st = GG.standings(b6);
+ok(st[0].round >= st[1].round && st.length === 4, 'standings best first', st);
+const r2 = GG.startRound(b6, people.concat([{ id: 'e', name: 'Eve' }]), { rng, ms: 45000 });
+ok(r2.round === 2 && r2.players.includes('e') && r2.drawers[0] !== b.drawers[0] && r2.totals[others[1]] === b6.totals[others[1]] && r2.scores[others[1]] === 0, 'round 2: the late joiner plays, totals carry, round points restart, a new drawer leads', r2);
+// a hit judged by the host from a person who was not in the round (joined late) does not count
+const g2 = { e: [DP.PACK[r2.turn.word][0]] };
+const r3 = GG.applyGuesses(Object.assign({}, r2, { players: r2.players.filter((x) => x !== 'e') }), g2, live);
+ok(r3 === null, 'someone who is not in this round cannot score in it');
+const rw = GG.reword(r2, rng);
+ok(rw && rw.turn.word !== r2.turn.word && GG.reword(rw, rng) === null, 'the drawer may take another word once');
+// Telephone: a leaver is skipped, the chain still ends
+const t = DP.start(people, { rng, host: 'a' });
+ok(t.turns === 4 && DP.start(Array.from({ length: 30 }, (_, i) => ({ id: 'p' + i })), { rng }).turns === 6, 'telephone: 4 people 4 turns; 30 people capped at 6 turns');
+const acts = DP.actors(t); const intents = {};
+acts.forEach((id, i) => { intents[id] = i === 0 ? { skip: true, seq: t.seq } : { kind: 'draw', seq: t.seq, strokes: [{ c: '#111', w: 4, p: [1, 1, 50, 50] }] }; });
+const t2 = DP.applyIntents(t, intents);
+ok(t2 && t2.turn === 1 && t2.chains.some((c) => c.links[1].skip), 'telephone: a skipped turn fills the link and the chain moves on');
+ok(t.chains[0].links[0].wi >= 0 && DP.wordIn(t.chains[0].links[0].wi, 'ru'), 'telephone seed word has its pack index for every language');
+console.log(fails ? 'FAILED ' + fails : 'ALL PASS'); process.exit(fails ? 1 : 0);

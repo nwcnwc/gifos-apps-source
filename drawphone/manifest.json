@@ -3,7 +3,7 @@
   "appId": "drawphone",
   "name": "Drawphone",
   "shortName": "Drawphone",
-  "version": "1.0",
+  "version": "1.1",
   "minBuild": 947,
   "entry": "index.html",
   "accent": [232, 92, 64],

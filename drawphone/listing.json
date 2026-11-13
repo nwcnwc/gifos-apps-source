@@ -1,6 +1,6 @@
 {
-  "tagline": "Telephone with pictures: draw, pass, guess. One link deals everyone in.",
-  "description": "Send the invite. Everyone who opens it sits at the same table — no code to type.\n\nSomeone draws a word. The next person guesses. The next person draws that guess. Around it goes until a cat has become a hat. There is no winning. The point is the chain.\n\nOr pass this device around a table. Add names, start, and hand the phone to whoever is up. A splash hides the last turn so nobody peeks. Draw with a finger or a mouse.\n\nAn unofficial port of Drawphone by Tanner Krewson.",
+  "tagline": "Draw & guess for meetings: one draws, everyone guesses, points on every screen. Plus Telephone.",
+  "description": "Open it in a meeting and everyone is at the table: no names to type, no codes, no Join button.\n\nDraw & guess: one person draws, everyone else guesses on their phone or computer. Quick right guesses score most, the drawer scores when people get it, and everyone sees the same standings. Three drawers a round, so a round fits in two or three minutes. Anyone can start the next one.\n\nTelephone: everyone draws a word at once, the pictures pass on and get guessed, and the chains are revealed step by step. No score; the fun is how far it drifts.\n\nPeople who join late play from the next round; someone who leaves is skipped. About 130 work-safe words in English, German, Spanish, Russian and Chinese, and a guess counts in any of them. Made for touch screens.\n\nAn unofficial port of Drawphone by Tanner Krewson, with Draw & guess added for GifOS meetings.",
   "author": {
     "name": "tannerkrewson",
     "url": "https://github.com/tannerkrewson/drawphone"
@@ -14,16 +14,17 @@
     "url": "https://github.com/tannerkrewson/drawphone",
     "blessed": false
   },
-  "releaseDate": "2026-08-23",
+  "releaseDate": "2026-11-13",
   "categories": [
     "Games"
   ],
   "tags": [
-    "telephone",
     "drawing",
+    "guessing",
     "party",
+    "meeting",
     "multiplayer",
-    "pictionary"
+    "telephone"
   ],
   "license": "MIT",
   "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/drawphone",

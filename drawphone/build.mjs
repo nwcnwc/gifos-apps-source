@@ -11,6 +11,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import vm from 'node:vm';
+import { spawnSync } from 'node:child_process';
 
 // Node 18's CompressionStream rejects 'deflate-raw' (the format gifos-gif.js
 // uses). Node 20+ is fine. Buffer the payload and deflateRaw at flush — the
@@ -47,18 +48,34 @@ if (!existsSync(join(dir, 'vendor', 'COPYING-drawphone.txt'))) {
   throw new Error('vendor/COPYING-drawphone.txt is missing — the MIT notice has to ride inside the GIF');
 }
 
-const SCRIPTS = ['words.js', 'game.js', 'draw.js', 'app.js'];
+const SCRIPTS = ['i18n-en.js', 'words.js', 'game.js', 'draw.js', 'app.js'];
+const LANGS = ['en', 'de', 'es', 'ru', 'zh-Hans'];
+const cats = {};
+for (const l of LANGS) cats[l] = JSON.parse(read('i18n/' + l + '.json'));
 
 const files = {
   'manifest.json': JSON.stringify(manifest),
   'index.html': read('index.html'),
   'style.css': read('style.css'),
+  'i18n-en.js': '// English words on screen, for a GifOS older than app catalogs (built from i18n/en.json).\nwindow.DP_EN = ' + JSON.stringify(cats.en).replace(/</g, '\\u003c') + ';\n',
   'words.js': read('words.js'),
   'game.js': read('game.js'),
   'draw.js': read('draw.js'),
   'app.js': read('app.js'),
   'COPYING-drawphone.txt': read('vendor/COPYING-drawphone.txt'),
 };
+for (const l of LANGS) files['i18n/' + l + '.json'] = JSON.stringify(cats[l]);
+// Every key the app uses is in all five catalogs, and every catalog has the same keys.
+{
+  const used = new Set();
+  for (const m of read('app.js').matchAll(/\bT\('([\w.]+)'/g)) used.add(m[1]);
+  for (const m of read('index.html').matchAll(/data-i18n="([\w.]+)"/g)) used.add(m[1]);
+  for (const l of LANGS) {
+    for (const k of used) if (!(k in cats[l])) throw new Error('i18n/' + l + '.json lacks ' + k);
+    for (const k of Object.keys(cats.en)) if (!(k in cats[l])) throw new Error('i18n/' + l + '.json lacks ' + k);
+    if (Object.keys(cats[l]).length !== Object.keys(cats.en).length) throw new Error('i18n/' + l + '.json has keys en.json lacks');
+  }
+}
 {
   const helpMd = read('help.md');
   if (helpMd.trim().length < 400) throw new Error('help.md is too short — OS Help needs a real guide');
@@ -106,8 +123,14 @@ if (!files['app.js'].includes('revealNext') || !files['app.js'].includes('reveal
 if (!files['draw.js'].includes('quadraticCurveTo') || !files['draw.js'].includes('getCoalescedEvents')) {
   throw new Error('the pad must smooth a finger stroke (quadratic + coalesced points)');
 }
-if (!files['app.js'].includes('intent') || !files['app.js'].includes('putMe')) {
-  throw new Error('app.js must publish turns on the player\'s own row');
+if (!files['app.js'].includes("id: 'p:' + me.id") || !files['app.js'].includes("id: 'ink:' + me.id")) {
+  throw new Error('app.js must publish turns, guesses and ink on the player\'s own rows');
+}
+if (/hereName|Pass this device|addrow/.test(files['app.js'] + html)) {
+  throw new Error('players come from the meeting: no typed names, no pass-this-device roster');
+}
+if (/id=["']friendBtn/.test(html)) {
+  throw new Error('nobody presses Join: everyone with the app open sits at the table');
 }
 if (!files['app.js'].includes('putBoard') || !files['app.js'].includes('isHost')) {
   throw new Error('host advances the chain on the board row; nobody else writes it');
@@ -134,18 +157,23 @@ for (const [n, s] of Object.entries(files)) {
 if (!files['COPYING-drawphone.txt'].includes('Tanner Krewson')) {
   throw new Error('COPYING-drawphone.txt is not Tanner Krewson\'s MIT notice');
 }
-if (!files['words.js'].includes('snowman') || !files['words.js'].includes('octopus')) {
-  throw new Error('words.js is not the Simple words pack');
+{
+  const ctx = {}; ctx.window = ctx; vm.createContext(ctx);
+  vm.runInContext(files['words.js'], ctx);
+  const P = ctx.DP.PACK;
+  if (!P || P.length < 100) throw new Error('words.js: the pack needs 100+ words');
+  for (const w of P) if (w.length !== 5 || w.some((x) => !x || !x.trim())) throw new Error('words.js: every word needs en|de|es|ru|zh: ' + w.join('|'));
 }
 
 // Sanity: 2-player pack round ends on a guess; host applies both intents.
 {
   const ctx = { console };
   vm.runInNewContext(
-    files['words.js'] + '\n' + files['game.js'] + '\n' +
+    'var window = this;\n' + files['words.js'] + '\n' + files['game.js'] + '\n' +
     'self = this; result = (function () {\n' +
     '  if (DP.turnsWanted(2, false) !== 2) throw new Error("2-pack turns " + DP.turnsWanted(2, false));\n' +
     '  if (DP.turnsWanted(3, false) !== 4) throw new Error("3-pack turns " + DP.turnsWanted(3, false));\n' +
+    '  if (DP.turnsWanted(30, false) !== 6) throw new Error("a 30-person chain is capped at 6 turns");\n' +
     '  if (DP.turnsWanted(2, true) !== 3) throw new Error("2-write turns " + DP.turnsWanted(2, true));\n' +
     '  var rng = (function () { var n = 0; return function () { n = (n + 0.17) % 1; return n; }; })();\n' +
     '  var people = [{id:"a",name:"Ann"},{id:"b",name:"Bob"}];\n' +
@@ -186,6 +214,10 @@ const bytes = await gif.encode(files, { preview: drawphoneIcon(), accent: manife
 const out = join(dir, '..', '..', 'gifos-app', 'apps', 'drawphone', 'drawphone.gif');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, bytes);
+{
+  const r = spawnSync(process.execPath, [join(dir, 'test', 'game-unit.js')], { encoding: 'utf8' });
+  if (r.status !== 0) throw new Error('test/game-unit.js failed:\n' + r.stdout + r.stderr);
+}
 console.log('wrote site/apps/drawphone/drawphone.gif —', (bytes.length / 1024).toFixed(0), 'KB, from',
             Object.keys(files).length, 'files (Node room ripped out, no network)');
 console.log('wrote apps/drawphone/screenshot.png —', (shot.length / 1024).toFixed(0), 'KB');

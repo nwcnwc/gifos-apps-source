@@ -1,40 +1,46 @@
 # Drawphone
 
-Draw a word. Pass it on. Guess what they drew. Telephone with pictures. There is **no score** and no winner. The joke is how far the chain drifted.
+Two drawing games for a meeting: **Draw & guess** (one person draws, everyone else guesses, with points) and **Telephone** (draw, pass it on, guess what they drew).
 
-## Two ways to sit down
+## Who plays
 
-**Pass this device** — add names (you start with two), press Start, and hand the phone to whoever is up. A **Don’t peek** splash hides the last turn; they tap **I’m up** when they have it.
+Everyone in the meeting who has Drawphone open sits at the table by themselves. Nobody types a name, nobody presses Join, there is no code. Your name is your meeting name.
 
-**Play with friends** — sit at the table, then press **Invite** in the bar **above** the app (not inside it). Everyone who opens the invite sits here. Two people is enough. The person the table picked as host sees **Start the round**; everyone else waits.
+Outside a meeting, press **Invite** in the bar **above** the app (not inside it) and send the link; everyone who opens it sits here.
 
-You need at least two players either way. Playing both sides on one phone is what Pass this device is for.
+People who arrive while a round is on **watch it** and play from the **next round**. Someone who leaves does not hold anyone up: their turn is skipped.
 
-## A round
+## Starting
 
-Each chain starts with a **simple word** from the pack (book, octopus, snowman…) — or choose **We write it**, and each person types a word for someone else to draw.
+Anyone can start, not only the host. Pick the game and the time to draw (45, 60 or 80 seconds), then **Start a round**. At the end of a round anyone can press **Next round**, or switch to the other game.
 
-Then it goes **draw → guess → draw → guess** until it has been around the table, always ending on a word.
+## Draw & guess
 
-- When you **draw**: the word is the prompt. Finger or mouse on the pad. **Send drawing**.
-- When you **guess**: you see the last drawing. Type a word or a short phrase. **Send**.
-- Then you wait until everyone has sent.
+- A round has **three drawers** (fewer with fewer people), so it takes two or three minutes. Over several rounds everyone gets a turn to draw.
+- The drawer sees the word and draws it. **Another word** swaps it once, before anyone has guessed.
+- Everyone else sees the drawing appear live and the word's blanks, and types guesses. Wrong guesses show in the feed; a right one shows as "got it", never the word.
+- A guess counts in English, German, Spanish, Russian or Chinese, in any case, with or without "the", and singular or plural.
+- **Points:** the first right guess 10, then 8, then 6, then 5 each. The drawer gets 3 for each person who got it (at most 12).
+- The turn ends when the time runs out or everyone has it. The word is shown for a few seconds, then the next drawer goes.
+- At the end of the round everyone sees the same standings: this round's points and the total so far.
 
-Turn count is on screen (**Turn 2 of 4**, and so on). With two people it is short; more people, more turns.
+## Telephone
+
+- Everyone gets a word from the pack and draws it at the same time. Then each drawing passes on and the next person guesses it, then the guess is drawn, and so on, up to six steps.
+- Each step has a clock. When it runs out, whatever you drew or wrote is sent; an empty page is skipped.
+- Then the chains are revealed **one step at a time**. Tap **Next** (or the chain). There is no score; the fun is how far it drifted.
 
 ## The pad
 
-- Draw with a **finger** or the **mouse**. The pad does not scroll the page.
-- Eight colours. The **cream** swatch is an eraser (it paints the paper colour).
-- **Thin / Medium / Thick**, **Undo**, **Redo**, **Clear**.
-- You cannot send a blank page or an empty guess.
+- Draw with a **finger** or the **mouse**; the pad does not scroll the page.
+- Eight colours (the cream one is an eraser), **Thin / Medium / Thick**, **Undo**, **Clear**.
 
-## Results
+## The words
 
-Chains are revealed **one step at a time** — first word, then the drawing, then the guess — so nobody dumps the punchline. Tap **Next** (or the chain itself). Each chain is labelled with its first word. At the end you see what you started with and what it became. **Play again** starts a new round (host only, in a friends game).
+About 130 everyday things that are easy to draw and fine for a work meeting: animals, food, objects, places, weather. No people's bodies, brands, politics or religion. Each word is in five languages, and the drawer sees it in their own.
 
 ## What is saved
 
-Finished rounds live **in this file** (the last eight). The setup screen lists them; open one to replay the reveal. Share or copy the app and the jokes travel with it. An unfinished round is not kept.
+Finished Telephone rounds live **in this file** (the last eight); the start screen lists them. Draw & guess scores last for the meeting.
 
-Invite does not upload anything to a game server. The table **is** the invite.
+Nothing goes to a game server. The meeting is the table.
