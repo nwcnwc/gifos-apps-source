@@ -12,6 +12,11 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import vm from 'node:vm';
 
+// Withdrawn from the store (2026-11-13): not built, not listed.
+// listing.unpublished.json keeps it out of the catalog.
+console.error('withdrawn from the GifOS store: not built');
+process.exit(1);
+
 // Node 18: hat-sh CompressionStream polyfill BEFORE importing gifos-gif.js.
 // Node 18's CompressionStream rejects 'deflate-raw' (the format gifos-gif.js
 // uses). Node 20+ is fine. Buffer the payload and deflateRaw at flush — the
