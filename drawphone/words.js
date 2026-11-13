@@ -74,7 +74,7 @@
     'snail|Schnecke|caracol|улитка|蜗牛',
     'turtle|Schildkröte|tortuga|черепаха|乌龟',
     'rabbit|Hase|conejo|кролик|兔子',
-    'penguin|Pinguin|pingüino|пингвин|企鹅',
+    'panda|Panda|panda|панда|熊猫',
     'owl|Eule|búho|сова|猫头鹰',
     'frog|Frosch|rana|лягушка|青蛙',
     'whale|Wal|ballena|кит|鲸鱼',
