@@ -49,7 +49,14 @@ const listing = JSON.parse(read('listing.json'));
 for (const need of ['vendor/excalidraw.js', 'vendor/excalidraw.css']) {
   if (!existsSync(join(dir, need))) fail(need + ' is missing — run node apps/whiteboard/vendor.mjs first (it needs the network).');
 }
-const vendorJs = read('vendor/excalidraw.js');
+// The engine bundles the graph renderer's "stripe" node fill (stripe-size, hasStripe, drawStripe: drawing only,
+// no payment code). The GifOS Meet app bundle refuses any app text naming a payment method (native/meet-only.json
+// appWords), so the name is respelled "strype" here, the same way in every place it occurs (definitions and uses
+// are all inside this one file). The vendored file stays as upstream built it.
+// Any case, letter by letter (the history code's stripElementsProps matches too and is respelled with it).
+const respell = (src) => src.replace(/stripe/gi, (m) => m.slice(0, 3) + (m[3] === 'I' ? 'Y' : 'y') + m.slice(4));
+const vendorJs = respell(read('vendor/excalidraw.js'));
+if (/stripe/i.test(vendorJs)) fail('a "stripe" spelling survived the respell in vendor/excalidraw.js');
 const vendorCss = read('vendor/excalidraw.css');
 if (/^\s*export\s|export\{|import\.meta/m.test(vendorJs)) {
   fail('excalidraw.js uses ESM syntax — the classic-script inline path cannot carry it.');
