@@ -60,11 +60,21 @@
     return true;
   }
 
+  // Do two copies differ only in what the engine rewrites on its own?
+  var TIDY = { version: 1, versionNonce: 1, updated: 1, index: 1, boundElements: 1, lastCommittedPoint: 1 };
+  function onlyTidied(a, b) {
+    var k;
+    for (k in a) if (!TIDY[k] && a[k] !== b[k] && JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false;
+    for (k in b) if (!TIDY[k] && !(k in a) && b[k] != null) return false;
+    return true;
+  }
+
   function Board(actor) {
     this.actor = String(actor || 'local');
     this.best = Object.create(null);   // element id -> { el, mine }   the winner so far
     this.mine = Object.create(null);   // element id -> { el, dirty, sent, ok, gone }   my rows
     this.seen = Object.create(null);   // foreign row id -> key already merged
+    this.same = Object.create(null);   // element id -> key of a scene copy that only the engine tidied
     this.rev = 0;
   }
   Board.prototype.rowId = function (elId) { return this.actor + '/' + elId; };
@@ -73,12 +83,20 @@
   // mine to publish. `hold` names elements still being drawn or typed: they are
   // left alone until they are finished, so a stroke is sent once, whole.
   // Returns { marked: n, stale: [ids whose scene copy lost to the room] }.
-  Board.prototype.local = function (elements, hold) {
+  // `tidy` is true for the one scene change that follows putting room elements on
+  // the scene. The engine tidies what it is given (it re-numbers the stacking
+  // order, mends the list of what is tied to a shape) and counts that as a new
+  // version. That is this page's housekeeping, not something a person did:
+  // sending it would hand every element a new version each time somebody joins.
+  // Such a copy is remembered as equal to the winner and not sent.
+  Board.prototype.local = function (elements, hold, tidy) {
     var marked = 0, stale = [];
     for (var i = 0; i < elements.length; i++) {
       var e = elements[i], b = this.best[e.id];
       if (b && b.el.version === e.version && b.el.versionNonce === e.versionNonce) continue;
+      if (b && this.same[e.id] === e.version + ':' + e.versionNonce) continue;
       if (hold && hold[e.id]) continue;
+      if (tidy && b && newer(e, b.el) && onlyTidied(e, b.el)) { this.same[e.id] = e.version + ':' + e.versionNonce; continue; }
       if (!b && e.isDeleted) continue;                  // made and thrown away before anyone saw it
       if (b && !newer(e, b.el)) { stale.push(e.id); continue; }
       if (!legal(e)) continue;
@@ -319,5 +337,5 @@
              pending: pending, people: function () { return people; }, stats: stats };
   }
 
-  return { Board: Board, sync: sync, newer: newer, legal: legal, keyOf: keyOf, STALE_MS: STALE_MS };
+  return { Board: Board, sync: sync, onlyTidied: onlyTidied, newer: newer, legal: legal, keyOf: keyOf, STALE_MS: STALE_MS };
 });

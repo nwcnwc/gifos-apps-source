@@ -129,7 +129,33 @@ body { overflow: hidden; }
   white-space: nowrap;
 }
 
-@media (max-height: 520px) {
+/* A phone: the engine keeps its small tools in the top right corner, so the bar
+   lies along the bottom instead, just above the engine's own bottom bar. */
+@media (max-width: 640px) {
+  #wb-rail {
+    top: auto;
+    right: auto;
+    left: 50%;
+    bottom: calc(76px + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    flex-direction: row;
+    gap: 2px;
+    padding: 4px;
+    max-width: calc(100vw - 12px);
+  }
+  .wb-btn { width: 38px; min-height: 38px; }
+  #wb-status { width: 34px; height: 38px; border-bottom: 0; border-inline-end: 1px solid #e9ecef; margin: 0 2px 0 0; }
+  .wb-wrap { position: static; }
+  .wb-menu {
+    right: auto;
+    left: 50%;
+    top: auto;
+    bottom: 52px;
+    transform: translateX(-50%);
+    width: max-content;
+  }
+}
+@media (max-height: 520px) and (min-width: 641px) {
   #wb-rail { gap: 0; padding: 3px; }
   .wb-btn { min-height: 34px; width: 36px; }
   #wb-status { width: 36px; height: 24px; }

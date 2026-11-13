@@ -53,7 +53,7 @@
 
   var ex = null;            // the engine's API
   var board = null, sync = null, me = { id: 'local', name: '' };
-  var applyQueue = Object.create(null), applyTimer = 0, applying = false, firstFit = false, staleTries = Object.create(null);
+  var applyQueue = Object.create(null), applyTimer = 0, applying = false, firstFit = false, staleTries = Object.create(null), tidyNext = false, tidyTimer = 0, touched = false;
   var people = [];
   var noteN = 0;
   var hl = null;            // what the pen was before the highlighter was switched on
@@ -84,9 +84,18 @@
       remote.forEach(function (r) { if (by[r.id] == null) merged.push(r); else if (WB.Collab.newer(r, merged[by[r.id]])) merged[by[r.id]] = r; });
     }
     applying = true;
+    // The scene change this causes is the engine tidying what it was given (see Board.local).
+    tidyNext = true;
+    if (tidyTimer) clearTimeout(tidyTimer);
+    tidyTimer = setTimeout(function () { tidyTimer = 0; tidyNext = false; }, 60);
     try { ex.updateScene({ elements: merged, captureUpdate: EX.CaptureUpdateAction ? EX.CaptureUpdateAction.NEVER : 'NEVER' }); }
     finally { applying = false; }
-    if (!firstFit && merged.length) { firstFit = true; try { ex.scrollToContent(undefined, { fitToViewport: true, viewportZoomFactor: 0.9, animate: false }); } catch (e3) {} }
+    // Someone who arrives at a board that is already there is shown all of it, once,
+    // never closer than life size, and never once they have started working.
+    if (!firstFit && merged.length) {
+      firstFit = true;
+      if (!touched) { try { ex.scrollToContent(undefined, { fitToViewport: true, viewportZoomFactor: 0.9, maxZoom: 1, animate: false }); } catch (e3) {} }
+    }
   }
   function queueApply(els) {
     for (var i = 0; i < els.length; i++) applyQueue[els[i].id] = 1;
@@ -100,8 +109,9 @@
     ['newElement', 'multiElement', 'editingTextElement', 'draggingElement'].forEach(function (k) {
       if (st[k] && st[k].id) { (hold = hold || {})[st[k].id] = 1; }
     });
-    var r = board.local(elements, hold);
-    if (r.marked) sync.touch();
+    var r = board.local(elements, hold, tidyNext);
+    tidyNext = false;
+    if (r.marked) { touched = true; sync.touch(); }
     // A copy on this page that lost to the room (the engine kept it while it was being edited): take the room's.
     // Asked a few times at most per copy: if the engine keeps its own, it has a reason this file does not know.
     if (r.stale.length && !busy(st) && !applying) {

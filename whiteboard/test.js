@@ -582,6 +582,37 @@ t('presence: pointer is throttled and silent when alone', async function () {
   check((S.counts.presPut || 0) - s0 <= 1, 'alone: only a heartbeat, got ' + ((S.counts.presPut || 0) - s0));
 });
 
+t('engine tidying after an apply is not sent, a real edit still is', async () => {
+  // A joins a board that B made. The engine re-numbers the stacking order of what it was
+  // given and counts that as a new version; that must not become A's own write.
+  const a = new Collab.Board('pa~1');
+  const row = (el) => ({ id: 'pb~1/' + el.id, a: 'pb~1', e: el });
+  const base = { type: 'rectangle', x: 1, y: 2, width: 10, height: 10, isDeleted: false, index: 'a1', boundElements: null, groupIds: [] };
+  const e1 = Object.assign({ id: 'e1', version: 3, versionNonce: 50 }, base);
+  const e2 = Object.assign({ id: 'e2', version: 3, versionNonce: 60 }, base);
+  check(a.ingest([row(e1), row(e2)]).length === 2, 'both applied');
+  const t1 = Object.assign({}, e1, { version: 4, versionNonce: 7, index: 'a2', updated: 9 });
+  const t2 = Object.assign({}, e2, { version: 4, versionNonce: 8, index: 'a3', boundElements: [{ id: 'x', type: 'arrow' }] });
+  let r = a.local([t1, t2], null, true);
+  check(r.marked === 0 && r.stale.length === 0, 'tidied copies are not marked: ' + JSON.stringify(r));
+  check(Object.keys(a.mine).length === 0, 'no rows of mine');
+  r = a.local([t1, t2], null, false);
+  check(r.marked === 0, 'and stay unmarked on later scene changes');
+  // the same change outside the tidy moment is a person's doing (send to back) and is sent
+  const b = new Collab.Board('pc~1');
+  b.ingest([row(e1)]);
+  check(b.local([t1], null, false).marked === 1, 'an order change by a person is sent');
+  // a real edit in the tidy moment is still sent
+  const moved = Object.assign({}, e2, { version: 4, versionNonce: 9, x: 99, index: 'a3' });
+  const c = new Collab.Board('pd~1');
+  c.ingest([row(e2)]);
+  check(c.local([moved], null, true).marked === 1, 'a move is sent even in the tidy moment');
+  // and a later edit on top of a tidied copy is sent
+  const t1b = Object.assign({}, t1, { version: 5, versionNonce: 3, x: 40 });
+  check(a.local([t1b, t2], null, false).marked === 1, 'an edit after tidying is sent');
+  check(Collab.onlyTidied(t1, e1) && !Collab.onlyTidied(moved, e2), 'onlyTidied');
+});
+
 // ---- run ---------------------------------------------------------------------
 (async function () {
   let pass = 0, fail = 0;
