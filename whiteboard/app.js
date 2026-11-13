@@ -449,8 +449,18 @@
     return chain.then(function () { return WB.Export.pdf({ pages: pages }); });
   }
   var lastExport = null;
+  // The OS's save (gifos.file.save, GifOS 0.9.26+): a download on the web, the system save or share sheet in
+  // the GifOS Meet app. An older OS has no such call: the plain download link below, as before.
   function saveFile(bytes, name, mime) {
     lastExport = { name: name, mime: mime, bytes: bytes };
+    var g = typeof gifos !== 'undefined' ? gifos : null;
+    if (g && g.file && typeof g.file.save === 'function') {
+      g.file.save(name, mime, bytes).catch(function () { linkSave(bytes, name, mime); });
+      return;
+    }
+    linkSave(bytes, name, mime);
+  }
+  function linkSave(bytes, name, mime) {
     var url = URL.createObjectURL(new Blob([bytes], { type: mime }));
     var a = document.createElement('a');
     a.href = url; a.download = name; a.style.display = 'none';
