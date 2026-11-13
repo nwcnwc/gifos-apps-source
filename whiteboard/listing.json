@@ -1,0 +1,38 @@
+{
+  "tagline": "A shared whiteboard for workshops. Everyone in the meeting draws on it together.",
+  "description": "Draw freehand with the pen or the highlighter, put up sticky notes in colours, add shapes, arrows that stay attached to what they point at, and text. Group notes into clusters, put them in frames, and vote with dots. A shared timer keeps the room on track, and ready-made brainstorm and retrospective templates get a session started in one tap.\n\nEveryone in the meeting or the app room sees every change as it happens, and anyone who joins late gets the whole board. Nothing to set up and no account to make.\n\nExport to PowerPoint with one slide per frame, where notes and shapes stay editable, or save a PNG or a PDF. Built on Excalidraw. An unofficial port; bugs go to GifOS, not upstream.",
+  "author": {
+    "name": "Excalidraw",
+    "url": "https://github.com/excalidraw/excalidraw"
+  },
+  "porter": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "basedOn": {
+    "name": "Excalidraw",
+    "url": "https://github.com/excalidraw/excalidraw",
+    "donate": "https://opencollective.com/excalidraw",
+    "blessed": false
+  },
+  "releaseDate": "2026-11-13",
+  "categories": [
+    "Productivity"
+  ],
+  "tags": [
+    "whiteboard",
+    "workshop",
+    "sticky-notes",
+    "brainstorm",
+    "retrospective",
+    "diagram",
+    "drawing",
+    "powerpoint",
+    "multiplayer",
+    "offline"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/whiteboard",
+  "cover": "screenshot.png",
+  "screenshots": []
+}
