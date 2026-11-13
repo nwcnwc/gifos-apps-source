@@ -53,7 +53,7 @@
 
   var ex = null;            // the engine's API
   var board = null, sync = null, me = { id: 'local', name: '' };
-  var applyQueue = Object.create(null), applyTimer = 0, applying = false, firstFit = false, staleTries = Object.create(null), tidyNext = false, tidyTimer = 0, touched = false;
+  var applyQueue = Object.create(null), applyTimer = 0, applying = false, firstFit = false, staleTries = Object.create(null), touched = false;
   var people = [];
   var noteN = 0;
   var hl = null;            // what the pen was before the highlighter was switched on
@@ -76,7 +76,19 @@
     for (var i = 0; i < ids.length; i++) { var w = board.get(ids[i]); if (w) remote.push(w); }
     applyQueue = Object.create(null);
     var scene = ex.getSceneElementsIncludingDeleted(), merged;
-    try { remote = EX.restoreElements(remote, null); } catch (e) {}
+    // The engine's check re-numbers the stacking order of any list that is not already
+    // in that order, and a re-numbered element counts as changed: handed the room's rows
+    // as they come, it would rewrite the whole board each time somebody joins. So the
+    // list goes in sorted by the shared order (ties by id, the engine's own tie-break),
+    // and each element keeps the order value the room gave it.
+    remote.sort(function (a, b) { var x = a.index || '', y = b.index || ''; return x < y ? -1 : x > y ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
+    try {
+      var given = Object.create(null);
+      remote.forEach(function (r) { given[r.id] = r.index; });
+      remote = EX.restoreElements(remote, null).map(function (r) {
+        return typeof given[r.id] === 'string' && r.index !== given[r.id] ? Object.assign({}, r, { index: given[r.id] }) : r;
+      });
+    } catch (e) {}
     try { merged = EX.reconcileElements(scene, remote, st); }
     catch (e2) { // the engine's merge refused: do the same rule by hand
       var by = Object.create(null); merged = scene.slice();
@@ -84,10 +96,6 @@
       remote.forEach(function (r) { if (by[r.id] == null) merged.push(r); else if (WB.Collab.newer(r, merged[by[r.id]])) merged[by[r.id]] = r; });
     }
     applying = true;
-    // The scene change this causes is the engine tidying what it was given (see Board.local).
-    tidyNext = true;
-    if (tidyTimer) clearTimeout(tidyTimer);
-    tidyTimer = setTimeout(function () { tidyTimer = 0; tidyNext = false; }, 60);
     try { ex.updateScene({ elements: merged, captureUpdate: EX.CaptureUpdateAction ? EX.CaptureUpdateAction.NEVER : 'NEVER' }); }
     finally { applying = false; }
     // Someone who arrives at a board that is already there is shown all of it, once,
@@ -109,8 +117,7 @@
     ['newElement', 'multiElement', 'editingTextElement', 'draggingElement'].forEach(function (k) {
       if (st[k] && st[k].id) { (hold = hold || {})[st[k].id] = 1; }
     });
-    var r = board.local(elements, hold, tidyNext);
-    tidyNext = false;
+    var r = board.local(elements, hold);
     if (r.marked) { touched = true; sync.touch(); }
     // A copy on this page that lost to the room (the engine kept it while it was being edited): take the room's.
     // Asked a few times at most per copy: if the engine keeps its own, it has a reason this file does not know.

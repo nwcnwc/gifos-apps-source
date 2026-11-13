@@ -69,6 +69,8 @@ const ROOM = 'wb' + SEED + 'x' + Date.now().toString(36);
 const DEBUG_URL = (BASE + '/run.html#v=' + ROOM + '&relay=' + encodeURIComponent(RELAY) + '&DEBUG=on');
 // The sga-probe lever (page, top frame only): while window.__actDrop > 0 the next 'act' frames this page broadcasts are lost.
 const LEVER = "(function(){ if (window.top !== window) return; window.__actDropped = 0; var iv = setInterval(function(){ var S = window.GifOS && GifOS.meetStageData; if (!S || S.__wbp) return; S.__wbp = 1; clearInterval(iv); var ob = S.broadcast.bind(S); S.broadcast = function(sid, kind, d){ if (kind === 'act' && window.__actDrop > 0) { window.__actDrop--; window.__actDropped++; return 0; } return ob.apply(null, arguments); }; }, 5); })();";
+// Wraps the engine's restoreElements (in the app frame, before any row arrives) to log every element whose `index`/version it changes.
+const RESTORE_LOG = "(function(){ if (window.top === window) return; window.__restoreLog = { calls: 0, sortedIn: [], changed: [], err: '' }; var iv = setInterval(function(){ var L = window.ExcalidrawLib; if (!L || !L.restoreElements || L.__wbr) return; L.__wbr = 1; clearInterval(iv); var o = L.restoreElements; try { L.restoreElements = function(els, loc, opts){ var R = window.__restoreLog, before = {}, inIdx = []; (els || []).forEach(function(e){ before[e.id] = [e.index, e.version, e.versionNonce]; inIdx.push(e.index); }); var out = o.apply(this, arguments); R.calls++; var sorted = true; for (var k = 1; k < inIdx.length; k++) if (inIdx[k-1] != null && inIdx[k] != null && inIdx[k-1] > inIdx[k]) sorted = false; R.sortedIn.push([inIdx.length, sorted]); try { out.forEach(function(e){ var b = before[e.id]; if (b && (b[0] !== e.index || b[1] !== e.version)) { if (R.changed.length < 200) R.changed.push({ id: e.id.slice(0, 8), type: e.type, indexBefore: b[0], indexAfter: e.index, vBefore: b[1], vAfter: e.version }); } }); } catch (x) {} return out; }; if (L.restoreElements === o) window.__restoreLog.err = 'assignment ignored (engine object is read-only)'; } catch (e) { window.__restoreLog.err = String(e); } }, 2); })();";
 let browser = null;
 const seats = [];   // every seat ever opened
 async function openSeat(name, phone) {
@@ -77,6 +79,7 @@ async function openSeat(name, phone) {
   const ctx = await browser.newContext(ctxOpt);
   await ctx.addInitScript({ content: "try{localStorage.setItem('gifos_name'," + JSON.stringify(name) + ");localStorage.setItem('gifos_meet_bar','1');localStorage.setItem('gifos_relay'," + JSON.stringify(RELAY) + ")}catch(e){}try{sessionStorage.setItem('gifos_appear_ok','1')}catch(e){}window.__gifosLgReadOff=true;" });
   await ctx.addInitScript({ content: LEVER });
+  await ctx.addInitScript({ content: RESTORE_LOG });
   const page = await ctx.newPage();
   const s = { name, ctx, page, log: [], fr: null, open: true, phone: !!phone };
   page.on('console', (m) => { s.log.push(new Date().toISOString() + ' ' + m.type() + ' ' + m.text().slice(0, 600)); if (s.log.length > 20000) s.log.shift(); });
@@ -124,12 +127,38 @@ async function mountApp(s, t0) {
   return !!f;
 }
 async function snap(s) {
-  return q(s, () => { const w = window.__wb, st = document.getElementById('wb-status'); let h = 2166136261; w.ex().getSceneElements().map((e) => e.id + ':' + e.version + ':' + e.versionNonce).sort().join(',').split('').forEach((c) => { h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0; });
-    return { hash: w.hash(), scene: h.toString(16), pending: w.sync.pending(), state: st && st.dataset.state, live: w.live(), puts: w.sync.stats.puts, resent: w.sync.stats.resent, healed: w.sync.stats.healed }; });
+  return q(s, () => {
+    const w = window.__wb, st = document.getElementById('wb-status'), els = w.ex().getSceneElements();
+    const fnv = (str) => { let h = 2166136261; for (let k = 0; k < str.length; k++) h = Math.imul(h ^ str.charCodeAt(k), 16777619) >>> 0; return h.toString(16); };
+    const place = fnv(els.map((e) => e.id + ':' + Math.round(e.x) + ',' + Math.round(e.y) + ',' + Math.round(e.width) + ',' + Math.round(e.height) + (e.frameId ? ':' + e.frameId : '')).sort().join(','));
+    const sceneV = fnv(els.map((e) => e.id + ':' + e.version + ':' + e.versionNonce).sort().join(','));
+    const mism = [];
+    els.forEach((e) => { const b = w.board.get(e.id); if (!b || b.version !== e.version || b.versionNonce !== e.versionNonce) mism.push(e.id.slice(0, 8) + ' ' + e.type + ' scene v' + e.version + ':' + e.versionNonce + ' board ' + (b ? 'v' + b.version + ':' + b.versionNonce : 'none')); });
+    return { hash: w.hash(), scene: place, sceneV: sceneV, mism: mism.slice(0, 6), nMism: mism.length, pending: w.sync.pending(), state: st && st.dataset.state, live: w.live(), puts: w.sync.stats.puts, dels: w.sync.stats.dels, resent: w.sync.stats.resent, healed: w.sync.stats.healed };
+  });
+}
+const orderFn2 = () => window.__wb.ex().getSceneElements().map((e) => [e.id, e.index === undefined ? null : e.index]);
+// z-order on every seat: the order of the ids and the `index` strings must be the same everywhere.
+async function zStrict(label, list) {
+  const os = []; for (const s of list) os.push(await q(s, orderFn2));
+  const bad = [];
+  for (let k = 1; k < os.length; k++) {
+    const ids0 = os[0].map((x) => x[0]), idsK = os[k].map((x) => x[0]), ix0 = os[0].map((x) => x[1]).join(','), ixK = os[k].map((x) => x[1]).join(',');
+    if (JSON.stringify(ids0) !== JSON.stringify(idsK) || ix0 !== ixK) {
+      const diffs = []; os[0].forEach((x, n) => { if (!os[k][n] || os[k][n][0] !== x[0] || os[k][n][1] !== x[1]) diffs.push(n + ': ' + list[0].name + ' ' + x[0].slice(0, 8) + '/' + x[1] + ' vs ' + list[k].name + ' ' + (os[k][n] ? os[k][n][0].slice(0, 8) + '/' + os[k][n][1] : 'none')); });
+      bad.push({ pair: list[0].name + ' vs ' + list[k].name, sameIds: JSON.stringify(ids0.slice().sort()) === JSON.stringify(idsK.slice().sort()), idOrderEqual: JSON.stringify(ids0) === JSON.stringify(idsK), indexEqual: ix0 === ixK, differingPositions: diffs.length, sample: diffs.slice(0, 6) });
+    }
+  }
+  results.zStrict = results.zStrict || {}; results.zStrict[label] = { seats: list.map((x) => x.name), elements: os[0].length, bad: bad };
+  ok(bad.length === 0, label + ': z-order strict: the id order and every `index` string equal on ' + list.map((x) => x.name).join(', ') + ' (' + os[0].length + ' elements)', bad.length ? bad : undefined);
+  return bad.length === 0;
 }
 // Scene elements this page holds that its board does not (or holds at another version): what a seat never published.
 const unsharedFn = () => { const w = window.__wb; return w.ex().getSceneElementsIncludingDeleted().filter((e) => { const b = w.board.best[e.id]; return !b || b.el.version !== e.version || b.el.versionNonce !== e.versionNonce; }).map((e) => ({ id: e.id.slice(0, 8), type: e.type, v: e.version, del: !!e.isDeleted, frame: !!e.frameId, pts: e.points ? e.points.length : 0, mine: !!(w.board.mine[e.id]), dirty: !!(w.board.mine[e.id] && w.board.mine[e.id].dirty) })); };
 const localStrokesFn = () => { const w = window.__wb; return w.ex().getSceneElements().filter((e) => e.type === 'freedraw' && !(w.board.best[e.id] && !w.board.best[e.id].mine)).length; };
+const placeFn = () => { const w = window.__wb, o = {}; w.ex().getSceneElements().forEach((e) => { const b = w.board.get(e.id); o[e.id.slice(0, 8)] = e.type + ' ' + Math.round(e.x) + ',' + Math.round(e.y) + ' ' + Math.round(e.width) + 'x' + Math.round(e.height) + ' fr=' + (e.frameId ? e.frameId.slice(0, 5) : '-') + ' | board ' + (b ? Math.round(b.x) + ',' + Math.round(b.y) + ' fr=' + (b.frameId ? b.frameId.slice(0, 5) : '-') + ' v' + b.version : 'none') + ' | scene v' + e.version; }); return o; };
+async function sceneDiff(list) { const maps = []; for (const s of list) maps.push(await q(s, placeFn).catch(() => ({}))); const ids = {}; maps.forEach((m) => Object.keys(m).forEach((k) => { ids[k] = 1; })); const out = [];
+  Object.keys(ids).forEach((id) => { const cut = (m) => m[id] ? m[id].split(' | ')[0] : 'absent'; if (!maps.every((m) => cut(m) === cut(maps[0]))) out.push(id + ' ' + list.map((s, i) => s.name + ': ' + (maps[i][id] || 'absent')).join('  //  ')); }); return out.slice(0, 8); }
 async function unshared(list) { const o = {}; for (const s of list) { const u = await q(s, unsharedFn).catch((e) => 'ERR ' + e.message); if (u.length || typeof u === 'string') o[s.name] = u; } return o; }
 const elsFn = () => { const o = {}, b = window.__wb.board.best; Object.keys(b).forEach((id) => { o[id.slice(0, 8)] = JSON.parse(JSON.stringify(b[id].el)); }); return o; };
 const keysFn = () => { const o = {}, b = window.__wb.board.best; Object.keys(b).forEach((id) => { o[id.slice(0, 8)] = b[id].el.type + ' ' + b[id].el.version + ':' + b[id].el.versionNonce + (b[id].mine ? ' mine' : ''); }); return o; };
@@ -141,12 +170,13 @@ async function converge(label, list, minLive, extra) {
   const t0 = Date.now(); let lastChange = t0; const prev = {}; let snaps = [];
   for (;;) {
     snaps = await Promise.all(list.map((s) => snap(s).catch((e) => ({ hash: 'ERR ' + e.message, pending: -1, state: '', live: -1 }))));
-    snaps.forEach((x, i) => { if (prev[list[i].name] !== x.hash + x.scene) { prev[list[i].name] = x.hash + x.scene; lastChange = Date.now(); } });
+    snaps.forEach((x, i) => { if (prev[list[i].name] !== x.hash + x.sceneV + x.scene) { prev[list[i].name] = x.hash + x.sceneV + x.scene; lastChange = Date.now(); } });
     const eq = snaps.every((x) => x.hash === snaps[0].hash);
-    const done = eq && snaps.every((x) => x.pending === 0 && x.state === 'saved' && x.live === snaps[0].live && x.live >= minLive && x.scene === snaps[0].scene) && (!extra || extra(snaps));
-    if (done) { const ms = Date.now() - t0; ok(true, label + ': board hashes and scene copies equal, nothing pending, status saved, live ' + snaps[0].live + ' on every seat', secs(ms) + ' hash ' + short(snaps[0].hash)); return { ok: true, ms, snaps }; }
+    const done = eq && snaps.every((x) => x.pending === 0 && x.state === 'saved' && x.live === snaps[0].live && x.live >= minLive && x.scene === snaps[0].scene && x.sceneV === snaps[0].sceneV && x.nMism === 0) && (!extra || extra(snaps));
+    if (done) { const ms = Date.now() - t0; ok(true, label + ': board hashes equal, scene copies equal by version and nonce, every scene element at its board version, scene places equal, nothing pending, status saved, live ' + snaps[0].live + ' on every seat', secs(ms) + ' hash ' + short(snaps[0].hash)); return { ok: true, ms, snaps }; }
     if (Date.now() - lastChange > 60000) {
-      ok(false, label + ': no convergence (no hash changed for 60 s)', list.map((s, i) => s.name + ' hash=' + snaps[i].hash + ' scene=' + snaps[i].scene + ' pending=' + snaps[i].pending + ' state=' + snaps[i].state + ' live=' + snaps[i].live).join(' | '));
+      ok(false, label + ': no convergence (no hash changed for 60 s)', list.map((s, i) => s.name + ' hash=' + snaps[i].hash + ' sceneV=' + snaps[i].sceneV + ' place=' + snaps[i].scene + ' scene!=board: ' + JSON.stringify(snaps[i].mism) + ' pending=' + snaps[i].pending + ' state=' + snaps[i].state + ' live=' + snaps[i].live).join(' | '));
+      const sd = await sceneDiff(list); console.log('  scene places that differ between seats: ' + JSON.stringify(sd)); results.sceneDiff = results.sceneDiff || {}; results.sceneDiff[label] = sd;
       const un = await unshared(list); console.log('  scene elements not in the page\'s own board: ' + JSON.stringify(un)); results.unshared = results.unshared || {}; results.unshared[label] = un;
       return { ok: false, ms: Date.now() - t0, snaps };
     }
@@ -246,36 +276,12 @@ async function seatOps(s, plan) {
     ok(!!dots, 'seat ' + s.name + ' voted: a dot is on its note (real click on #wb-vote)');
     log.push('vote');
   }
-  // Move a note ANOTHER seat made. First try the real pointer on a note of another seat (the notes of the seat that wrote last cover the others,
-  // so a seat with nothing of another seat showing falls back); otherwise move the next seat's first note through the engine API.
+  // Move a note ANOTHER seat made, through the engine API (the real pointer drag has its own quiet step after the edits).
   const target = (s.idx + 1) % 3, tHex = PALETTE[target].map((n) => NOTE_HEX[n]);
   const there = await until(async () => (await q(s, noteOf, tHex)).length >= 1, 60000, 300);
   if (!there) throw new Error(s.name + ': no note of seat ' + 'ABC'[target] + ' arrived to move');
   const tn = (await q(s, noteOf, tHex))[0];
-  const others = PALETTE.filter((_, i) => i !== s.idx).reduce((acc, p2) => acc.concat(p2.map((n) => NOTE_HEX[n])), []);
-  const cands = await q(s, grabFn, { ids: (await q(s, noteOf, others)).map((n) => n.id) });
-  let grab = null;
-  await pickTool(s, 'selection');
-  // The engine decides what is under the pointer: click candidate points until the selection is a note of another seat, then drag from there.
-  for (const c0 of cands) {
-    const pt = await viewportToPage(s, c0.vx, c0.vy);
-    await s.page.mouse.click(pt.x, pt.y);
-    const sel = await q(s, (a2) => { const ex = window.__wb.ex(), ids = Object.keys(ex.getAppState().selectedElementIds); return ex.getSceneElements().filter((e) => ids.indexOf(e.id) >= 0 && e.type === 'rectangle' && e.customData && e.customData.wb === 'note' && a2.own.indexOf(e.backgroundColor) < 0).length; }, { own: myHex(s) });
-    if (sel > 0) { grab = c0; break; }
-  }
-  if (grab) {
-    const a = await viewportToPage(s, grab.vx, grab.vy), dir = grab.vx > grab.W / 2 ? -1 : 1, b = { x: a.x + dir * 110, y: a.y + (grab.vy > grab.H / 2 ? -70 : 70) };
-    const zoomNow = await q(s, () => window.__wb.ex().getAppState().zoom.value), want = { dx: (b.x - a.x) / zoomNow, dy: (b.y - a.y) / zoomNow };
-    const posBefore = await q(s, () => { const o = {}; window.__wb.ex().getSceneElements().forEach((e) => { o[e.id] = [e.x, e.y]; }); return o; });
-    await s.page.mouse.move(a.x, a.y); await s.page.mouse.down(); await s.page.mouse.move(b.x, b.y, { steps: 14 }); await s.page.mouse.up();
-    // The engine drags what the pointer really hit (a voted note moves with its group), so ask which notes of the OTHER seats moved by the pointer's distance.
-    const movedNotes = () => q(s, (a2) => window.__wb.ex().getSceneElements().filter((e) => e.type === 'rectangle' && e.customData && e.customData.wb === 'note' && a2.own.indexOf(e.backgroundColor) < 0 && a2.pb[e.id] && Math.abs(e.x - a2.pb[e.id][0] - a2.want.dx) < 3 && Math.abs(e.y - a2.pb[e.id][1] - a2.want.dy) < 3).map((e) => e.id), { pb: posBefore, own: myHex(s), want: want });
-    const gotMoved = await until(async () => (await movedNotes()).length > 0 ? await movedNotes() : false, 6000, 150);
-    let why = '';
-    if (!gotMoved) why = JSON.stringify(await q(s, (a2) => { const ex = window.__wb.ex(), o = { want: a2.want, target: a2.t, from: a2.from, to: a2.to, moved: {} }; ex.getSceneElements().forEach((e) => { const p0 = a2.pb[e.id]; if (p0 && (Math.abs(e.x - p0[0]) > 1 || Math.abs(e.y - p0[1]) > 1)) o.moved[e.id.slice(0, 6) + ':' + e.type + ':' + (e.backgroundColor || '')] = Math.round(e.x - p0[0]) + ',' + Math.round(e.y - p0[1]); }); o.selected = Object.keys(ex.getAppState().selectedElementIds).map((x) => x.slice(0, 6)); o.tool = ex.getAppState().activeTool.type; return o; }, { pb: posBefore, want: want, t: grab.id.slice(0, 6), from: a, to: b }));
-    ok(!!gotMoved, 'seat ' + s.name + ' dragged a note another seat made with the real pointer', gotMoved ? { movedNotes: gotMoved.length, zoom: zoomNow } : why);
-    if (gotMoved) { plan.drags = (plan.drags || 0) + 1; plan.moved = (plan.moved || []).concat(gotMoved[0]); log.push('drag'); }
-  } else { await q(s, bumpFn, { id: tn.id, dx: 60, dy: 40 }); plan.moved = (plan.moved || []).concat(tn.id); log.push('move-api'); }
+  await q(s, bumpFn, { id: tn.id, dx: 60, dy: 40 }); plan.moved = (plan.moved || []).concat(tn.id); log.push('move-api');
   return log;
 }
 
@@ -376,6 +382,33 @@ async function saveTrace(s) {
 async function closeSeat(s) { if (!s.open) return; await saveTrace(s); s.open = false; await s.ctx.close().catch(() => {}); }
 const openSeats = () => seats.filter((s) => s.open && !s.phone && s.idx !== undefined);
 
+// One real pointer drag of a note another seat made, from seat s, on a quiet board. Returns true when the pointer moved such a note.
+async function pointerDrag(s, plan) {
+  const others = PALETTE.filter((_, i) => i !== s.idx).reduce((acc, p2) => acc.concat(p2.map((n) => NOTE_HEX[n])), []);
+  const cands = await q(s, grabFn, { ids: (await q(s, noteOf, others)).map((n) => n.id) });
+  let grab = null;
+  await pickTool(s, 'selection');
+  // The engine decides what is under the pointer: click candidate points until the selection is a note of another seat, then drag from there.
+  for (const c0 of cands) {
+    const pt = await viewportToPage(s, c0.vx, c0.vy);
+    await s.page.mouse.click(pt.x, pt.y);
+    const sel = await q(s, (a2) => { const ex = window.__wb.ex(), ids = Object.keys(ex.getAppState().selectedElementIds); return ex.getSceneElements().filter((e) => ids.indexOf(e.id) >= 0 && e.type === 'rectangle' && e.customData && e.customData.wb === 'note' && a2.own.indexOf(e.backgroundColor) < 0).length; }, { own: myHex(s) });
+    if (sel > 0) { grab = c0; break; }
+  }
+  if (!grab) { note('seat ' + s.name + ': no note of another seat showing at a clickable point, no pointer drag from this seat'); return false; }
+  const a = await viewportToPage(s, grab.vx, grab.vy), dir = grab.vx > grab.W / 2 ? -1 : 1, b = { x: a.x + dir * 110, y: a.y + (grab.vy > grab.H / 2 ? -70 : 70) };
+  const zoomNow = await q(s, () => window.__wb.ex().getAppState().zoom.value), want = { dx: (b.x - a.x) / zoomNow, dy: (b.y - a.y) / zoomNow };
+  const posBefore = await q(s, () => { const o = {}; window.__wb.ex().getSceneElements().forEach((e) => { o[e.id] = [e.x, e.y]; }); return o; });
+  await s.page.mouse.move(a.x, a.y); await s.page.mouse.down(); await s.page.mouse.move(b.x, b.y, { steps: 14 }); await s.page.mouse.up();
+  const movedNotes = () => q(s, (a2) => window.__wb.ex().getSceneElements().filter((e) => e.type === 'rectangle' && e.customData && e.customData.wb === 'note' && a2.own.indexOf(e.backgroundColor) < 0 && a2.pb[e.id] && Math.abs(e.x - a2.pb[e.id][0] - a2.want.dx) < 3 && Math.abs(e.y - a2.pb[e.id][1] - a2.want.dy) < 3).map((e) => e.id), { pb: posBefore, own: myHex(s), want: want });
+  const gotMoved = await until(async () => (await movedNotes()).length > 0 ? await movedNotes() : false, 6000, 150);
+  let why = '';
+  if (!gotMoved) why = JSON.stringify(await q(s, (a2) => { const ex = window.__wb.ex(), o = { want: a2.want, moved: {} }; ex.getSceneElements().forEach((e) => { const p0 = a2.pb[e.id]; if (p0 && (Math.abs(e.x - p0[0]) > 1 || Math.abs(e.y - p0[1]) > 1)) o.moved[e.id.slice(0, 6) + ':' + e.type + ':' + (e.backgroundColor || '')] = Math.round(e.x - p0[0]) + ',' + Math.round(e.y - p0[1]); }); o.selected = Object.keys(ex.getAppState().selectedElementIds).map((x) => x.slice(0, 6)); return o; }, { pb: posBefore, want: want }));
+  ok(!!gotMoved, 'seat ' + s.name + ' dragged a note another seat made with the real pointer (quiet board)', gotMoved ? { movedNotes: gotMoved.length, zoom: zoomNow } : why);
+  if (gotMoved) { plan.drags = (plan.drags || 0) + 1; plan.moved = (plan.moved || []).concat(gotMoved[0]); }
+  return !!gotMoved;
+}
+
 // ---- the run ---------------------------------------------------------------------------------------------------
 (async () => {
   console.log('whiteboard-room seed=' + SEED + ' room=' + ROOM + ' base=' + BASE + ' maxpages=' + MAXP);
@@ -424,6 +457,9 @@ const openSeats = () => seats.filter((s) => s.open && !s.phone && s.idx !== unde
   const cn = await counts(a);
   ok(cn.note === 9 && cn.freedraw === 6 && cn.dot === 1, 'the board holds 9 notes, 6 strokes, 1 dot', cn);
   results.timings.convergeMs = cv1.ms;
+  for (const s of [c, a, b]) { if (await pointerDrag(s, plan)) break; }
+  await converge('after the pointer drag', seatObjs, 25);
+  await zStrict('after the concurrent edits', seatObjs);
   results.realDrags = plan.drags || 0;
   ok((plan.drags || 0) >= 1, 'at least one real pointer drag of another seat\'s note happened', { drags: plan.drags || 0, ops: outs.map((o) => o && o.log.join('>')) });
   const moved = await q(a, (ids) => ids.map((id) => { const e = window.__wb.ex().getSceneElements().find((x) => x.id === id); return e ? Math.round(e.x) + ',' + Math.round(e.y) : null; }), (plan.moved || []).filter(Boolean));
@@ -482,6 +518,7 @@ const openSeats = () => seats.filter((s) => s.open && !s.phone && s.idx !== unde
   const strokeIn = await until(() => q(F, (fid) => window.__wb.ex().getSceneElements().some((e) => e.type === 'freedraw' && e.frameId === fid), fr0.id), 8000, 200);
   ok(!!strokeIn, 'seat ' + F.name + ' drew a stroke inside the frame with the real pointer (the engine put it in the frame)', { toolAfter: await q(F, () => window.__wb.ex().getAppState().activeTool.type), freedrawOnSeat: painterLocal, frame: fr0, startPage: sp });
   const cv3 = await converge('after the frame edits', seatObjs, cv2.snaps[0].live + 1);
+  await zStrict('after the frame edits', seatObjs);
   for (const s of seatObjs) await shot(s, 'seat-' + s.name + '-converged');
   const cnt3 = await counts(a); ok(cnt3.note === 9 && cnt3.freedraw === 7 && cnt3.dot === 1 && cnt3.frame === 1, 'the board holds 9 notes, 7 strokes, 1 dot, 1 frame', cnt3);
 
@@ -529,13 +566,16 @@ const openSeats = () => seats.filter((s) => s.open && !s.phone && s.idx !== unde
   results.timings.lateJoinMs = dMs;
   if (!first) { const df = await diffKeys(a, d); console.log('  board keys that differ A vs D: ' + JSON.stringify(df)); results.lateDiff = df; }
   ok(!!first, 'late joiner D: hash and live count equal to the others', first ? secs(dMs) + ' from join start, hash ' + short(first.hash) + ' live ' + first.live : 'D ' + JSON.stringify(lastD) + ' A ' + JSON.stringify(ref));
-  ok(first && first.puts === 0, 'late joiner D wrote nothing (sync.stats.puts === 0 at first equality)', first && { puts: first.puts, resent: first.resent, healed: first.healed });
+  ok(first && first.puts === 0 && first.dels === 0, 'late joiner D wrote nothing (sync.stats.puts === 0 and dels === 0 at first equality)', first && { puts: first.puts, dels: first.dels, resent: first.resent, healed: first.healed });
   await sleep(3000); // a rewrite by the joiner would show up now, after the first equality
   const settled = await snap(d); results.lateJoinSettled = { puts: settled.puts, resent: settled.resent };
-  ok(settled.puts === 0, 'late joiner D still has puts === 0 three seconds after first equality', results.lateJoinSettled);
+  results.lateJoinSettled.dels = settled.dels;
+  ok(settled.puts === 0 && settled.dels === 0, 'late joiner D still has puts === 0 and dels === 0 three seconds after first equality', results.lateJoinSettled);
+  const joinConv = await converge('after the late join', [a, b, d], 0);
   // every seat: how many elements have another version than before D joined (the joiner has no "before": it is held to A's)
   const keysAfter = { A: await q(a, keysFn), B: await q(b, keysFn), D: await q(d, keysFn) };
-  const diffCount = (after, before) => Object.keys(after).filter((id) => after[id] !== before[id]);
+  const bare = (k) => String(k).replace(/ mine$/, '');
+  const diffCount = (after, before) => Object.keys(after).filter((id) => bare(after[id]) !== bare(before[id]));
   const bumpedBy = { A: diffCount(keysAfter.A, keysBeforeD), B: diffCount(keysAfter.B, keysBeforeB), D: diffCount(keysAfter.D, keysBeforeD) };
   results.lateJoinBumped = { A: bumpedBy.A.length, B: bumpedBy.B.length, D: bumpedBy.D.length, of: Object.keys(keysAfter.A).length };
   for (const k of ['A', 'B', 'D']) ok(bumpedBy[k].length === 0, 'after the late join, seat ' + k + ' has 0 elements whose version differs from before the join', bumpedBy[k].length ? { count: bumpedBy[k].length, sample: bumpedBy[k].slice(0, 5).map((id) => id + ' ' + keysBeforeD[id] + ' -> ' + keysAfter[k][id]) } : { of: results.lateJoinBumped.of });
@@ -547,7 +587,10 @@ const openSeats = () => seats.filter((s) => s.open && !s.phone && s.idx !== unde
   }
   // z-order on A and D: the notes must stack the same way; any other difference is reported, with the engine's fractional `index` values
   const orderFn = () => window.__wb.ex().getSceneElements().map((e) => ({ id: e.id.slice(0, 8), t: e.type, n: !!(e.customData && e.customData.wb === 'note'), i: e.index === undefined ? null : e.index }));
-  const oa = await q(a, orderFn), od = await q(d, orderFn);
+  const zOk = await zStrict('after the late join', [a, b, d]);
+  const oa = await q(a, orderFn), od = await q(d, orderFn), ob = await q(b, orderFn);
+  results.zorder_AB = { notesEqual: JSON.stringify(oa.filter((x) => x.n).map((x) => x.id)) === JSON.stringify(ob.filter((x) => x.n).map((x) => x.id)), allEqual: JSON.stringify(oa.map((x) => x.id)) === JSON.stringify(ob.map((x) => x.id)) };
+  console.log('  z-order A vs B (both there since the edits): ' + JSON.stringify(results.zorder_AB));
   const noteIds = (o) => o.filter((x) => x.n).map((x) => x.id), allIds = (o) => o.map((x) => x.id);
   const dups = (o) => { const c = {}; o.forEach((x) => { if (x.i !== null) c[x.i] = (c[x.i] || 0) + 1; }); return Object.keys(c).filter((k) => c[k] > 1); };
   const sameNotes = JSON.stringify(noteIds(oa)) === JSON.stringify(noteIds(od)), sameAll = JSON.stringify(allIds(oa)) === JSON.stringify(allIds(od));
@@ -559,6 +602,15 @@ const openSeats = () => seats.filter((s) => s.open && !s.phone && s.idx !== unde
   if (!sameAll) note('z-order of all elements differs between A and D at ' + diffPos.length + ' positions (see results.json zorder)');
   const hashAfterD = (await snap(a)).hash; results.lateJoinHash = { before: hashBeforeD, atEquality: first && first.hash, afterA: hashAfterD };
   ok(hashAfterD === hashBeforeD, 'the board hash on A did not change because a late joiner arrived', { before: short(hashBeforeD), after: short(hashAfterD), dPuts: first && first.puts });
+  if (!(first && first.puts === 0 && first.dels === 0 && settled.puts === 0 && settled.dels === 0) || !zOk || !joinConv.ok || bumpedBy.A.length || bumpedBy.B.length || bumpedBy.D.length) {
+    // Do not guess: what did the engine's restoreElements change on the joiner, and how do the scene copies differ from the room's rows?
+    results.joinerDiag = await q(d, () => {
+      const w = window.__wb, R = window.__restoreLog || null, diffs = [];
+      w.ex().getSceneElements().forEach((e) => { const b = w.board.get(e.id); if (!b) { diffs.push({ id: e.id.slice(0, 8), row: 'none' }); return; } const f = {}; Object.keys(Object.assign({}, e, b)).forEach((k) => { if (JSON.stringify(e[k]) !== JSON.stringify(b[k])) f[k] = { scene: JSON.stringify(e[k]).slice(0, 60), row: JSON.stringify(b[k]).slice(0, 60) }; }); if (Object.keys(f).length) diffs.push({ id: e.id.slice(0, 8), type: e.type, fields: f }); });
+      return { restoreLog: R && { calls: R.calls, err: R.err, sortedIn: R.sortedIn.slice(0, 12), changedCount: R.changed.length, changed: R.changed.slice(0, 25) }, sceneVsRow: diffs.slice(0, 20), nSceneVsRow: diffs.length, stats: w.sync.stats };
+    });
+    console.log('  JOINER DIAG ' + JSON.stringify(results.joinerDiag).slice(0, 2500));
+  } else results.joinerDiag = await q(d, () => { const R = window.__restoreLog; return R && { calls: R.calls, err: R.err, changedCount: R.changed.length, sortedIn: R.sortedIn.slice(0, 6) }; });
   await shot(d, 'seat-late-joiner');
 
   // 6b. exports on A with the frame on the board
@@ -595,7 +647,10 @@ const openSeats = () => seats.filter((s) => s.open && !s.phone && s.idx !== unde
   await joinSeat(p); await mountApp(p, tP);
   let refP = null, sp2 = null;
   await until(async () => { sp2 = await snap(p); refP = await snap(a); return sp2.hash === refP.hash && sp2.live === refP.live; }, 120000, 200);
-  ok(sp2.hash === refP.hash, 'phone seat: same board as the others', { phone: short(sp2.hash), A: short(refP.hash), live: sp2.live, puts: sp2.puts });
+  ok(sp2.hash === refP.hash, 'phone seat: same board as the others', { phone: short(sp2.hash), A: short(refP.hash), live: sp2.live, puts: sp2.puts, dels: sp2.dels });
+  ok(sp2.puts === 0 && sp2.dels === 0, 'phone seat wrote nothing (puts === 0 and dels === 0)', { puts: sp2.puts, dels: sp2.dels });
+  await converge('phone seat joined', [a, b, p], 0);
+  await zStrict('phone seat joined', [a, b, p]);
   await sleep(1200);
   await shot(p, 'seat-phone');
   // The engine's own pieces: top toolbar, the small tools container, and its bottom bar (the rounded box that holds the menu button and undo / redo).
