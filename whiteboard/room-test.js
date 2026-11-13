@@ -432,17 +432,41 @@ async function pointerDrag(s, plan) {
     const bytes = new Uint8Array(await res.arrayBuffer()); const st = window.GifOS.store;
     const id = st.uid('file'); await st.putFile({ id, name: 'whiteboard.gif', bytes, kind: 'gif', isApp: true, appId: 'whiteboard', mime: 'image/gif' });
     window.__wbFile = { id, size: bytes.length };
+    const dg = await crypto.subtle.digest('SHA-256', bytes); window.__wbSha = Array.from(new Uint8Array(dg)).map((x) => x.toString(16).padStart(2, '0')).join('');
     await window.__gifosVideo.runAppForTest(id, 'Whiteboard'); return 'ok ' + bytes.length;
   }).catch((e) => 'ERR ' + e.message);
-  ok(/^ok /.test(inst), 'seat A installed the unsigned whiteboard.gif from the site and shared it to the meeting', inst);
+  ok(/^ok /.test(inst), 'seat A installed whiteboard.gif from the site and shared it to the meeting', inst);
+  const servedSha = await a.page.evaluate(() => window.__wbSha), wantSha = process.env.WB_GIF_SHA || '';
+  results.servedSha = servedSha;
+  if (wantSha) ok(servedSha === wantSha, 'the bytes the site served as apps/whiteboard/whiteboard.gif have sha256 ' + wantSha, servedSha); else note('served whiteboard.gif sha256 ' + servedSha);
+  // What does the runtime say about the app's signature? Read the stored file record (without its bytes), the page text and the GifOS object.
+  results.signature = await a.page.evaluate(async () => {
+    const out = { record: null, pageText: [], gifosKeys: [], appBar: null };
+    try { const f = (await window.GifOS.store.allFiles()).find((x) => x.isApp && x.appId === 'whiteboard'); if (f) { const r = {}; Object.keys(f).forEach((k) => { r[k] = (f[k] && f[k].byteLength !== undefined) ? ('<' + f[k].byteLength + ' bytes>') : f[k]; }); out.record = r; } } catch (e) { out.record = 'ERR ' + e; }
+    try { out.pageText = document.body.innerText.split('\n').filter((l) => /sign|verif|trust|gifos\.app|publisher|unverified/i.test(l)).slice(0, 12); } catch (e) {}
+    try { out.gifosKeys = Object.keys(window.GifOS).filter((k) => /sign|verif|trust/i.test(k)); } catch (e) {}
+    try { const b = document.getElementById('appbar') || document.querySelector('.appbar, #apphdr, [id*=appbar]'); out.appBar = b ? b.innerText.slice(0, 200) : null; } catch (e) {}
+    return out;
+  }).catch((e) => ({ err: String(e) }));
+  note('signature observation (seat A, top page): ' + JSON.stringify(results.signature).slice(0, 1500));
   await mountApp(a, tA);
   const hostInfo = (s) => s.page.evaluate(() => ({ active: !!window.__gifosVideo.appActive(), name: window.__gifosVideo.appName(), host: window.__gifosVideo.appIsHost() }));
   const ha = await hostInfo(a); ok(ha.active && ha.host && /whiteboard/i.test(ha.name), 'seat A is the app host', ha);
   const tBC = Date.now();
   await Promise.all([b, c].map(async (s) => { await joinSeat(s); await mountApp(s, tBC); }));
   for (const s of [b, c]) { const h = await hostInfo(s); ok(h.active && !h.host && /whiteboard/i.test(h.name), 'seat ' + s.name + ' has the shared app and is not its host', h); }
-  const dumps = await Promise.all(seatObjs.map((s) => s.page.evaluate(() => JSON.stringify(window.__gifosVideo.debugDump()))));
-  seatObjs.forEach((s, i) => ok(NAMES.filter((n) => n !== s.name).every((n) => dumps[i].indexOf(n) >= 0), 'seat ' + s.name + ' sees the other two in the meeting (debugDump roster)'));
+  // the roster fills a moment after the seat does: poll (no fixed limit; fails only when the dump stops changing for 30 s)
+  for (const s of seatObjs) {
+    let last = '', lastChange = Date.now(), seen = false;
+    for (;;) {
+      const dump = await s.page.evaluate(() => JSON.stringify(window.__gifosVideo.debugDump())).catch(() => '');
+      if (NAMES.filter((n) => n !== s.name).every((n) => dump.indexOf(n) >= 0)) { seen = true; break; }
+      if (dump !== last) { last = dump; lastChange = Date.now(); }
+      if (Date.now() - lastChange > 30000) break;
+      await sleep(500);
+    }
+    ok(seen, 'seat ' + s.name + ' sees the other two in the meeting (debugDump roster)');
+  }
   results.timings.mountMs = { A: a.mountMs, B: b.mountMs, C: c.mountMs };
   results.timings.joinMs = { A: a.joinMs, B: b.joinMs, C: c.joinMs };
   const c0 = await converge('empty board', seatObjs, 0);
