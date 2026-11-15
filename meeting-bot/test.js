@@ -447,11 +447,13 @@ function runningBot(opts) {
   const left = [];
   const joined = [];
   let n = 0;
+  let onHeld = function () {};
+  const held = new Promise(function (res) { onHeld = res; });
   const stubMeet = {
     join: function (room, password, name, o) {
       const s = { meetingId: 'mt_' + (++n), room: String(room), link: 'https://gifos.app/run.html#v=' + room };
       joined.push(s.meetingId);
-      if (opts.holdWorkJoin && !(o && o.control)) return new Promise(function (res) { opts.holdWorkJoin.release = function () { res(s); }; });
+      if (opts.holdWorkJoin && !(o && o.control)) return new Promise(function (res) { opts.holdWorkJoin.release = function () { res(s); }; onHeld(); });
       return Promise.resolve(s);
     },
     leave: function (id) { left.push(id); return Promise.resolve({}); },
@@ -468,7 +470,10 @@ function runningBot(opts) {
   ['protocol.js', 'voice.js', 'app.js'].forEach(function (f) { vm.runInContext(fs.readFileSync(path.join(APP, f), 'utf8'), box, { filename: f }); });
   const started = box.MeetingBot.start({ mode: 'run', name: 'harbor-maple', password: suggestion.password, override: !!opts.override, rules: 'roomcode' });
   const ticks = function () { return new Promise(function (res) { setTimeout(res, 20); }); };
-  return ticks().then(function () {
+  // A held case waits for the bot to reach its work join (or for start to end without it), never a fixed
+  // sleep: start() runs a real PBKDF2 first, which takes ~16 ms on one box and more on a slower one.
+  const ready = opts.holdWorkJoin ? Promise.race([held, started.then(function () {}, function () {})]) : ticks();
+  return ready.then(function () {
     const adminId = 'mt_2'; // mt_1 is the probe, which has left by now.
     return {
       Bot: box.MeetingBot, left: left, joined: joined, started: started, ticks: ticks,
