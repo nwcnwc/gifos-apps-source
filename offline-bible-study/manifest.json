@@ -3,7 +3,7 @@
   "appId": "offline-bible-study",
   "name": "Bible Study",
   "shortName": "Study",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "minBuild": 2304,
   "entry": "index.html",
   "accent": [
@@ -19,7 +19,10 @@
     "ai": [
       "tts"
     ],
-    "links": true
+    "links": true,
+    "pay": [
+      "x402"
+    ]
   },
   "data": {
     "prefs": {
@@ -10341,5 +10344,11 @@
       "bytes": 68484,
       "optional": true
     }
-  ]
+  ],
+  "pay": {
+    "to": "0x1b4a297031df272a006f6f853aa04bb2fb70825b",
+    "prices": {
+      "tip": "5000000"
+    }
+  }
 }
