@@ -1,0 +1,21 @@
+{
+  "gifos": "1.0",
+  "appId": "survey",
+  "name": "Survey",
+  "shortName": "Survey",
+  "version": "1.0",
+  "minBuild": 947,
+  "description": "A live survey for the meeting. Ask a question, watch the votes, close it when you are done.",
+  "entry": "index.html",
+  "accent": [64, 156, 214],
+  "capabilities": {
+    "db": true,
+    "multiplayer": true
+  },
+  "data": {
+    "survey": { "visibility": "read-write" },
+    "votes": { "visibility": "read-write" },
+    "presence": { "visibility": "read-write" }
+  },
+  "lead": [{ "collection": "survey", "id": "current" }]
+}

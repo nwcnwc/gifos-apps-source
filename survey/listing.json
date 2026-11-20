@@ -1,0 +1,15 @@
+{
+  "tagline": "Ask the room, and watch the votes come in.",
+  "description": "Put up one question or a short survey. Each question is a single choice or any number of choices, and a question can also take a written answer.\n\nEveryone in the meeting sees the counts and the bars as votes arrive. Close the survey when you are finished, or reopen it. Turn on anonymous votes when the results should show counts without names.\n\nNothing to set up and no account to make. The survey stays with the people in the room.",
+  "author": {
+    "name": "GifOS",
+    "url": "https://gifos.app"
+  },
+  "releaseDate": "2026-11-19",
+  "categories": ["Productivity"],
+  "tags": ["survey", "poll", "vote", "meeting", "multiplayer", "offline"],
+  "license": "MIT",
+  "homepage": "https://github.com/nwcnwc/gifos-apps-source/tree/main/survey",
+  "cover": "screenshot.png",
+  "screenshots": []
+}

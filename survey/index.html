@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Survey</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Survey</h1>
+  <span class="chip" id="chip">Ready</span>
+</header>
+<main>
+  <div class="wrap">
+    <p class="lede" id="lede">Ask the room. Everyone sees the counts.</p>
+    <p class="note" id="note" role="status"></p>
+    <section id="live" hidden>
+      <h2 id="title"></h2>
+      <p class="who" id="who"></p>
+      <div id="results"></div>
+      <div id="mine"></div>
+      <div class="dock" id="dock"></div>
+    </section>
+    <section id="build"></section>
+  </div>
+</main>
+<script src="logic.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
