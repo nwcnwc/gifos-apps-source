@@ -25,6 +25,8 @@ The grid is meant to be used with a finger. **+ / −** in the bar (or a two-fin
 
 ## Jam
 
+Who is here comes from the room; the person who shared the app hosts the shared song, and GifOS hands that on when they leave. An older GifOS shows one plain line — solo still works.
+
 Press **Invite** in the bar above the app and send the link. Whoever opens it lands on **this** song. Either of you can change notes, patterns, tempo; you both hear the same track.
 
 ## Export
