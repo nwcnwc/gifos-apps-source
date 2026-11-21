@@ -99,9 +99,10 @@ if (manifest.capabilities.wasm) {
 if (manifest.capabilities.network) {
   throw new Error('drawphone has no network path — the Node room stays behind');
 }
-if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947');
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild < 5861) {
+  throw new Error('minBuild must be 5861 or higher: this app needs gifos.room');
 }
+if (!manifest.room || manifest.room.turns !== 'free' || !manifest.room.seats) throw new Error('manifest needs the room block (seats, free turns)');
 if (!manifest.data || !manifest.data.save || manifest.data.save.visibility !== 'private') {
   throw new Error('manifest.data.save must be private');
 }
@@ -131,6 +132,9 @@ if (/hereName|Pass this device|addrow/.test(files['app.js'] + html)) {
 }
 if (/id=["']friendBtn/.test(html)) {
   throw new Error('nobody presses Join: everyone with the app open sits at the table');
+}
+if (!files['app.js'].includes('gifos.room.subscribe') || /setInterval\(beat|LIVE\b|BEAT\b|\.ts\b/.test(files['app.js'])) {
+  throw new Error('app.js must take seats from gifos.room: no heartbeat, no stale window');
 }
 if (!files['app.js'].includes('putBoard') || !files['app.js'].includes('isHost')) {
   throw new Error('host advances the chain on the board row; nobody else writes it');

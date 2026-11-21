@@ -19,7 +19,7 @@ If the pile cannot cover the stake, the table says so. **Restock 200** deals you
 
 ## Extra seats
 
-Everyone who opens the same table takes a seat. The first person to sit is the host and deals. Hit, stand, double, and split on **your** hand. When every seat has stood or busted, the dealer plays in the **host's** browser. Each person's chip pile stays on their own copy of the app.
+Everyone who opens the same table takes a seat (the room seats you). The person who shared the app is the host and deals; if they leave, the app passes to the next person. Hit, stand, double, and split on **your** hand. When every seat has stood or busted, the dealer plays in the **host's** browser. Each person's chip pile stays on their own copy of the app.
 
 ## What is saved
 

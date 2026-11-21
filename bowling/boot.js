@@ -237,7 +237,7 @@
         }
       }
     }
-    if (mode === 'mp') Mp.publish(game, true);
+    if (mode === 'mp') Mp.publish(game);
     if (r.done && mode === 'solo') showBanner(r.total + ' for the game', 2200);
     if (r.done && mode === 'mp') maybeMpWinner();
   }
@@ -270,7 +270,7 @@
       if (turn && turn.id !== Mp.me().id && turn.lane) {
         watching = turn;
       }
-      Mp.publish(game, false);
+      if (game.rolling) Mp.publish(game);
     }
     var sz = resize();
     if (watching) {
@@ -298,7 +298,7 @@
       power = clamp((iz - 20) / 20, 0, 1);
       if (game.throwImpulse(iz, ix)) {
         tone(90, 0.1, 'sine', 0.1);
-        if (mode === 'mp') Mp.publish(game, true);
+        if (mode === 'mp') Mp.publish(game);
       }
     }
     setPower(0);
@@ -324,7 +324,7 @@
       var dy = dragY - ev.clientY;
       var iz = dy > 0 ? L.impulseOf(dy) : 20;
       setPower(dy > L.minFlickY ? clamp((iz - 20) / 20, 0, 1) : 0);
-      if (mode === 'mp') Mp.publish(game, false);
+      if (mode === 'mp') Mp.publish(game);
       ev.preventDefault();
     }, { passive: false });
     function endPtr(ev) {
@@ -352,7 +352,6 @@
     mode = 'solo';
     game.reset();
     hideMenu();
-    if (api) Mp.enter(game);
   }
   function startHot() {
     mode = 'hot';
@@ -370,7 +369,6 @@
     hideMenu();
     mpStarted = true;
     Mp.enter(game);
-    Mp.publish(game, true);
   }
 
   Mp.onList = function (players, hasFriend) {
@@ -413,7 +411,7 @@
     if (mode === 'mp' && Mp.on()) {
       Mp.setRound(Mp.round() + 1);
       game.reset();
-      Mp.publish(game, true);
+      Mp.publish(game);
       return;
     }
     game.reset();
@@ -440,10 +438,27 @@
   }
 
   if (api && api.onBack) {
-    api.onBack(function () { showMenu(); });
+    // with others in the room the OS back is how you go; alone it returns to the menu
+    api.onBack(function () {
+      if (mode === 'mp' && Mp.inRoom()) return false;
+      showMenu();
+      return true;
+    });
   }
 
-  if (api && api.db) Mp.enter(game);
+  if (!Mp.room()) menuStatus.textContent = Mp.needsNewer();
+  else if (api && api.db) Mp.enter(game);
+
+  root.__bowling = {
+    // the shared game only: each seated player's score row and whose turn it is
+    state: function () {
+      return {
+        round: Mp.round(),
+        turn: (Mp.turn() || {}).id || null,
+        players: Mp.live().map(function (p) { return { id: p.id, frames: p.frames || [], total: p.total || 0, done: !!p.done }; })
+      };
+    }
+  };
 
   bindPointer();
   showMenu();

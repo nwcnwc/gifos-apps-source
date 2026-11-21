@@ -1,14 +1,15 @@
 // Drawphone for meetings. Invite is OS chrome: this file never draws a share button.
-// The players are the people with the app open: the meeting's people (or an app
-// room's, after Invite). Nobody types a name and nobody presses Join.
+// gifos.room seats the people with the app open (up to 16 play; the rest are in line). Nobody
+// types a name and nobody presses Join. The host is the app's owner (GifOS hands the app on
+// when the owner leaves).
 //
-// Writes (no lost writes: one writer per row):
-//   'p:<id>'   each person's own row: heartbeat, name, and one pending act
-//              (start a round, a Telephone turn, another word) keyed to the board
-//              version it answers, plus this turn's guesses (Draw & guess).
+// Writes (no lost writes: one writer per row), each only when someone acts:
+//   'p:<id>'   each person's own row (id = the room id): one pending act (start a round, a
+//              Telephone turn, another word) keyed to the board version it answers, plus this
+//              turn's guesses (Draw & guess).
 //   'ink:<id>' each person's own drawing: the live pad (Draw & guess) or a sent
 //              Telephone drawing.
-//   'board'    written ONLY by the host (the lowest live id; putBoard / isHost).
+//   'board'    written ONLY by the host (the app owner; putBoard / isHost).
 //              Anyone can ask for a round (intent on their own row); the host
 //              applies intents and moves the clock. Scores live on the board,
 //              so every seat shows the same numbers.
@@ -25,7 +26,7 @@
   };
   var COLORS = ['#111111', '#e85c40', '#3d7ea6', '#3a9a5b', '#e0b03a', '#8b5a2b', '#7b4ea3', '#fffdf6'];
   var SEAT_HUE = ['#e85c40', '#3d7ea6', '#3a9a5b', '#e0b03a', '#7b4ea3', '#3aa8a0'];
-  var BEAT = 3000, LIVE = 10000, TICK = 400, INK_MS = 350, REFRESH = 5000, GRACE = 2500;
+  var TICK = 400, INK_MS = 350, REFRESH = 5000, GRACE = 2500;
 
   // ---- words on screen (five catalogs ride in the GIF: i18n/<lang>.json) ----
   // English rides in the GIF as i18n-en.js too, for a GifOS older than app catalogs.
@@ -40,6 +41,7 @@
     var v = k;
     try { if (window.gifos && gifos.i18n) v = gifos.i18n.t(k, p); } catch (e) {}
     if ((v === k || !v) && window.DP_EN && window.DP_EN[k]) v = fmtEn(window.DP_EN[k], p);
+    if ((v === k || !v) && EN.hasOwnProperty(k)) v = EN[k];
     return v;
   }
   function lang() {
@@ -55,12 +57,15 @@
     $('guessIn').placeholder = T('gg.placeholder');
   }
 
+  var EN = { needsNewer: 'Drawphone needs a newer GifOS to play together. Reload the page to update.' };
+  var ROOM = !!(window.gifos && gifos.room && gifos.room.subscribe);
+  var rs = null, joined = false, owner = false;
   var saveDb = null, db = null;
   try { if (window.gifos) saveDb = gifos.db('save'); } catch (e) {}
-  try { if (window.gifos) db = gifos.db('room'); } catch (e) {}
+  try { if (window.gifos && ROOM) db = gifos.db('room'); } catch (e) {}
 
-  var me = { id: 'local', name: '' }, since = now();
-  var rows = {}, seen = {}, lastTs = {};
+  var me = { id: 'local', name: '' };
+  var rows = {};
   var board = null, boardSeenAt = {}, deadlineV = -1, deadline = 0;
   var myAct = null, myGs = { key: '', list: [] };
   var choice = { game: 'guess', ms: 60000 };
@@ -74,35 +79,28 @@
     $('chipState').textContent = text;
   }
 
-  // ---- who is here: heartbeats seen moving on THIS page (two clocks that disagree still agree) ----
+  // ---- who is here: the seats the room holds (in seat order) ----
   function people() {
-    var t = now(), out = [], id, r, uid;
-    for (id in rows) {
-      if (id.indexOf('p:') !== 0) continue;
-      r = rows[id]; uid = r.uid;
-      if (!uid) continue;
-      if (lastTs[uid] !== r.ts) { seen[uid] = (uid in lastTs) ? t : Math.min(t, +r.ts || 0); lastTs[uid] = r.ts; }
-      if (uid === me.id || t - (seen[uid] || 0) < LIVE) out.push({ id: uid, name: r.name || '', since: +r.since || 0, row: r });
-    }
-    if (!out.some(function (p) { return p.id === me.id; })) out.push({ id: me.id, name: me.name, since: since, row: myRow() });
-    out.sort(function (a, b) { return (a.since - b.since) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0); });
+    var out = [];
+    ((rs && rs.seats) || []).forEach(function (x, i) {
+      if (x.id) out.push({ id: x.id, name: x.name || '', since: i, row: rows['p:' + x.id] || null });
+    });
     return out;
   }
   function liveIds(ps) { return (ps || people()).map(function (p) { return p.id; }); }
-  function isHost(ps) {
-    var ids = liveIds(ps).slice().sort();
-    return ids[0] === me.id;
-  }
+  // the host is the app's owner: GifOS hands the app to the next person when the owner leaves
+  function isHost() { return owner && me.id !== 'local'; }
   function nameOf(id) {
     if (id === me.id) return me.name || T('you');
-    var r = rows['p:' + id];
-    if (r && r.name) return r.name;
+    var ps = people(), i;
+    for (i = 0; i < ps.length; i++) if (ps[i].id === id && ps[i].name) return ps[i].name;
     if (board && board.names && board.names[id]) return board.names[id];
     return T('someone');
   }
 
   // ---- my rows ----
-  function myRow() { return { id: 'p:' + me.id, uid: me.id, name: me.name, since: since, ts: now(), act: myAct, gs: myGs }; }
+  function myRow() { return { id: 'p:' + me.id, uid: me.id, act: myAct, gs: myGs }; }
+  // my own row, written only when my act or guesses change
   function beat() {
     if (!db || me.id === 'local') return;
     var r = myRow(); rows[r.id] = r;
@@ -231,7 +229,7 @@
     if (me.id === 'local') return;
     var ps = people();
     observeBoard();
-    if (isHost(ps)) hostStep(ps);
+    if (isHost()) hostStep(ps);
     if (board && board.game === 'chain' && !board.v0) board.v0 = board.v; // older board: key ink by its first version
     // my pending act is done once the board moved past what it answered
     if (myAct && myAct.kind === 'start' && board && (board.v | 0) > (myAct.v | 0)) { myAct = null; beat(); }
@@ -279,7 +277,7 @@
     var can = n >= GG.MIN;
     var asked = myAct && myAct.kind === 'start';
     $('startBtn').disabled = !can || !!asked;
-    $('lobbyHint').textContent = !can ? T('lobby.alone') : (asked ? T('lobby.starting') : T('lobby.anyone'));
+    $('lobbyHint').textContent = !ROOM ? T('needsNewer') : !can ? T('lobby.alone') : (asked ? T('lobby.starting') : T('lobby.anyone'));
     setChip('ready', T('chip.here', { n: n }));
     paintArchive();
   }
@@ -676,10 +674,6 @@
     if (mode === 'archive') { mode = 'room'; chainKey = ''; render(); }
   });
   if (window.gifos && gifos.onLocaleChange) gifos.onLocaleChange(function () { applyI18n(); chainKey = ''; viewSig = ''; render(); });
-  window.addEventListener('pagehide', function () {
-    if (db && me.id !== 'local') { db.delete('p:' + me.id).catch(function () {}); }
-  });
-
   function onRows(items) {
     var next = {}, i, it, nb = null;
     for (i = 0; i < (items || []).length; i++) {
@@ -699,31 +693,41 @@
     tick();
   }
 
-  // Read-only view for tests and support (meet.js appeval): what this page believes.
+  // Read-only view for tests and support (meet.js appeval): the shared game only (who plays, the board).
   window.__drawphone = {
     state: function () {
-      var ps = people();
-      return { me: me.id, host: isHost(ps), people: ps.map(function (p) { return p.id; }), board: board ? JSON.parse(JSON.stringify(board)) : null,
-        msLeft: msLeft(), ink: Object.keys(rows).filter(function (k) { return k.indexOf('ink:') === 0; }).map(function (k) { return { id: rows[k].uid, key: rows[k].key, n: (rows[k].s || []).length }; }) };
+      return { people: liveIds(people()), board: board ? JSON.parse(JSON.stringify(board)) : null };
     }
   };
+
+  // The room's word: who sits, who I am, and whether this copy is the app's owner (the host).
+  function onState(st) {
+    rs = st;
+    if (st.me && st.me.id) { me.id = st.me.id; me.name = st.me.name || ''; }
+    // opening the app is asking to play, once; the room seats, lines up, or asks the host
+    if (!joined && st.me && st.me.role === 'watcher') { joined = true; gifos.room.join().catch(function () {}); }
+    if (gifos.info) gifos.info().then(function (inf) {
+      var o = !!(inf && inf.owner);
+      if (o !== owner) { owner = o; tick(); }
+    }).catch(function () {});
+    tick();
+  }
 
   setChip('wait', '…');
   var ready = (window.gifos && gifos.i18n) ? gifos.i18n.load().catch(function () {}) : Promise.resolve();
   ready.then(function () {
     applyI18n();
     $('lobbyHint').textContent = '';
-    return window.gifos ? gifos.me() : { id: 'local', name: '' };
-  }).then(function (id) {
-    me.id = (id && id.id) || 'local'; me.name = (id && id.name) || '';
-    if (window.gifos && gifos.onIdentity) gifos.onIdentity(function (x) { if (x && x.name && x.name !== me.name) { me.name = x.name; beat(); } });
     loadArchive();
-    if (!db) { setChip('', T('chip.noStorage')); renderLobby(people()); return; }
+    if (!ROOM || !db) {
+      // an old page: one plain line, nothing shared is written
+      setChip('', ROOM ? T('chip.noStorage') : T('needsNewer'));
+      renderLobby(people());
+      return;
+    }
     db.subscribe(onRows);
-    beat();
-    setInterval(beat, BEAT);
+    gifos.room.subscribe(onState);
     setInterval(tick, TICK);
-    tick();
   }).catch(function (e) { setChip('', String(e && e.message || e)); });
   // Telling someone to press Invite (in the bar above the app, never a button in here) is in the catalogs: lobby.alone.
 })();

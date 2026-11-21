@@ -1,46 +1,48 @@
-/* Take turns. Each player writes their score on THEIR row. Nobody writes
- * anybody else's. Invite is OS chrome — this file only says to press it. */
+/* Take turns. gifos.room seats the people; each player writes their score and table on THEIR row
+ * (keyed by the room id), only when it changes. Nobody writes anybody else's.
+ * Invite is OS chrome — this file only says to press it. */
 (function (root) {
   'use strict';
 
-  var STALE_MS = 4000;
-  var HB_MS = 1000;
-  var PUBLISH_HZ = 12;
-
   var api = null;
   var room = null;
-  var me = { id: null, name: 'You' };
+  var ROOM = !!(root.gifos && root.gifos.room && root.gifos.room.subscribe);
+  var rs = null;          // the room's word: who is seated, who is here, who I am
+  var rows = [];          // everyone's score rows (game data keyed by room id)
   var on = false;
-  var subscribed = false;
-  var hbTimer = 0;
-  var lastList = [];
-  var seenAt = {};
-  var lastPub = 0;
+  var started = false;
+  var joined = false;
+  var lastJson = '';
   var round = 1;
-  var hadOther = false;
+  var EN = { needsNewer: 'Finger Pool needs a newer GifOS to play together. Reload the page to update.' };
+  function needsNewer() {
+    var v = root.gifos && root.gifos.i18n && root.gifos.i18n.t ? root.gifos.i18n.t('needsNewer') : 'needsNewer';
+    return v === 'needsNewer' ? EN.needsNewer : v;
+  }
 
-  var now = function () { return Date.now(); };
   var esc = function (s) {
     return String(s).replace(/[&<>]/g, function (c) {
       return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c];
     });
   };
+  function me() { return { id: rs && rs.me ? rs.me.id : null, name: (rs && rs.me && rs.me.name) || 'You' }; }
 
-  function live(list, t) {
-    t = t || now();
+  // The people at the lane: the seats the room holds, each with their own score row (if they have played).
+  function roster() {
     var out = [];
-    (list || []).forEach(function (p) {
-      if (!p || !p.id) return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      if (t - seenAt[p.id].seen > STALE_MS) return;
+    ((rs && rs.seats) || []).forEach(function (x) {
+      if (!x.id) return;
+      var row = null;
+      rows.forEach(function (r) { if (r && r.id === x.id) row = r; });
+      var p = { id: x.id, name: x.name || 'Friend', here: x.here, shots: 0, seq: 0, score: 0, moving: false, done: false, round: 1 };
+      if (row) ['shots', 'seq', 'score', 'moving', 'done', 'round', 'left', 'table'].forEach(function (k) { if (row[k] !== undefined) p[k] = row[k]; });
       out.push(p);
     });
     return out;
   }
 
   function othersOf(players) {
-    return players.filter(function (p) { return p.id !== me.id; });
+    return players.filter(function (p) { return p.id !== me().id; });
   }
 
   /* Fewest finished shots plays next. A player who has started a shot
@@ -72,7 +74,7 @@
 
   function bestTable(players) {
     var best = null;
-    (players || live(lastList)).forEach(function (p) {
+    (players || roster()).forEach(function (p) {
       if (!p || !p.table) return;
       if (!best || (p.seq || 0) > (best.seq || 0)) best = p;
     });
@@ -81,9 +83,7 @@
 
   function snapshot(game) {
     return {
-      id: me.id,
-      name: me.name,
-      at: now(),
+      id: me().id,
       round: round,
       shots: game ? game.shots() : 0,
       seq: game ? game.seq() : 0,
@@ -95,84 +95,63 @@
     };
   }
 
-  function publish(game, force) {
-    if (!on || !room || !me.id) return;
-    var t = now();
-    if (!force) {
-      if (t - lastPub < 1000 / PUBLISH_HZ) return;
-    }
-    lastPub = t;
-    room.put(snapshot(game)).catch(function () {});
+  // Only when the row changed: a person standing still writes nothing.
+  function publish(game) {
+    if (!on || !room || !me().id) return;
+    var rec = snapshot(game), json = JSON.stringify(rec);
+    if (json === lastJson) return;
+    lastJson = json;
+    room.put(rec).catch(function () {});
   }
 
   var Mp = {
-    me: function () { return me; },
+    me: me,
     on: function () { return on; },
     round: function () { return round; },
     setRound: function (r) { round = r; },
-    live: function () { return live(lastList); },
-    others: function () { return othersOf(live(lastList)); },
-    turn: function () { return whoseTurn(live(lastList)); },
+    live: roster,
+    others: function () { return othersOf(roster()); },
+    turn: function () { return whoseTurn(roster()); },
+    bestTable: function () { return bestTable(roster()); },
     myTurn: function () {
-      if (!on || !me.id) return true;
-      var players = live(lastList);
+      if (!on || !me().id) return true;
+      var players = roster();
+      var mine = players.some(function (p) { return p.id === me().id; });
+      if (!mine) return !(rs && rs.live);
       if (othersOf(players).length === 0) return true;
       var w = whoseTurn(players);
-      return !!(w && w.id === me.id);
+      return !!(w && w.id === me().id);
     },
-    adoptedRound: function () { return adoptedRound(live(lastList)); },
-    bestTable: function () { return bestTable(live(lastList)); },
+    adoptedRound: function () { return adoptedRound(roster()); },
     publish: publish,
     esc: esc,
+    inRoom: function () { return !!(on && rs && rs.live); },
+    needsNewer: needsNewer,
+    room: function () { return ROOM; },
     enter: enter,
     leave: leave,
     onList: null
   };
 
-  function onRoom(list) {
-    lastList = list || [];
-    if (!on) return;
-    var players = live(lastList);
-    var other = othersOf(players).length > 0;
-    if (other && !hadOther) hadOther = true;
-    if (Mp.onList) Mp.onList(players, hadOther && other);
+  function changed() {
+    if (!on || !rs) return;
+    if (!joined && rs.me && rs.me.role === 'watcher') { joined = true; root.gifos.room.join().catch(function () {}); }
+    if (Mp.onList) Mp.onList(roster(), !!rs.live);
   }
 
-  function beat(game) {
-    if (!on) return;
-    publish(game, true);
-  }
-
+  // Idempotent: listens to the room and the score rows once.
   function enter(game) {
     api = root.gifos;
-    if (!api || !api.db) {
-      if (Mp.onList) Mp.onList([], false);
-      return;
-    }
+    on = true;
+    if (!ROOM || !api || !api.db) { on = false; return; }
+    if (started) return;
+    started = true;
     room = api.db('players');
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
-      on = true;
-      hadOther = false;
-      seenAt = {};
-      if (!subscribed) {
-        subscribed = true;
-        room.subscribe(onRoom);
-      } else {
-        onRoom(lastList);
-      }
-      beat(game);
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(function () { beat(game); }, HB_MS);
-    }).catch(function () {});
+    room.subscribe(function (list) { rows = list || []; changed(); });
+    api.room.subscribe(function (st) { rs = st; changed(); });
   }
 
-  function leave() {
-    on = false;
-    hadOther = false;
-    if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
-  }
+  function leave() { on = false; }
 
   root.FingerMp = Mp;
 })(window);

@@ -26,7 +26,7 @@ vendor/UPSTREAM.txt
 | `db` | Chip pile (`save`, private) and the table (`room`, read-write). |
 | `multiplayer` | Seats. Invite is OS chrome. |
 
-No `network`. `minBuild` is **947**.
+No `network`. `minBuild` is **5861** (gifos.room).
 
 ## Building
 

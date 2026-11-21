@@ -6,7 +6,7 @@
   var VALUES = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'j', 'q', 'k', 'a'];
   var GLYPH = { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' };
   var RED = { hearts: 1, diamonds: 1 };
-  var START = 200, STAKE = 10, REFILL = 200, PRES_TTL = 12000;
+  var START = 200, STAKE = 10, REFILL = 200;
 
   function gameValue(v) {
     if (v === 'a') return 11;
@@ -272,17 +272,6 @@
     return 'Dealer ' + total(tab.dealer) + '.';
   }
 
-  function liveSeats(list, now, ttl) {
-    now = now == null ? (Date.now ? Date.now() : 0) : now;
-    ttl = ttl == null ? PRES_TTL : ttl;
-    return (list || []).filter(function (it) {
-      return it && it.kind === 'seat' && it.id && it.at && (now - it.at) < ttl;
-    }).slice().sort(function (a, b) { return (a.joined || 0) - (b.joined || 0); });
-  }
-  function hostId(people, fallback) {
-    if (!people || !people.length) return fallback || null;
-    return people[0].id;
-  }
   function publicTable(tab) {
     if (!tab) return null;
     return {
@@ -291,13 +280,14 @@
       dealer: tab.dealer,
       hands: tab.hands,
       stake: tab.stake,
-      msg: tab.msg
+      msg: tab.msg,
+      seen: tab.seen || {}
     };
   }
 
   g.BJ = {
     SUITS: SUITS, VALUES: VALUES, GLYPH: GLYPH, RED: RED,
-    START: START, STAKE: STAKE, REFILL: REFILL, PRES_TTL: PRES_TTL,
+    START: START, STAKE: STAKE, REFILL: REFILL,
     card: card, makeDeck: makeDeck, shuffle: shuffle, draw: draw,
     total: total, isSoft: isSoft, isBj: isBj, isPair: isPair,
     totalLabel: totalLabel, label: label,
@@ -309,6 +299,6 @@
     hit: hit, stand: stand, double: double, split: split, applyAction: applyAction,
     finishIfDone: finishIfDone, resultForHand: resultForHand,
     resultsFor: resultsFor, netFor: netFor, say: say, summarize: summarize,
-    liveSeats: liveSeats, hostId: hostId, publicTable: publicTable
+    publicTable: publicTable
   };
 })(typeof window !== 'undefined' ? window : globalThis);

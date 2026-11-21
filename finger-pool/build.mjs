@@ -52,7 +52,8 @@ for (const need of ['vendor/Vec2.js', 'vendor/Sphere.js', 'vendor/COPYING-finger
   }
 }
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947 — this app needs nothing newer than the store.');
+if (!(manifest.minBuild >= 5861)) throw new Error('minBuild must be 5861 or higher: this app needs gifos.room.');
+if (!manifest.room || manifest.room.turns !== 'free' || !manifest.room.seats) throw new Error('manifest needs the room block (seats, free turns)');
 if (manifest.appId !== 'finger-pool') throw new Error('appId must be finger-pool');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
@@ -134,6 +135,8 @@ if (!files['mp.js'].includes('Invite') || !files['boot.js'].includes('Invite')) 
 if (!files['mp.js'].includes('players') || !files['mp.js'].includes('Nobody writes')) {
   throw new Error('mp.js must score on own rows');
 }
+if (!files['mp.js'].includes('api.room.subscribe')) throw new Error('mp.js must take seats from gifos.room');
+if (/setInterval|STALE_MS|HB_MS/.test(files['mp.js'] + files['boot.js'])) throw new Error('no heartbeat or stale window');
 
 for (const [n, s] of Object.entries(files)) {
   if (typeof s !== 'string' || !n.endsWith('.js')) continue;

@@ -59,7 +59,8 @@ for (const need of [
   }
 }
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947 — this app needs nothing newer than the store.');
+if (!(manifest.minBuild >= 5861)) throw new Error('minBuild must be 5861 or higher: this app needs gifos.room.');
+if (!manifest.room || manifest.room.turns !== 'free' || !manifest.room.seats) throw new Error('manifest needs the room block (seats, free turns)');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
 }
@@ -158,6 +159,8 @@ if (!files['COPYING-yahtzee.txt'].includes('Alhissar')) {
 if (!files['mp.js'].includes("db('room')")) {
   throw new Error('mp.js must use gifos.db room');
 }
+if (!files['mp.js'].includes('api.room.subscribe') || !files['mp.js'].includes('needsNewer')) throw new Error('mp.js must take seats from gifos.room');
+if (/setInterval|STALE_MS|HB_MS/.test(files['mp.js'] + files['app.js'])) throw new Error('no heartbeat or stale window');
 if (!files['mp.js'].includes('Invite')) {
   throw new Error('mp.js must tell the player to press Invite');
 }

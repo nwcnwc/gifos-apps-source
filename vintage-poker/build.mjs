@@ -56,7 +56,7 @@ for (const s of SCRIPTS) if (!html.includes('src="' + s + '"')) throw new Error(
 if (/type=["']module["']/.test(html)) throw new Error('module');
 if (/https?:\/\//i.test(html.replace(/<!--[\s\S]*?-->/g, ''))) throw new Error('url');
 if (/>\s*Invite\s*</.test(html) || /id=["']invite/i.test(html)) throw new Error('Invite');
-if (manifest.minBuild !== 947) throw new Error('minBuild');
+if (!(manifest.minBuild >= 5861)) throw new Error('minBuild');
 if (!manifest.capabilities.db || !manifest.capabilities.multiplayer) throw new Error('caps');
 if (manifest.capabilities.network) throw new Error('network');
 if (manifest.data.save.visibility !== 'private' || manifest.data.room.visibility !== 'read-write') {
@@ -74,11 +74,13 @@ for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage',
 }
 if (!files['COPYING-vintage-poker.txt'].includes('Patrick Obermeier')) throw new Error('COPYING');
 if (!files['app.js'].includes("db('save')") || !files['app.js'].includes("db('room')")) throw new Error('db');
-if (!files['app.js'].includes('Invite')) throw new Error('Invite copy');
+if (!manifest.room || manifest.room.turns !== 'free' || !manifest.room.seats) throw new Error('room block');
+if (!files['app.js'].includes('gifos.room.subscribe') || !files['app.js'].includes('needsNewer')) throw new Error('gifos.room');
+if (/putMe|setInterval|HB_MS|PRES_TTL|livePeople/.test(files['app.js'])) throw new Error('old presence relay');
 if (/>\s*Invite\s*</.test(files['index.html']) || /id=["']invite/i.test(files['index.html'])) {
   throw new Error('in-app Invite');
 }
-if (!files['app.js'].includes('if (roomDb && !owner) mpEnter()')) throw new Error('guests must sit');
+if (!files['app.js'].includes('if (st.live && !mp.on) mpEnter()')) throw new Error('guests must sit');
 if (!files['style.css'].includes('min-height:48px')) throw new Error('phone targets');
 if (!files['style.css'].includes('[hidden]{display:none !important}')) throw new Error('hidden');
 if (/class="card[\s"]/.test(files['index.html'])) throw new Error('setup is not a playing card');

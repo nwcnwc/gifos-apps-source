@@ -71,6 +71,7 @@
  "lobby.starting": "Starting…",
  "lobby.time": "Time to draw",
  "lobby.title": "Draw together",
+ "needsNewer": "Drawphone needs a newer GifOS to play together. Reload the page to update.",
  "pad.clear": "Clear",
  "pad.colour": "colour",
  "pad.eraser": "eraser",
