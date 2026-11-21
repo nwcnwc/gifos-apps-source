@@ -35,7 +35,7 @@ After your action, in order: steal, then shots and explosions. A side whose base
 
 **Two here** — pass the phone. Red goes first.
 
-**Play a friend** — opens the shared board. Press **Invite** in the bar above the app and send the link. First arriver sits red, second sits blue. Extra people watch. **Resign** concedes. After a win or a resign, a new game starts in a few seconds.
+**Play a friend** — opens the shared board. Press **Invite** in the bar above the app and send the link. If other people are already in the room with you, the game opens on the shared board by itself. GifOS seats the first two people red and blue; extras watch and take a seat when one opens. A player who is away is waited for. **Resign** (on your turn) concedes, and **New game** (either player) starts the next one.
 
 Invite is OS chrome — this app does not draw a share button.
 
