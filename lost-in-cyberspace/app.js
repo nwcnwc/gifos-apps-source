@@ -1,5 +1,5 @@
 // Lost in CYBERSPACE — seats, room, both views.
-// Invite is OS chrome. Each player writes ONLY their own row.
+// Invite is OS chrome. gifos.room holds the Hacker and Navigator seats.
 (function () {
   'use strict';
   var M = window.LIC;
@@ -11,7 +11,6 @@
     });
   };
 
-  var PRES_TTL = 9000, HB_MS = 3000;
   var view = 'home';
   var state = null;
   var tickTimer = 0;
@@ -62,7 +61,7 @@
       M.tick(state);
       if (view === 'hacker') { paint(); renderTerm(); }
       if (view === 'navigator') renderNavHud();
-      if (mp.on) putMe();
+      if (mp.on && state.ticking && !state.over && !state.win) putMe();
     }, 1000);
   }
   function stopTick() {
@@ -79,7 +78,6 @@
     renderTerm();
     ensureTick();
     setChip('play', 'HACKER');
-    if (mp.on) putMe();
   }
 
   function startNav() {
@@ -87,26 +85,18 @@
     bootTerminal();
     renderNavHud();
     setChip('ready', 'NAVIGATOR');
-    if (mp.on) putMe();
+    if (mp.on) { lastCodes = ''; renderInbox(); }
     else if (state) fillInbox(M.foundCodes(state), true);
   }
 
   function switchToNav() {
     if (view === 'navigator') return;
-    if (mp.on) {
-      mp.role = 'nav';
-      putMe({ role: 'nav' });
-    }
+    if (mp.on) { takeSeat('Navigator'); return; }
     startNav();
   }
   function switchToHacker() {
     if (view === 'hacker') return;
-    if (mp.on) {
-      var other = liveHacker(livePeople(_items));
-      if (other) return;
-      mp.role = 'hacker';
-      putMe({ role: 'hacker' });
-    }
+    if (mp.on) { takeSeat('Hacker'); return; }
     startHacker(state);
   }
 
@@ -356,12 +346,7 @@
     var el = $('navTime');
     var t = null;
     if (state && state.ticking) t = state.time;
-    else if (mp.on) {
-      var people = livePeople(_items), i;
-      for (i = 0; i < people.length; i++) {
-        if (people[i].id !== mp.id && people[i].time != null) t = people[i].time;
-      }
-    }
+    else if (mp.on) { var hr = hackerRow(); if (hr && hr.time != null) t = hr.time; }
     if (t == null) { el.hidden = true; return; }
     el.hidden = false;
     el.textContent = M.fmtTime(t);
@@ -622,37 +607,39 @@
   $('mapAll').onclick = function () { nmapAll(inboxCodes); };
 
   // ---- multiplayer ----
-  var mp = { on: false, id: null, name: 'You', row: null, role: null, hb: 0, sub: false };
+  // gifos.room holds the two seats (Hacker, Navigator), who is here and the line. The hacker's page is the
+  // simulation: it writes ONE plain row (its own room id) with the codes it sent, the score and the clock, and
+  // only while it acts. The navigator reads the row of whoever holds the Hacker seat; rows of anyone else are
+  // ignored. No presence rows, no heartbeat.
+  var EN = { needsNewer: 'Lost in Cyberspace needs a newer GifOS to play together. Reload the page to update.' };
+  var T = function (k) {
+    var v = window.gifos && gifos.i18n && gifos.i18n.t ? gifos.i18n.t(k) : k;
+    return v === k && EN.hasOwnProperty(k) ? EN[k] : v;
+  };
+  var ROOM = !!(window.gifos && gifos.room && gifos.room.subscribe);
+  var mp = { on: false, rs: null, joined: false, picked: false, note: '' };
   var _items = [];
 
-  function livePeople(items, t) {
-    t = t || nowMs();
-    var out = [], i, it;
-    for (i = 0; i < (items || []).length; i++) {
-      it = items[i];
-      if (!it || !it.id) continue;
-      if (it.at && t - it.at >= PRES_TTL) continue;
-      out.push(it);
-    }
-    return out;
-  }
-
-  function liveHacker(people) {
-    var i, p;
-    for (i = 0; i < (people || []).length; i++) {
-      p = people[i];
-      if (p && p.role === 'hacker' && p.id !== mp.id) return p;
-    }
+  function mySeat() { var r = mp.rs; return r && r.me ? r.me.seat : null; }
+  function seatInfo(name) {
+    var r = mp.rs, i;
+    if (r && r.seats) for (i = 0; i < r.seats.length; i++) if (r.seats[i].seat === name) return r.seats[i];
     return null;
   }
+  function heldByOther(name) { var x = seatInfo(name), r = mp.rs; return !!(x && x.id && r && r.me && x.id !== r.me.id); }
+  function hackerRow() {
+    var x = seatInfo('Hacker'), i;
+    if (!x || !x.id) return null;
+    for (i = 0; i < _items.length; i++) if (_items[i] && _items[i].id === x.id) return _items[i];
+    return null;
+  }
+  function say(e) { mp.note = e && e.message ? e.message : ''; mpRefresh(); }
 
   function putMe(extra) {
-    if (!roomDb || !mp.id) return;
+    var r = mp.rs;
+    if (!roomDb || !ROOM || !r || !r.me || mySeat() !== 'Hacker') return;
     var row = {
-      id: mp.id,
-      name: mp.name,
-      at: nowMs(),
-      role: mp.role,
+      id: r.me.id,
       codes: (state && state.sent) || [],
       score: (state && state.scoreCode) || null,
       over: !!(state && state.over),
@@ -660,131 +647,104 @@
       time: state ? state.time : null
     };
     if (extra) Object.keys(extra).forEach(function (k) { row[k] = extra[k]; });
-    mp.row = row;
     roomDb.put(row).catch(function () {});
   }
 
-  $('friendBtn').onclick = mpEnter;
+  function oldNote() { $('roomNote').textContent = T('needsNewer'); $('roomNote').hidden = false; }
+  $('soloHacker').addEventListener('click', function () { mp.picked = true; });
+  $('soloNav').addEventListener('click', function () { mp.picked = true; });
+  $('friendBtn').onclick = function () { mp.picked = true; mpEnter(); };
   function mpEnter() {
-    if (!roomDb) {
-      $('lobbyStatus').textContent = 'Play with a friend needs a GifOS room. Press Invite in the bar above — or play both seats on this device.';
-      show('lobby');
-      setChip('', 'No room');
-      $('roleHacker').disabled = true;
-      $('roleNav').disabled = true;
-      return;
-    }
-    $('roleHacker').disabled = false;
-    $('roleNav').disabled = false;
-    (window.gifos && gifos.me ? gifos.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (me) {
-      mp.id = (me && me.id) || 'local';
-      mp.name = (me && me.name) || 'You';
-      mp.on = true;
-      mp.role = null;
-      mp.row = null;
-      state = null;
-      show('lobby');
-      setChip('ready', 'A room');
-      if (!mp.sub) {
-        mp.sub = true;
-        roomDb.subscribe(function (items) { _items = items || []; mpRefresh(); });
-      }
-      putMe();
-      if (mp.hb) clearInterval(mp.hb);
-      mp.hb = setInterval(function () { if (mp.on) putMe(); }, HB_MS);
-      mpRefresh();
-    }).catch(function () {
-      $('lobbyStatus').textContent = 'Could not join the room. Try Invite in the bar, or play on this device.';
-      show('lobby');
-    });
+    if (!ROOM) { oldNote(); return; }
+    mp.on = true;
+    state = null;
+    show('lobby');
+    setChip('ready', 'A room');
+    mpJoin();
+    syncView();
+    mpRefresh();
   }
-
+  // opening the game is asking to play, once; the room seats, lines up, or asks the host
+  function mpJoin() {
+    var r = mp.rs;
+    if (ROOM && r && !mp.joined && r.me && r.me.role === 'watcher') { mp.joined = true; gifos.room.join().catch(function () {}); }
+  }
   function mpLeave() {
-    mp.on = false;
-    mp.role = null;
-    if (mp.hb) { clearInterval(mp.hb); mp.hb = 0; }
+    mp.on = false; mp.picked = true;
+    if (ROOM) { mp.joined = false; gifos.room.leave().catch(function () {}); }
     stopTick();
-    if (roomDb && mp.id) roomDb.delete(mp.id).catch(function () {});
     state = null;
     show('home');
     setChip('', 'Ready');
   }
+  // take a seat: give up the other one first (one person, one seat)
+  function takeSeat(name) {
+    if (!ROOM || mySeat() === name || heldByOther(name)) return;
+    var p = mySeat() ? gifos.room.leave() : Promise.resolve();
+    p.then(function () { return gifos.room.join(name); }).catch(say);
+  }
+  // my seat decides my screen: Hacker walks, Navigator maps, no seat is the lobby
+  function syncView() {
+    if (!mp.on) return;
+    var s = mySeat();
+    if (s === 'Hacker' && view !== 'hacker') { startHacker(); }
+    else if (s === 'Navigator' && view !== 'navigator') { stopTick(); state = null; startNav(); }
+    else if (!s && (view === 'hacker' || view === 'navigator')) { stopTick(); state = null; show('lobby'); setChip('ready', 'A room'); }
+  }
 
   $('lobbyLeave').onclick = mpLeave;
+  // in a room the seat is how you stay or go; leaving it goes to the lobby
+  function leaveSeat() { if (mp.on) { if (ROOM) gifos.room.leave().catch(function () {}); } }
   $('hackerLeave').onclick = function () {
-    if (mp.on) { show('lobby'); mpRefresh(); }
+    if (mp.on) leaveSeat();
     else { stopTick(); state = null; show('home'); setChip('', 'Ready'); }
   };
   $('navLeave').onclick = function () {
-    if (mp.on) { show('lobby'); mpRefresh(); }
+    if (mp.on) leaveSeat();
     else { stopTick(); show('home'); setChip('', 'Ready'); }
   };
-
-  $('roleHacker').onclick = function () {
-    var other = liveHacker(livePeople(_items));
-    if (other) {
-      $('lobbyStatus').textContent = (other.name || 'Someone') + ' is already the hacker. Be the navigator — one maze, two seats.';
-      return;
-    }
-    mp.role = 'hacker';
-    putMe({ role: 'hacker' });
-    startHacker(state);
-  };
-  $('roleNav').onclick = function () {
-    mp.role = 'nav';
-    putMe({ role: 'nav' });
-    startNav();
-  };
+  $('roleHacker').onclick = function () { takeSeat('Hacker'); };
+  $('roleNav').onclick = function () { takeSeat('Navigator'); };
 
   function mpRefresh() {
     if (!mp.on) return;
-    var people = livePeople(_items);
-    if (!people.some(function (p) { return p.id === mp.id; })) {
-      people.push(mp.row || { id: mp.id, name: mp.name, at: nowMs(), role: mp.role });
-    }
-    if (view === 'lobby') renderLobby(people);
-    if (mp.role === 'nav' || view === 'navigator') {
-      renderInbox(people);
-      renderNavHud();
-    }
+    var r = mp.rs;
+    // with others here the room (top-bar back, OS leave) is how you go; alone you may return home
+    var live = !!(r && r.live);
+    $('lobbyLeave').hidden = live; $('hackerLeave').hidden = live; $('navLeave').hidden = live;
+    $('hackerSwitch').disabled = heldByOther('Navigator');
+    $('navSwitch').disabled = heldByOther('Hacker');
+    if (view === 'lobby') renderLobby();
+    if (view === 'navigator') { renderInbox(); renderNavHud(); }
   }
 
-  function renderLobby(people) {
-    var html = '', i, p, otherH = liveHacker(people);
-    people.sort(function (a, b) { return a.id < b.id ? -1 : 1; });
-    for (i = 0; i < people.length; i++) {
-      p = people[i];
-      html += '<li class="' + (p.id === mp.id ? 'me' : '') + '"><span class="name">'
-        + esc(p.id === mp.id ? 'You' : (p.name || 'Player')) + '</span>'
-        + '<span class="meta">' + (p.role === 'hacker' ? 'HACKER' : p.role === 'nav' ? 'NAVIGATOR' : '…') + '</span></li>';
+  function renderLobby() {
+    var r = mp.rs, html = '', i, x, n = 0;
+    if (r && r.seats) for (i = 0; i < r.seats.length; i++) {
+      x = r.seats[i];
+      if (x.id) n++;
+      html += '<li class="' + (r.me && x.id === r.me.id ? 'me' : '') + '"><span class="name">'
+        + (x.id ? esc(r.me && x.id === r.me.id ? 'You' : (x.name || 'Player')) + (x.here === 'away' ? ' …' : '') : '<span class="open">open</span>')
+        + '</span><span class="meta">' + esc(x.seat.toUpperCase()) + '</span></li>';
     }
+    if (r && r.line && r.line.length) html += '<li><span class="name">In line: ' + esc(r.line.map(function (p) { return p.name || 'Player'; }).join(', ')) + '</span></li>';
     $('lobbyList').innerHTML = html || '<li><span class="name">Just you so far</span></li>';
-    if (people.length < 2) {
-      $('lobbyStatus').textContent = 'Waiting for a friend… press Invite in the GifOS menu to send the link.';
-    } else if (otherH && mp.role !== 'hacker') {
-      $('lobbyStatus').textContent = people.length + ' here. ' + (otherH.name || 'Someone') + ' is the hacker — be the navigator.';
-    } else {
-      $('lobbyStatus').textContent = people.length + ' here. Pick a seat. One hacker, one navigator.';
-    }
-    $('roleHacker').disabled = !!(otherH && mp.role !== 'hacker');
-    setChip('ready', people.length + ' here');
+    var role = r && r.me ? r.me.role : 'watcher';
+    if (mp.note) $('lobbyStatus').textContent = mp.note;
+    else if (role === 'asking') $('lobbyStatus').textContent = 'Waiting for the host to let you in…';
+    else if (!r || !r.live) $('lobbyStatus').textContent = 'Waiting for a friend… press Invite in the GifOS menu to send the link.';
+    else if (role === 'waiting') $('lobbyStatus').textContent = 'Both seats are taken. You are next in line.';
+    else $('lobbyStatus').textContent = 'Pick a seat. One hacker, one navigator.';
+    $('roleHacker').disabled = heldByOther('Hacker');
+    $('roleNav').disabled = heldByOther('Navigator');
+    setChip('ready', n + ' seated');
   }
 
-  function renderInbox(people) {
-    var codes = [], i, p, j, seen = {}, score = null, over = false, win = false;
-    for (i = 0; i < people.length; i++) {
-      p = people[i];
-      if (p.id === mp.id) continue;
-      if (p.codes && p.codes.length) {
-        for (j = 0; j < p.codes.length; j++) {
-          if (!seen[p.codes[j]]) { seen[p.codes[j]] = 1; codes.push(p.codes[j]); }
-        }
-      }
-      if (p.score) score = p.score;
-      if (p.over) over = true;
-      if (p.win) win = true;
-    }
-    fillInbox(codes, true);
+  var lastCodes = '';
+  function renderInbox() {
+    var row = hackerRow(), codes = (row && row.codes) || [], score = row && row.score, over = row && row.over, win = row && row.win;
+    var key = codes.join(',');
+    if (key !== lastCodes) { lastCodes = key; fillInbox(codes, true); }
     if (score && termEl && score !== lastScoreNote) {
       lastScoreNote = score;
       $('inbox').hidden = false;
@@ -796,10 +756,31 @@
     }
   }
 
+  if (ROOM) {
+    if (roomDb) roomDb.subscribe(function (items) { _items = items || []; mpRefresh(); });
+    gifos.room.subscribe(function (s) {
+      mp.rs = s; mp.note = '';   // a refusal's note goes with the next room state
+      // with other people here the shared game is what you see; alone you start on the menu
+      if (!mp.on && !mp.picked && s.live && view === 'home') { mpEnter(); return; }
+      if (mp.on) { mpJoin(); syncView(); mpRefresh(); }
+    });
+  } else {
+    oldNote();
+  }
+
+  // Read-only, for the room kit: the shared game only (no clock).
+  window['__lost-in-cyberspace'] = {
+    state: function () {
+      var row = hackerRow();
+      return row ? { codes: (row.codes || []).join(','), score: row.score || '', over: !!row.over, win: !!row.win } : { codes: '', score: '', over: false, win: false };
+    }
+  };
+
   if (window.gifos && gifos.onBack) {
     gifos.onBack(function () {
+      if (mp.on && mp.rs && mp.rs.live) return true;
       if (view === 'hacker' || view === 'navigator') {
-        if (mp.on) { show('lobby'); mpRefresh(); }
+        if (mp.on) { leaveSeat(); }
         else { stopTick(); state = null; show('home'); setChip('', 'Ready'); }
         return true;
       }

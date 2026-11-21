@@ -50,7 +50,8 @@ const netBuf = readFileSync(join(dir, 'vendor', 'network.js'));
 const netHex = createHash('sha256').update(netBuf).digest('hex');
 if (netHex !== NET_SHA) throw new Error('vendor/network.js sha256 ' + netHex + ' ≠ pin ' + NET_SHA);
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947');
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild < 5861) throw new Error('minBuild must be at least 5861 (the first build with gifos.room)');
+if (!manifest.room || !Array.isArray(manifest.room.seats) || manifest.room.seats.length < 2) throw new Error('manifest must declare a room block with its seats');
 if (manifest.appId !== 'lost-in-cyberspace') throw new Error('appId');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
@@ -101,6 +102,8 @@ if (/https?:\/\//i.test(html.replace(/<!--[\s\S]*?-->/g, ''))) {
 if (/<button\b[^>]*>\s*Invite\s*</i.test(html) || /<button\b[^>]*id=["'][^"']*invite/i.test(html)) {
   throw new Error('do not draw an Invite button');
 }
+if (!files['app.js'].includes('gifos.room.subscribe')) throw new Error('app.js must read the room with gifos.room.subscribe');
+if (/PRES_TTL|HB_MS|mp\.hb\b/.test(files['app.js'])) throw new Error('app.js must not keep its own presence or heartbeat');
 if (!files['app.js'].includes('Invite')) throw new Error('tell the player to press Invite');
 if (/aframe/i.test(files['app.js'] + files['maze.js'] + html)) {
   throw new Error('A-Frame stays behind');

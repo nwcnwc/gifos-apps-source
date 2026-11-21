@@ -1,66 +1,53 @@
 /*
  * BreakLock — a live "I set a pattern, you crack it" room.
  *
- * Each person writes ONLY their own players row. The current secret lives
- * on match (one row, id "match"); whoever is the setter writes it. Guests
- * use it to score pegs locally and never paint it until the round is over.
+ * gifos.room seats the people. Each seated person writes ONLY their own players
+ * row. The current secret lives on match (one row, id "match"); the setter
+ * writes it with gifos.room.move. Guests use it to score pegs locally and
+ * never paint it until the round is over.
  */
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 3000;
-
+  // gifos.room holds the seats (who plays, who is here, the line). The setter, or whoever cracks it, writes the
+  // match record with gifos.room.move; each seated person writes ONLY their own players row (attempts, count),
+  // keyed by their room id. Rows of people who do not hold a seat are ignored. No presence rows, no heartbeat.
   var api = null;
+  var rs = null;
+  var ROOM = false;
+  var joined = false;
   var me = { id: null, name: 'You' };
-  var owner = true;
-  var others = {};
+  var rows = {};
   var match = null;
+  var note = '';
   var onChange = null;
-  var hbTimer = 0;
-  var lastPut = 0;
 
   function db(n) { return api.db(n); }
   function now() { return Date.now(); }
+  function fire() { if (onChange) onChange(); }
 
-  function countOthers() {
-    var n = 0, id;
-    for (id in others) n++;
-    return n;
+  function seats() { return (rs && rs.seats) || []; }
+  function heldOthers() {
+    return seats().filter(function (x) { return x.id && x.id !== me.id; });
   }
-
   function live() {
-    return !!api && !!me.id;
+    return !!api && ROOM && !!me.id;
   }
-
+  function seated() {
+    return !!(rs && rs.me && rs.me.seat);
+  }
   function versusOn() {
-    return live() && countOthers() > 0;
+    return live() && heldOthers().length > 0;
   }
 
   function ingestPlayers(list) {
-    var t = now();
-    var seen = {};
-    var i, p, id;
+    var next = {}, i, p;
     for (i = 0; i < (list || []).length; i++) {
       p = list[i];
-      if (!p || !p.id || p.id === me.id) continue;
-      seen[p.id] = 1;
-      others[p.id] = {
-        id: p.id,
-        name: p.name || 'Friend',
-        role: p.role || 'crack',
-        count: p.count | 0,
-        cracked: !!p.cracked,
-        attempts: p.attempts || [],
-        round: p.round | 0,
-        t: p.t || t,
-        seen: t
-      };
+      if (p && p.id) next[p.id] = p;
     }
-    for (id in others) {
-      if (!seen[id] || t - others[id].seen > STALE_MS) delete others[id];
-    }
-    if (onChange) onChange();
+    rows = next;
+    fire();
   }
 
   function ingestMatch(list) {
@@ -69,60 +56,33 @@
       if (list[i] && list[i].id === 'match') rec = list[i];
     }
     match = rec;
-    if (onChange) onChange();
+    note = '';
+    fire();
   }
 
   function init() {
     api = root.gifos;
-    if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
-
-    var infoP = api.info
-      ? api.info().then(function (i) {
-          owner = !!(i && i.owner);
-          return owner;
-        }).catch(function () { owner = true; return true; })
-      : Promise.resolve(true);
-
-    return infoP.then(function () {
-      return api.me();
-    }).then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'You';
-      var settled = false;
-      return new Promise(function (resolve) {
-        var done = function () {
-          if (settled) return;
-          settled = true;
-          resolve({ owner: owner, others: countOthers() });
-        };
-        setTimeout(done, 2500);
-        db('players').subscribe(function (list) {
-          ingestPlayers(list);
-          done();
-        });
-        db('match').subscribe(function (list) {
-          ingestMatch(list);
-        });
+    ROOM = !!(api && api.db && api.room && api.room.subscribe);
+    if (!ROOM) return Promise.resolve({ owner: true, others: 0 });
+    db('players').subscribe(ingestPlayers);
+    db('match').subscribe(ingestMatch);
+    return new Promise(function (resolve) {
+      var first = true;
+      api.room.subscribe(function (s) {
+        rs = s;
+        note = '';   // a refusal's note goes with the next room state
+        me.id = s.me.id;
+        me.name = s.me.name || 'You';
+        // opening the game is asking to play, once; the room seats, lines up, or asks the host
+        if (!joined && s.me.role === 'watcher') { joined = true; api.room.join().catch(function () {}); }
+        fire();
+        if (first) { first = false; resolve({ owner: true, others: heldOthers().length }); }
       });
-    }).then(function (room) {
-      heartbeat();
-      hbTimer = setInterval(heartbeat, HB_MS);
-      return room;
-    }).catch(function () {
-      return { owner: true, others: 0 };
     });
   }
 
-  function heartbeat() {
-    if (!live()) return;
-    if (now() - lastPut < HB_MS / 2) return;
-    // Presence only — boot.js publishes the real row.
-    if (onChange) onChange();
-  }
-
   function putPlayer(row) {
-    if (!live()) return;
-    lastPut = now();
+    if (!live() || !seated()) return;
     row.id = me.id;
     row.name = me.name;
     row.t = now();
@@ -130,16 +90,27 @@
   }
 
   function putMatch(row) {
-    if (!live()) return;
+    if (!live() || !seated()) return;
     row.id = 'match';
     row.by = me.id;
     row.t = now();
-    db('match').put(row).catch(function () {});
+    api.room.move('match', row).catch(function (e) { note = (e && e.message) || ''; fire(); });
   }
 
   function othersList() {
-    var list = [], id;
-    for (id in others) list.push(others[id]);
+    var list = heldOthers().map(function (x) {
+      var p = rows[x.id] || {};
+      return {
+        id: x.id,
+        name: (x.name || 'Friend') + (x.here === 'away' ? ' …' : ''),
+        role: p.role || 'crack',
+        count: p.count | 0,
+        cracked: !!p.cracked,
+        attempts: p.attempts || [],
+        round: p.round | 0,
+        t: p.t || 0
+      };
+    });
     list.sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); });
     return list;
   }
@@ -193,9 +164,11 @@
     live: live,
     versusOn: versusOn,
     me: function () { return me; },
-    owner: function () { return owner; },
     others: othersList,
-    count: function () { return countOthers() + (me.id ? 1 : 0); },
+    seated: seated,
+    note: function () { return note; },
+    waiting: function () { return !!(rs && rs.me && (rs.me.role === 'waiting' || rs.me.role === 'asking')); },
+    isHeld: function (id) { return seats().some(function (x) { return x.id === id; }); },
     match: function () { return match; },
     roster: roster,
     putPlayer: putPlayer,

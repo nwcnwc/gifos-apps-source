@@ -5,7 +5,7 @@ One of you sees a mark between two opposites and gives a clue. The other slides 
 ## Two ways to play
 
 - **Two here** — pass this device. The psychic looks at the mark, types a clue, then hands the phone over. The guesser does not see the mark.
-- **Play a friend** — press **Play a friend**, then **Invite** in the bar above the app. The link is the room. One of you is the psychic, the other is the guesser. Extra people can watch.
+- **Play a friend** — press **Play a friend**, then **Invite** in the bar above the app. The link is the room. One of you is the psychic, the other is the guesser. The clue can be typed, or just said out loud and sent blank. Extra people watch and are next in line. When other people are here, the game opens straight on the shared board.
 
 Invite is in that bar, not inside this game.
 

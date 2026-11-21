@@ -1,9 +1,8 @@
 // Longwave. A psychic sees the mark and gives a clue; a guesser places the
 // needle. Invite is OS chrome — this file never draws a share button.
 //
-// One collection. Each person writes ONLY their own row (id = me).
-// The board row is written by whoever is host (lowest id).
-// A player publishes an intent; the host applies it if it is legal.
+// Online, gifos.room seats two people and passes the turn; the mover writes
+// the whole board record with gifos.room.move (see the multiplayer section).
 (function () {
   'use strict';
   var LW = window.LW;
@@ -355,6 +354,7 @@
 
   function enterHotseat(game) {
     mode = 'hotseat';
+    $('leaveBtn').hidden = false;
     L = game || freshLocal();
     $('setup').hidden = true;
     $('play').hidden = false;
@@ -374,75 +374,71 @@
   };
 
   // ---- multiplayer ----
-  var PRES_TTL = 9000, HB_MS = 3000, SLIDE_MS = 80;
-  var mpDb = null;
-  try { if (window.gifos) mpDb = gifos.db('lw-mp'); } catch (e) {}
-  var mp = { on: false, id: null, name: 'You', row: null, board: null, people: [], hb: 0, sub: false };
-  var _items = [];
+  // gifos.room seats two people and passes the turn (turns "order": the moves alternate psychic, guesser,
+  // psychic ...). The public board is one record the mover writes with gifos.room.move ('lw-mp'). The mark
+  // stays on the psychic's own page (private 'lw' row) until the psychic's page reveals it after the lock.
+  // The live needle while the guesser slides is plain shared data ('lw-needle'), not a move.
+  var SLIDE_MS = 80;
+  var EN = { needsNewer: 'Longwave needs a newer GifOS to play together. Reload the page to update.' };
+  var T = function (k) {
+    var v = window.gifos && gifos.i18n && gifos.i18n.t ? gifos.i18n.t(k) : k;
+    return v === k && EN.hasOwnProperty(k) ? EN[k] : v;
+  };
+  var ROOM = !!(window.gifos && gifos.room && gifos.room.subscribe);
+  var mpDb = null, needleDb = null;
+  try { if (window.gifos) { mpDb = gifos.db('lw-mp'); needleDb = gifos.db('lw-needle'); } } catch (e) {}
+  var mp = { on: false, rs: null, joined: false, picked: false, note: '', board: null, needle: null, deal: null, nextFor: -1, revKey: '', myGuess: 10 };
   var slideAt = 0;
-  var pendingDeal = false;
-  var lastSeq = -1;
+  var FRESH = { id: 'board', phase: 'clue', round: 1, seed: 1, cardIndex: 0, clue: '', guess: 10, target: null, psy: -1, raw: 0, last: 0, total: 0, left: LW.TURNS, lost: false };
 
-  function mySeat(b) {
-    if (!b || !b.seats) return null;
-    if (b.seats.psychic === mp.id) return 'psychic';
-    if (b.seats.guesser === mp.id) return 'guesser';
-    return null;
+  function curBoard() { return mp.board || FRESH; }
+  function myIdx() { var r = mp.rs; return r && r.me && r.me.seat ? (+r.me.seat) - 1 : -1; }
+  function turnIdx() { var r = mp.rs; return r && r.turn ? (+r.turn) - 1 : -1; }
+  function seatRow(i) { var r = mp.rs; return r && r.seats ? r.seats[i] : null; }
+  function bothHeld() { var a = seatRow(0), b = seatRow(1); return !!(a && a.id && b && b.id); }
+  function nameOf(i) { var x = seatRow(i); return x && x.id ? (x.name || 'Player') + (x.here === 'away' ? ' …' : '') : ''; }
+  // the psychic of this round: the seat to act while a clue is due, otherwise the one the clue move recorded
+  function psyIdx(b) { return b.phase === 'clue' ? turnIdx() : (b.psy | 0); }
+  function canAct() {
+    var r = mp.rs, b = curBoard();
+    if (!ROOM || !r || !r.myTurn || !bothHeld() || b.phase === 'done') return false;
+    var o = seatRow(1 - myIdx());
+    return !!o && o.here !== 'away';
   }
-  function isHost(people) {
-    if (!people.length) return true;
-    var m = people[0].id, i;
-    for (i = 0; i < people.length; i++) if (people[i].id < m) m = people[i].id;
-    return mp.id === m;
+  function say(e) { mp.note = e && e.message ? e.message : ''; mpRender(); }
+  function mpPut(rec, fresh) {
+    mp.board = rec; mpRender();
+    var p = fresh ? gifos.room.newRound('lw-mp', rec) : gifos.room.move('lw-mp', rec);
+    return p.catch(function (e) { mp.board = mp.remote || null; say(e); });
   }
-  function freshBoard(hostId) {
-    return {
-      id: 'board', host: hostId,
-      seats: { psychic: null, guesser: null }, names: {},
-      phase: 'wait', round: 1, seq: 0, seed: LW.randomSeed(),
-      cardIndex: 0, clue: '', guess: 10, target: null, dealt: false,
-      last: 0, raw: 0, total: 0, left: LW.TURNS, startedAt: nowMs()
-    };
-  }
-  function putMe(extra) {
-    var row = { id: mp.id, name: mp.name, at: nowMs(), intent: null };
-    if (mp.row && mp.row.intent) row.intent = mp.row.intent;
-    if (extra && extra.intent !== undefined) row.intent = extra.intent;
-    mp.row = row;
-    mpDb.put(row).catch(function () {});
-  }
-  function putBoard(b) { mp.board = b; mpDb.put(b).catch(function () {}); }
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
+  $('hotseatBtn').addEventListener('click', function () { mp.picked = true; });
+  $('continueBtn').addEventListener('click', function () { mp.picked = true; });
   function mpEnter() {
-    if (!mpDb) { setStatus('Play a friend needs storage.', 'warn'); return; }
-    (window.gifos ? gifos.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (me) {
-      mp.id = me.id; mp.name = me.name || 'You'; mp.on = true; mp.row = null;
-      mode = 'mp';
-      L = null;
-      pendingDeal = false;
-      $('setup').hidden = true; $('play').hidden = false; $('pass').hidden = true;
-      $('playTitle').textContent = 'Play a friend';
-      setChip('wait', 'A friend');
-      if (!mp.sub) {
-        mp.sub = true;
-        mpDb.subscribe(function (items) { _items = items || []; mpRefresh(); });
-      }
-      putMe();
-      if (mp.hb) clearInterval(mp.hb);
-      mp.hb = setInterval(function () { if (mp.on) putMe(); }, HB_MS);
-      mpRender();
-    });
+    if (!ROOM) { oldNote(); return; }
+    mode = 'mp'; mp.on = true;
+    L = null;
+    $('setup').hidden = true; $('play').hidden = false; $('pass').hidden = true;
+    $('playTitle').textContent = 'Play a friend';
+    setChip('wait', 'A friend');
+    mpJoin();
+    mpRender();
+  }
+  // opening the game is asking to play, once; the room seats, lines up, or asks the host
+  function mpJoin() {
+    var r = mp.rs;
+    if (ROOM && r && !mp.joined && r.me && r.me.role === 'watcher') { mp.joined = true; gifos.room.join().catch(function () {}); }
   }
   function mpLeave() {
-    mp.on = false;
+    mp.on = false; mp.picked = true;
     mode = 'setup';
-    if (mp.hb) clearInterval(mp.hb); mp.hb = 0;
-    if (mpDb && mp.id) mpDb.delete(mp.id).catch(function () {});
+    if (ROOM) { mp.joined = false; gifos.room.leave().catch(function () {}); }
     $('play').hidden = true; $('pass').hidden = true; $('setup').hidden = false;
     setChip('ready', 'Ready');
     refreshContinue();
   }
-  $('friendBtn').onclick = mpEnter;
+  $('friendBtn').onclick = function () { mp.picked = true; mpEnter(); };
   $('leaveBtn').onclick = function () {
     if (mode === 'mp') mpLeave();
     else {
@@ -454,297 +450,226 @@
     }
   };
 
-  function mpRefresh() {
-    if (!mp.on) return;
-    var t = nowMs();
-    var people = [], board = null, i, it;
-    for (i = 0; i < _items.length; i++) {
-      it = _items[i];
-      if (!it || !it.id) continue;
-      if (it.id === 'board') { board = it; continue; }
-      if (it.at && t - it.at < PRES_TTL) people.push(it);
-    }
-    if (!people.some(function (p) { return p.id === mp.id; })) {
-      people.push(mp.row || { id: mp.id, name: mp.name, at: t });
-    }
-    mp.people = people;
-    mp.board = board;
-    if (mp.row) {
-      for (i = 0; i < people.length; i++) if (people[i].id === mp.id) mp.row = people[i];
-    }
-    if (!board) {
-      if (isHost(people)) putBoard(freshBoard(mp.id));
-      mpRender();
-      return;
-    }
-    if (isHost(people)) {
-      var next = mpReconcile(board, people);
-      if (next) { putBoard(next); return; }
-    }
-    if (mp.row && mp.row.intent && board.seq !== mp.row.intent.seq) {
-      putMe({ intent: null });
-    }
-    mpRender();
+  if (ROOM) {
+    if (mpDb) mpDb.subscribe(function (items) {
+      var b = null, i;
+      for (i = 0; i < (items || []).length; i++) if (items[i] && items[i].id === 'board') b = items[i];
+      mp.remote = b; mp.board = b; mp.note = '';
+      mpAfter();
+    });
+    if (needleDb) needleDb.subscribe(function (items) {
+      var n = null, i;
+      for (i = 0; i < (items || []).length; i++) if (items[i] && items[i].id === 'needle') n = items[i];
+      mp.needle = n; if (mp.on) mpRender();
+    });
+    gifos.room.subscribe(function (s) {
+      mp.rs = s; mp.note = '';   // a refusal's note goes with the next room state
+      // with other people here the shared game is what you see; alone you start on the menu
+      if (mode !== 'mp' && !mp.picked && s.live && !$('setup').hidden) { mpEnter(); return; }
+      if (mode === 'mp') mpJoin();
+      mpAfter();
+    });
+  } else {
+    oldNote();
   }
+  function oldNote() { $('roomNote').textContent = T('needsNewer'); $('roomNote').hidden = false; }
+  function mpAfter() { if (mode !== 'mp') return; mpMaybeReveal(); mpRender(); }
 
-  function mpReconcile(B, people) {
-    var b = JSON.parse(JSON.stringify(B));
-    var ch = false;
-    var ids = {};
-    people.forEach(function (p) {
-      ids[p.id] = p;
-      if (b.names[p.id] !== p.name) { b.names[p.id] = p.name; ch = true; }
-    });
-    ['psychic', 'guesser'].forEach(function (s) {
-      if (b.seats[s] && !ids[b.seats[s]]) { b.seats[s] = null; ch = true; }
-    });
-    if ((!b.seats.psychic || !b.seats.guesser) && b.phase !== 'wait' && b.phase !== 'done') {
-      b.phase = 'wait'; b.dealt = false; b.target = null; b.clue = ''; b.guess = 10; ch = true;
-    }
-    var seated = {};
-    seated[b.seats.psychic] = 1; seated[b.seats.guesser] = 1;
-    var queue = people.map(function (p) { return p.id; }).filter(function (id) { return !seated[id]; });
-    queue.sort();
-    if (!b.seats.psychic && queue.length) { b.seats.psychic = queue.shift(); ch = true; }
-    if (!b.seats.guesser && queue.length) { b.seats.guesser = queue.shift(); ch = true; }
-    if (b.phase === 'wait' && b.seats.psychic && b.seats.guesser) {
-      b.phase = 'clue'; b.dealt = false; b.target = null; b.clue = ''; b.guess = 10;
-      b.seq = (b.seq || 0) + 1; ch = true;
-    }
-    people.forEach(function (p) {
-      var intent = p.intent;
-      if (!intent || intent.seq !== b.seq) return;
-      var seat = b.seats.psychic === p.id ? 'psychic' : (b.seats.guesser === p.id ? 'guesser' : null);
-      if (intent.kind === 'deal') {
-        if (seat !== 'psychic' || b.phase !== 'clue') return;
-        var tgt = intent.target | 0;
-        if (tgt < 0 || tgt > LW.MAX) return;
-        /* Idempotent, like the guess branch below: 'deal' never bumps seq, so
-           the psychic's intent row keeps matching until the clue lands — and
-           without this guard every subscription event re-marked the board
-           changed and re-put an identical row, a continuous write loop from
-           deal to clue against a collection whose subscribers re-download
-           everything per change. */
-        if (b.dealt && b.target === tgt && b.cardIndex === (intent.cardIndex | 0)) return;
-        b.target = tgt;
-        b.cardIndex = intent.cardIndex | 0;
-        b.dealt = true;
-        b.clue = '';
-        ch = true;
-      } else if (intent.kind === 'clue') {
-        if (seat !== 'psychic' || b.phase !== 'clue' || !b.dealt) return;
-        var text = String(intent.text || '').replace(/^\s+|\s+$/g, '');
-        if (!text) return;
-        b.clue = text.slice(0, 80);
-        b.guess = 10;
-        b.phase = 'guess';
-        b.seq = (b.seq || 0) + 1;
-        ch = true;
-      } else if (intent.kind === 'guess') {
-        if (seat !== 'guesser' || b.phase !== 'guess') return;
-        var gv = intent.value | 0;
-        if (gv < 0 || gv > LW.MAX) return;
-        if (b.guess !== gv) { b.guess = gv; ch = true; }
-      } else if (intent.kind === 'lock') {
-        if (seat !== 'guesser' || b.phase !== 'guess') return;
-        var lv = intent.value | 0;
-        if (lv < 0 || lv > LW.MAX) return;
-        b.guess = lv;
-        b.raw = LW.score(b.target, b.guess);
-        b.last = LW.coopPoints(b.raw);
-        b.total = (b.total | 0) + b.last;
-        if (!LW.coopBonus(b.raw)) b.left = Math.max(0, (b.left | 0) - 1);
-        b.phase = 'score';
-        b.seq = (b.seq || 0) + 1;
-        ch = true;
-      } else if (intent.kind === 'next') {
-        if (b.phase !== 'score') return;
-        if ((b.left | 0) <= 0) {
-          b.phase = 'done';
-          b.seq = (b.seq || 0) + 1;
-          ch = true;
-          return;
-        }
-        var sw = b.seats.psychic;
-        b.seats.psychic = b.seats.guesser;
-        b.seats.guesser = sw;
-        b.phase = 'clue';
-        b.dealt = false;
-        b.target = null;
-        b.clue = '';
-        b.guess = 10;
-        b.raw = 0;
-        b.last = 0;
-        b.cardIndex = (b.cardIndex | 0) + 1;
-        b.round = (b.round | 0) + 1;
-        b.seq = (b.seq || 0) + 1;
-        ch = true;
-      } else if (intent.kind === 'again') {
-        var seats = { psychic: b.seats.psychic, guesser: b.seats.guesser };
-        var names = b.names;
-        var n = freshBoard(mp.id);
-        n.seats = seats; n.names = names; n.seq = (b.seq || 0) + 1;
-        if (n.seats.psychic && n.seats.guesser) {
-          n.phase = 'clue'; n.seq = n.seq + 1;
-        }
-        Object.keys(n).forEach(function (k) { b[k] = n[k]; });
-        ch = true;
+  // ---- the psychic's side ----
+  // The round the next clue will carry: the board's round, one more after a scored card.
+  function nextRound(b) { return b.phase === 'score' ? (b.round | 0) + 1 : (b.round | 0); }
+  function ensureDeal(b) {
+    var rd = nextRound(b);
+    if (!mp.deal || mp.deal.round !== rd) mp.deal = { round: rd, seed: LW.randomSeed(), cardIndex: 0, target: LW.randomTarget() };
+    return mp.deal;
+  }
+  function sendClue(text) {
+    var b = curBoard(), d = ensureDeal(b);
+    if (!canAct() || (b.phase !== 'clue' && b.phase !== 'score')) return;
+    var n = clone(b);
+    n.phase = 'guess'; n.round = d.round; n.seed = d.seed; n.cardIndex = d.cardIndex;
+    n.clue = text; n.guess = 10; n.target = null; n.psy = myIdx(); n.raw = 0; n.last = 0; n.lost = false;
+    mp.myGuess = 10;
+    // the mark goes to this page's private row before the move; the room never sees it until the reveal
+    var go = function () { mpPut(n); };
+    if (db) db.put({ id: 'secret', round: d.round, seed: d.seed, cardIndex: d.cardIndex, target: d.target }).then(go, go);
+    else go();
+  }
+  // after the guesser locks, the psychic's page reveals the mark and scores (the psychic holds the turn)
+  function mpMaybeReveal() {
+    var b = curBoard();
+    if (b.phase !== 'locked' || !canAct() || myIdx() !== (b.psy | 0)) return;
+    var key = b.round + ':' + b.cardIndex + ':' + b.guess;
+    if (mp.revKey === key) return;
+    mp.revKey = key;
+    var finish = function (row) {
+      var cb = curBoard();
+      if (cb.phase !== 'locked' || !canAct()) return;
+      var n = clone(cb);
+      if (row && row.round === cb.round && row.cardIndex === cb.cardIndex && row.seed === cb.seed) {
+        n.target = row.target;
+        n.raw = LW.score(row.target, cb.guess);
+        n.last = LW.coopPoints(n.raw);
+        n.total = (cb.total | 0) + n.last;
+        if (!LW.coopBonus(n.raw)) n.left = Math.max(0, (cb.left | 0) - 1);
+        n.lost = false;
+      } else {
+        // this page no longer has the mark (the seat changed hands or the page was cleared): the card is void
+        n.target = null; n.raw = 0; n.last = 0; n.lost = true;
       }
-    });
-    if (b.host !== mp.id) { b.host = mp.id; ch = true; }
-    return ch ? b : null;
-  }
-
-  function sendIntent(kind, extra) {
-    var b = mp.board;
-    if (!b) return;
-    var intent = { kind: kind, seq: b.seq };
-    if (extra) Object.keys(extra).forEach(function (k) { intent[k] = extra[k]; });
-    putMe({ intent: intent });
+      n.phase = (n.left | 0) <= 0 ? 'done' : 'score';
+      mpPut(n);
+    };
+    if (db) db.get('secret').then(finish, function () { finish(null); }); else finish(null);
   }
 
   function mpSlide(v) {
-    var b = mp.board;
-    if (!b || mySeat(b) !== 'guesser' || b.phase !== 'guess') return;
-    b.guess = v;
+    var b = curBoard();
+    if (!canAct() || b.phase !== 'guess' || myIdx() === (b.psy | 0)) return;
+    mp.myGuess = v;
     needleTo(v);
     var t = nowMs();
     if (t - slideAt < SLIDE_MS) return;
     slideAt = t;
-    sendIntent('guess', { value: v });
+    if (needleDb) needleDb.put({ id: 'needle', key: b.round + ':' + b.cardIndex, v: v }).catch(function () {});
+  }
+  function lockNeedle() {
+    var b = curBoard();
+    if (!canAct() || b.phase !== 'guess') return;
+    var n = clone(b);
+    n.phase = 'locked'; n.guess = mp.myGuess | 0;
+    mpPut(n);
+  }
+  function playAgain() {
+    if (!ROOM || myIdx() < 0) return;
+    var n = clone(FRESH);
+    n.seed = LW.randomSeed();
+    mp.deal = null;
+    mpPut(n, true);
+  }
+  function sayClue() {
+    var t = ($('clueInput').value || '').replace(/^\s+|\s+$/g, '');
+    sendClue(t);
   }
 
   function mpRender() {
-    if (!mp.on) return;
-    var b = mp.board;
+    if (mode !== 'mp') return;
+    var b = curBoard(), r = mp.rs;
     $('playTitle').textContent = 'Play a friend';
     $('pass').hidden = true;
     hideReveal();
-    if (!b) {
-      $('seats').innerHTML = '';
-      paintPips(LW.TURNS, 0);
-      setTurn('Setting up', 'The spectrum is landing in this file.', 'wait');
-      setStatus('');
-      setActions([]);
-      hideClue();
-      return;
-    }
-    var seat = mySeat(b);
-    var pName = b.names[b.seats.psychic] || 'the psychic';
-    var gName = b.names[b.seats.guesser] || 'the guesser';
+    // with others here the room (top-bar back, OS leave) is how you go; alone you may return to the menu
+    $('leaveBtn').hidden = !!(r && r.live);
+    var me = myIdx(), t = turnIdx(), psy = psyIdx(b), gue = psy < 0 ? -1 : 1 - psy;
+    var role = me < 0 ? null : (me === psy ? 'psychic' : 'guesser');
+    var pName = nameOf(psy) || 'the psychic', gName = nameOf(gue) || 'the guesser';
     paintSeats(
-      { label: 'Psychic', name: pName, me: seat === 'psychic', on: b.phase === 'clue', open: !b.seats.psychic },
-      { label: 'Guesser', name: gName, me: seat === 'guesser', on: b.phase === 'guess', open: !b.seats.guesser }
+      { label: 'Psychic', name: pName, me: role === 'psychic', on: b.phase === 'clue' || b.phase === 'locked', open: !nameOf(psy) },
+      { label: 'Guesser', name: gName, me: role === 'guesser', on: b.phase === 'guess', open: !nameOf(gue) }
     );
-    var waiting = mp.people.filter(function (p) { return p.id !== b.seats.psychic && p.id !== b.seats.guesser; });
-    $('queue').textContent = waiting.length ? ('Watching: ' + waiting.map(function (p) { return p.name || 'Player'; }).join(', ')) : '';
+    var line = r && r.line ? r.line : [];
+    $('queue').textContent = line.length ? ('Watching: ' + line.map(function (p) { return p.name || 'Player'; }).join(', ')) : '';
     paintPips(b.left, b.total || 0);
-    if (b.seq !== lastSeq) {
-      pendingDeal = false;
-      lastSeq = b.seq;
-      if (b.phase === 'clue') $('clueInput').value = '';
-    }
     var card = LW.cardAt(b.seed, b.cardIndex);
-    var both = b.seats.psychic && b.seats.guesser;
-    var showTarget = seat === 'psychic' || b.phase === 'score' || b.phase === 'done';
-    var target = (showTarget && b.dealt) ? b.target : null;
-    var showGuess = b.phase === 'guess' || b.phase === 'score' || b.phase === 'done';
-    var slide = seat === 'guesser' && b.phase === 'guess';
-    var aim = seat === 'psychic' && b.phase === 'clue' && b.dealt;
+    var key = b.round + ':' + b.cardIndex;
+    var actor = canAct();
+    var dealing = actor && (b.phase === 'clue' || (b.phase === 'score' && mp.nextFor === b.round));
+    var d = dealing ? ensureDeal(b) : null;
+    if (d) card = LW.cardAt(d.seed, d.cardIndex);
+    if (b.phase === 'clue' && !d) card = LW.cardAt(b.seed, b.cardIndex);
+    var revealed = b.phase === 'score' || b.phase === 'done';
+    var needleV = (mp.needle && mp.needle.key === key) ? mp.needle.v : 10;
+    if (role === 'guesser' && b.phase === 'guess') needleV = mp.myGuess;
     paintSpectrum(card, {
-      target: target,
-      guess: showGuess ? b.guess : null,
-      bands: b.phase === 'score' || b.phase === 'done',
-      aim: aim,
-      slide: slide
+      target: d ? d.target : (revealed ? b.target : null),
+      guess: (b.phase === 'guess') ? needleV : ((b.phase === 'locked' || revealed) ? b.guess : null),
+      bands: revealed && b.target != null,
+      aim: !!d,
+      slide: actor && role === 'guesser' && b.phase === 'guess'
     });
-
-    if (seat === 'psychic' && b.phase === 'clue' && !b.dealt && !pendingDeal) {
-      pendingDeal = true;
-      sendIntent('deal', { target: LW.randomTarget(), cardIndex: b.cardIndex | 0 });
-    }
-    if (b.dealt || b.phase !== 'clue') pendingDeal = false;
-
-    if (!both) {
-      hideClue();
-      $('play').className = 'play';
-      setTurn('Waiting for a friend', 'Press Invite in the bar above the app. The link is the room.', 'wait');
-      setStatus('');
-      setChip('wait', 'A friend');
-      setActions([]);
+    var cr = $('clueRead');
+    if (!ROOM) { setStatus(T('needsNewer'), 'warn'); }
+    if (!bothHeld()) {
+      hideClue(); $('play').className = 'play';
+      if (r && r.me && r.me.role === 'asking') setTurn('Waiting for the host', 'The host lets you in.', 'wait');
+      else setTurn('Waiting for a friend', 'Press Invite in the bar above the app. The link is the room.', 'wait');
+      setStatus(mp.note || (!ROOM ? T('needsNewer') : ''), mp.note ? 'warn' : '');
+      setChip('wait', 'A friend'); setActions([]);
       return;
     }
-    if (b.phase === 'clue') {
-      if (seat === 'psychic') {
-        $('play').className = 'play role-psychic';
-        showClueWrite();
-        setTurn('You are the psychic', 'Look at the 4. Give a clue that lives there.', 'mine');
-        setStatus('');
-        setChip('ready', 'Psychic');
-        setActions([
-          { label: 'Give clue', primary: true, off: !b.dealt, fn: function () {
-            var t = ($('clueInput').value || '').replace(/^\s+|\s+$/g, '');
-            if (!t) { setStatus('Write a clue first.', 'warn'); return; }
-            sendIntent('clue', { text: t });
-          } },
-          { label: 'Skip this card', quiet: true, off: !b.dealt, fn: function () {
-            sendIntent('deal', { target: LW.randomTarget(), cardIndex: (b.cardIndex | 0) + 1 });
-          } }
-        ]);
+    setStatus(mp.note, mp.note ? 'warn' : '');
+    if (!dealing && (b.phase === 'clue' || b.phase === 'score')) {
+      // clue due (or a scored card still on screen)
+      if (b.phase === 'score') {
+        $('play').className = 'play role-guesser';
+        showClueRead(nameOf(b.psy | 0) + '\'s clue', b.clue);
+        showReveal(b.raw, b.last);
+        setTurn(b.lost ? 'Card lost' : 'The mark', b.lost ? 'The mark did not survive. No points either way.' : (b.raw === 4 ? 'Dead on.' : (b.last ? 'See where you landed.' : 'Outside the zone.')), 'score');
+        setChip('ready', 'Score');
+        saveBest(b.total | 0);
+        setActions(actor ? [{ label: 'Next card', primary: true, fn: function () { mp.nextFor = b.round; mpRender(); } }] : []);
       } else {
         $('play').className = 'play';
         hideClue();
         setTurn('Waiting for ' + pName, 'They are looking at the mark and thinking of a clue.', 'wait');
-        setStatus('');
-        setChip('wait', seat === 'guesser' ? 'Guesser' : 'Watching');
+        setChip('wait', role === 'guesser' ? 'Guesser' : 'Watching');
+        setActions([]);
+      }
+    } else if (dealing) {
+      if (actor) {
+        $('play').className = 'play role-psychic';
+        showClueWrite();
+        setTurn('You are the psychic', 'Look at the 4. Give a clue that lives there, or say it out loud.', 'mine');
+        setChip('ready', 'Psychic');
+        setActions([
+          { label: 'Give clue', primary: true, fn: sayClue },
+          { label: 'Skip this card', quiet: true, fn: function () { var dd = ensureDeal(curBoard()); dd.cardIndex += 1; dd.target = LW.randomTarget(); mpRender(); } }
+        ]);
+      } else {
+        $('play').className = 'play'; hideClue();
+        setTurn('Waiting for ' + pName, 'They are looking at the mark and thinking of a clue.', 'wait');
+        setChip('wait', role === 'guesser' ? 'Guesser' : 'Watching');
         setActions([]);
       }
     } else if (b.phase === 'guess') {
-      showClueRead(pName + '\'s clue', b.clue);
-      if (seat === 'guesser') {
-        $('play').className = 'play role-guesser';
+      showClueRead(pName + '\'s clue', b.clue || '(said out loud)');
+      $('play').className = 'play role-guesser';
+      if (actor) {
         setTurn('You are the guesser', 'Slide the needle to where the clue belongs.', 'mine');
-        setStatus('');
         setChip('ready', 'Guesser');
-        setActions([{ label: 'Lock the needle', primary: true, fn: function () {
-          sendIntent('lock', { value: b.guess | 0 });
-        } }]);
+        setActions([{ label: 'Lock the needle', primary: true, fn: lockNeedle }]);
       } else {
-        $('play').className = 'play role-guesser';
-        setTurn(gName + ' is guessing', 'Watch the needle. Stay quiet about the mark.', seat === 'psychic' ? 'wait' : 'wait');
-        setStatus('');
-        setChip('wait', seat === 'psychic' ? 'Psychic' : 'Watching');
+        setTurn(gName + ' is guessing', 'Watch the needle. Stay quiet about the mark.', 'wait');
+        setChip('wait', role === 'psychic' ? 'Psychic' : 'Watching');
         setActions([]);
       }
-    } else if (b.phase === 'score') {
+    } else if (b.phase === 'locked') {
+      showClueRead(pName + '\'s clue', b.clue || '(said out loud)');
       $('play').className = 'play role-guesser';
-      showClueRead(pName + '\'s clue', b.clue);
-      showReveal(b.raw, b.last);
-      setTurn('The mark', b.raw === 4 ? 'Dead on.' : (b.last ? 'See where you landed.' : 'Outside the zone.'), 'score');
-      setStatus('');
-      setChip('ready', 'Score');
-      saveBest(b.total | 0);
-      var nextLabel = (b.left | 0) ? 'Next card' : 'See total';
-      setActions(seat ? [{ label: nextLabel, primary: true, fn: function () { sendIntent('next'); } }] : []);
+      setTurn('Needle locked', 'Revealing the mark…', 'wait');
+      setChip('wait', 'Locked');
+      setActions([]);
     } else if (b.phase === 'done') {
       $('play').className = 'play role-guesser';
-      showClueRead(pName + '\'s clue', b.clue);
-      showReveal(b.raw, b.last);
+      showClueRead(pName + '\'s clue', b.clue || '(said out loud)');
+      if (!b.lost) showReveal(b.raw, b.last);
       setTurn('Game complete', 'You scored ' + (b.total | 0) + '.', 'score');
-      setStatus('');
       setChip('ready', 'Done');
       saveBest(b.total | 0);
-      setActions(seat ? [{ label: 'Play again', primary: true, fn: function () { sendIntent('again'); } }] : []);
-    } else {
-      hideClue();
-      $('play').className = 'play';
-      setTurn('Waiting…', '', 'wait');
-      setActions([]);
+      setActions(me >= 0 ? [{ label: 'Play again', primary: true, fn: playAgain }] : []);
     }
   }
 
+  // Read-only, for the room kit: the shared game only.
+  window.__longwave = {
+    state: function () {
+      var b = mp.remote;
+      return b ? { phase: b.phase, round: b.round, clue: b.clue, guess: b.guess, total: b.total, left: b.left, target: b.target } : { phase: 'clue' };
+    }
+  };
+
   if (window.gifos && gifos.onBack) gifos.onBack(function () {
-    if (mode === 'mp') mpLeave();
+    if (mode === 'mp') { if (!(mp.rs && mp.rs.live)) mpLeave(); }
     else if (mode === 'hotseat') $('leaveBtn').click();
   });
 
@@ -752,11 +677,7 @@
     if (e.key !== 'Enter') return;
     e.preventDefault();
     if (mode === 'hotseat' && L && L.phase === 'clue') localClue();
-    else if (mode === 'mp' && mp.board && mySeat(mp.board) === 'psychic' && mp.board.phase === 'clue') {
-      var t = ($('clueInput').value || '').replace(/^\s+|\s+$/g, '');
-      if (!t) { setStatus('Write a clue first.', 'warn'); return; }
-      sendIntent('clue', { text: t });
-    }
+    else if (mode === 'mp' && canAct() && (curBoard().phase === 'clue' || curBoard().phase === 'score')) sayClue();
   });
 
   function refreshContinue() {

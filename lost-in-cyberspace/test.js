@@ -399,23 +399,39 @@ function makeClock() {
   };
   return clock;
 }
+// A fake gifos.room: two seats (Hacker, Navigator) filled in join order or by name, one plain data collection
+// ('room') for the hacker's row, no presence rows.
 function makeRoom() {
+  const SEATS = ['Hacker', 'Navigator'];
   const rows = new Map();
-  const subs = [];
+  const dbSubs = [];
+  const copies = [];
+  const seats = SEATS.map((n) => ({ seat: n, id: null, name: '', here: 'open' }));
   const snap = () => [...rows.values()].map((r) => JSON.parse(JSON.stringify(r)));
-  const notify = () => subs.slice().forEach((cb) => cb(snap()));
-  return {
-    rows,
-    put(rec) { rows.set(rec.id, JSON.parse(JSON.stringify(rec))); notify(); },
-    handle() {
-      return {
-        put(rec) { rows.set(rec.id, JSON.parse(JSON.stringify(rec))); notify(); return Promise.resolve(rec); },
-        get(id) { return Promise.resolve(rows.get(id) || null); },
-        delete(id) { rows.delete(id); notify(); return Promise.resolve(); },
-        subscribe(cb) { subs.push(cb); cb(snap()); },
-      };
-    },
+  const room = { rows, seats, puts: 0, copies };
+  const view = (c) => {
+    const mine = seats.find((x) => x.id === c.id);
+    return { on: true, kind: 'open', live: copies.length > 1, me: { id: c.id, name: c.name, seat: mine ? mine.seat : null, role: mine ? 'player' : 'watcher' },
+      seats: seats.map((x) => ({ ...x })), turn: null, myTurn: !!mine, round: 1, ready: seats.every((x) => x.id), line: [], asks: [], people: [], last: null };
   };
+  const push = () => { copies.forEach((c) => c.sub && c.sub(view(c))); dbSubs.slice().forEach((f) => f(snap())); };
+  room.put = (rec) => { rows.set(rec.id, JSON.parse(JSON.stringify(rec))); push(); };
+  room.attach = (id, name) => {
+    const c = { id, name, sub: null };
+    copies.push(c);
+    return {
+      subscribe: (f) => { c.sub = f; Promise.resolve().then(() => f(view(c))); },
+      join: (want) => { const s = want ? seats.find((x) => x.seat === want && !x.id) : seats.find((x) => !x.id); if (s && !seats.some((x) => x.id === id)) { s.id = id; s.name = name; s.here = 'here'; } push(); return Promise.resolve({ ok: true }); },
+      leave: () => { const s = seats.find((x) => x.id === id); if (s) { s.id = null; s.name = ''; s.here = 'open'; } push(); return Promise.resolve({ ok: true }); },
+    };
+  };
+  room.handle = () => ({
+    put(rec) { room.puts++; room.put(rec); return Promise.resolve(rec); },
+    get(id) { return Promise.resolve(rows.get(id) || null); },
+    delete(id) { rows.delete(id); push(); return Promise.resolve(); },
+    subscribe(cb) { dbSubs.push(cb); cb(snap()); },
+  });
+  return room;
 }
 const tick = () => new Promise((r) => setImmediate(r));
 
@@ -432,6 +448,7 @@ async function client(opts) {
       return { get: (id) => Promise.resolve(save.get(id) || null), put: (r) => { save.set(r.id, r); return Promise.resolve(r); } };
     },
     me: () => Promise.resolve({ id: opts.id || 'p1', name: opts.name || 'Player' }),
+    room: opts.room ? opts.room.attach(opts.id || 'p1', opts.name || 'Player') : undefined,
     onBack: (f) => { back = f; },
   };
   const sb = {
@@ -521,55 +538,58 @@ async function client(opts) {
     c.$('soloHacker').click();
     check('Back in a seat returns home', back && back() === true && c.view().join() === 'home', c.view());
     await c.join();
-    check('Play with a friend opens the lobby and writes our row', c.view().join() === 'lobby' && room.rows.has('p1'), c.view());
-    check('Back in the lobby leaves the room and deletes our row',
-      back() === true && c.view().join() === 'home' && !room.rows.has('p1'), { view: c.view(), rows: [...room.rows.keys()] });
+    check('Play with a friend: the room seats us (Hacker first) and we write nothing', c.view().join() === 'hacker' && room.seats[0].id === 'p1' && room.puts === 0, { view: c.view(), puts: room.puts });
+    check('Back in the seat gives it up and shows the lobby', back() === true && c.view().join() === 'lobby' && !room.seats[0].id, { view: c.view(), seats: room.seats });
+    check('Back in the lobby leaves the room', back() === true && c.view().join() === 'home', c.view());
+    check('no presence row, ever', room.rows.size === 0 && room.puts === 0, [...room.rows.keys()]);
   }
 
-  // ---- no room: Invite lives in the OS bar, the app has no seats to hand out --
+  // ---- no gifos.room: one plain line, nothing written -------------------------
   {
-    const c = await client({ id: 'p1' });   // gifos without a room collection
+    const c = await client({ id: 'p1' });   // gifos without a room
     await c.join();
-    const live = c.$('lobby').querySelectorAll('button').filter((b) => !b.disabled).map((b) => b.id);
-    check('with no room the lobby offers only Leave (the invite is the OS\'s, not a button here)',
-      c.view().join() === 'lobby' && c.$('roleHacker').disabled && c.$('roleNav').disabled && live.join() === 'lobbyLeave', live);
+    check('with no gifos.room the page says it needs a newer GifOS and stays home',
+      c.view().join() === 'home' && /newer GifOS/.test(c.$('roomNote').textContent) && c.$('roomNote').hidden === false, c.$('roomNote').textContent);
   }
 
-  // ---- two players: Send code fills the navigator's map ---------------------
+  // ---- two players: the room seats them, Send code fills the navigator's map --
   {
     const room = makeRoom(), clock = makeClock();
     const h = await client({ room, clock, id: 'h1', name: 'Rook', seed: 11 });
+    await h.join();
     const n = await client({ room, clock, id: 'n1', name: 'Wren', seed: 22 });
-    await h.join(); await n.join();
-    h.$('roleHacker').click();
-    check('one player takes the hacker seat', h.view().join() === 'hacker' && room.rows.get('h1').role === 'hacker');
-    check('...and the other\'s lobby will not offer it again', n.$('roleHacker').disabled === true);
-    n.$('roleHacker').onclick();
-    check('...even if pressed: one live hacker per room', n.view().join() === 'lobby', n.view());
-    n.$('roleNav').click();
-    check('the other takes the navigator seat', n.view().join() === 'navigator');
-    n.$('navSwitch').click();
-    check('the navigator cannot switch into a seat a live hacker holds', n.view().join() === 'navigator', n.view());
+    await tick(); await tick();
+    check('the first person to open it is the hacker', h.view().join() === 'hacker' && room.seats[0].id === 'h1', h.view());
+    check('with others here the next opens straight on the shared game, as the navigator', n.view().join() === 'navigator' && room.seats[1].id === 'n1', n.view());
+    check('the navigator cannot switch into a seat the hacker holds', n.$('navSwitch').disabled === true);
+    n.$('navSwitch').click(); await tick();
+    check('...and pressing it does nothing', n.view().join() === 'navigator', n.view());
+    check('while others are here the in-app leave buttons are hidden', h.$('hackerLeave').hidden === true && n.$('navLeave').hidden === true);
 
     check('Send code is offered in a room', h.$('sendBtn').hidden === false);
+    check('nothing was written before anyone acted', room.puts === 0, room.puts);
     h.$('sendBtn').click();
-    check('Send code puts the code on the hacker\'s own row', (room.rows.get('h1').codes || []).length === 1, room.rows.get('h1'));
+    check('Send code puts the code on the hacker\'s own row', (room.rows.get('h1').codes || []).length === 1 && !('role' in room.rows.get('h1')) && !('at' in room.rows.get('h1')), room.rows.get('h1'));
     check('...and it lands in the navigator\'s inbox', n.inboxButtons().length === 1, n.inboxButtons().length);
     const one = n.lastLegend();
     check('...which maps it straight away: one code, one layer', !!one && one.green === 1, one);
+    check('no write besides the code sent (no heartbeat)', room.puts === 1, room.puts);
   }
 
   // ---- the inbox maps ALL the codes together, never one at a time ------------
   {
     const room = makeRoom(), clock = makeClock();
+    room.seats[0] = { seat: 'Hacker', id: 'h9', name: 'Rook', here: 'here' };
     const n = await client({ room, clock, id: 'n1', name: 'Wren' });
     await n.join();
-    n.$('roleNav').click();
+    check('the room seats the navigator', n.view().join() === 'navigator', n.view());
     const codes = M.fresh().codes;   // four codes of one invented maze
-    room.put({ id: 'h9', name: 'Rook', at: clock.t, role: 'hacker', codes: codes.slice(0, 2) });
+    room.put({ id: 'h9', codes: codes.slice(0, 2) });
     const two = n.lastLegend();
     check('two codes sent: the map shows both layers', !!two && two.green === 2, two);
-    room.put({ id: 'h9', name: 'Rook', at: clock.t, role: 'hacker', codes: codes });
+    room.put({ id: 'stranger', codes: ['0x000001'] });
+    check('a row of someone who does not hold the Hacker seat is ignored', n.inboxButtons().length === 2, n.inboxButtons().length);
+    room.put({ id: 'h9', codes: codes });
     const four = n.lastLegend();
     check('all four sent: the map is the whole maze, every layer green', !!four && four.green === 4 && four.red === 0, four);
     check('...and the inbox lists all four', n.inboxButtons().length === 4, n.inboxButtons().length);
@@ -602,8 +622,8 @@ async function client(opts) {
   // TEXT-CHECK: help.md is a document; there is no behaviour to run, only that the page exists with content.
   check('help.md is a real page', help.trim().length > 400);
   check('listing is an unofficial port, author is them', listing.basedOn && listing.basedOn.blessed === false && !/gifos/i.test(listing.author.name));
-  check('manifest declares db + multiplayer, minBuild 947, no network', manifest.capabilities.db === true && manifest.capabilities.multiplayer === true && manifest.minBuild === 947 && !manifest.capabilities.network);
-  check('room is read-write, save is private', manifest.data.room.visibility === 'read-write' && manifest.data.save.visibility === 'private');
+  check('manifest declares db + multiplayer, minBuild 5861+, no network', manifest.capabilities.db === true && manifest.capabilities.multiplayer === true && manifest.minBuild >= 5861 && !manifest.capabilities.network);
+  check('room is read-write, save is private, two seats declared', manifest.data.room.visibility === 'read-write' && manifest.data.save.visibility === 'private' && manifest.room.seats.join() === 'Hacker,Navigator');
 
   if (failures) {
     console.log('\n' + failures + ' failure(s)');

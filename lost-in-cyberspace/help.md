@@ -32,7 +32,7 @@ Press **Play with a friend**, then **Invite** in the bar above the app.
 
 One of you taps **I am the HACKER**, the other **I am the NAVIGATOR**. The hacker generates the maze. You can still shout the codes if you are in a meeting. The hacker can also press **Send code** to put every code they choose onto the navigator’s terminal — the map updates with **all** of them, not one layer at a time.
 
-You need both seats.
+You need both seats. The room seats people as they open the link (Hacker first, then Navigator); the **Navigator** / **Hacker** button swaps seats if the other is free. Extra people watch and are next in line. When other people are here, the game opens straight on the shared room.
 
 ## What is saved
 

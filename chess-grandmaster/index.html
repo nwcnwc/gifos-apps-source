@@ -41,6 +41,7 @@
     <p class="lvlnote">Evaluation bar, win/draw/loss odds and the Hint button. A hint only shows when you press Hint — never on its own. Turn off for a pure game.</p>
     <button class="primary" id="startBtn" disabled>Loading engine…</button>
     <button class="ghost wide" id="friendBtn">👥 Play a friend</button>
+    <p class="lvlnote" id="roomNote" hidden></p>
     <button class="ghost wide" id="historyBtn">📜 Game history</button>
   </section>
 
@@ -55,6 +56,7 @@
     <div class="controls">
       <label class="ftoggle" title="Stockfish reacts to each move — never reveals the best move"><input type="checkbox" id="fComment"> 🎙 Commentary</label>
       <button id="fResign" class="ghost" style="display:none">🏳 Resign</button>
+      <button id="fNext" class="ghost" style="display:none">Next game</button>
     </div>
     <div class="moves" id="fMoves"></div>
   </section>

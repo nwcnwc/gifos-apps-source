@@ -86,10 +86,13 @@ if (manifest.capabilities.network) {
 if (manifest.capabilities.wasm) {
   throw new Error('do not declare wasm — the game is plain JavaScript');
 }
-if (manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947 — this app needs nothing newer than the store.');
-}
 if (!Number.isInteger(manifest.minBuild)) throw new Error('minBuild must be an integer');
+if (manifest.minBuild < 5861) {
+  throw new Error('minBuild must be at least 5861 — the first build with gifos.room.');
+}
+if (!manifest.room || !Array.isArray(manifest.room.moves) || !manifest.room.moves.length) {
+  throw new Error('manifest must declare a room block with its moves collection');
+}
 if (!html.includes('Play a friend')) throw new Error('index.html is missing Play a friend');
 if (/>\s*Invite\s*</.test(html) || /id=["']invite/i.test(html)) {
   throw new Error('Invite is OS chrome — this app must not draw a share button');
@@ -102,11 +105,11 @@ if (/wavelength/i.test(packed) || /wavelength/i.test(files['index.html'])) {
 if (/firebase|googleapis|rc-slider|i18next/i.test(packed)) {
   throw new Error('Firebase/React stack must not ship — the room was ripped out');
 }
-if (!files['app.js'].includes('intent') || !files['app.js'].includes('putMe')) {
-  throw new Error('app.js must publish moves on the player\'s own row');
+if (!files['app.js'].includes('gifos.room.subscribe') || !files['app.js'].includes('gifos.room.move')) {
+  throw new Error('app.js must read the room and write moves through gifos.room.move');
 }
-if (!files['app.js'].includes('putBoard') || !files['app.js'].includes('isHost')) {
-  throw new Error('host applies legal moves to the board row; nobody else writes it');
+if (/setInterval|putMe|isHost|PRES_TTL/.test(files['app.js'])) {
+  throw new Error('app.js must not keep its own presence, heartbeat or host');
 }
 if (!files['app.js'].includes('psychic') || !files['app.js'].includes('guesser')) {
   throw new Error('app.js must seat a psychic and a guesser');

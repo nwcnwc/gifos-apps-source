@@ -1,5 +1,5 @@
-// One Stroke — one line each. Invite is OS chrome. Nobody writes anybody
-// else's row. The picture row is host-written.
+// One Stroke — one line each. Invite is OS chrome. gifos.room seats the
+// people; the mover writes the whole picture with gifos.room.move.
 (function () {
   'use strict';
   var OS = window.OS;
@@ -11,7 +11,6 @@
     });
   };
 
-  var PRES_TTL = 9000, HB_MS = 3000;
   var PLAY_MS = 900, HOLD_MS = 1400, ARRIVE_MS = 780;
 
   var color = OS.COLORS[2];
@@ -20,11 +19,6 @@
   var solo = null;
   var saveDb = null;
   try { if (window.gifos) saveDb = gifos.db('save'); } catch (e) {}
-
-  var mpDb = null;
-  try { if (window.gifos) mpDb = gifos.db('room'); } catch (e) {}
-  var mp = { on: false, id: null, name: 'You', row: null, picture: null, people: [], hb: 0, sub: false, autoPlay: -1 };
-  var _items = [];
 
   var pads = {};
 
@@ -400,7 +394,6 @@
     soloRefresh();
   }
 
-  $('soloFriends').onclick = function () { mpEnter(); };
   $('soloUndo').onclick = function () { pads.solo.undo(); };
   $('soloSend').onclick = function () {
     if (!solo) return;
@@ -441,231 +434,162 @@
   });
 
   // ---- multiplayer ----
-  function mySeat(pic) {
-    if (!pic || !pic.seats) return -1;
-    return pic.seats.indexOf(mp.id);
+  // gifos.room seats up to eight people, keeps who is here and the line. Turns are "free" in the room because the
+  // room cannot skip an open seat; the picture's own `turn` (a seat index) skips them. The picture is one record the
+  // mover writes with gifos.room.move ('picture'). Votes are plain rows in 'room', one per person (their room id),
+  // so two people voting at once never overwrite each other; only held seats count.
+  var EN = { needsNewer: 'One Stroke needs a newer GifOS to play together. Reload the page to update.' };
+  var T = function (k) {
+    var v = window.gifos && gifos.i18n && gifos.i18n.t ? gifos.i18n.t(k) : k;
+    return v === k && EN.hasOwnProperty(k) ? EN[k] : v;
+  };
+  var ROOM = !!(window.gifos && gifos.room && gifos.room.subscribe);
+  var picDb = null;
+  try { if (window.gifos) picDb = gifos.db('picture'); } catch (e) {}
+  var mp = { on: false, rs: null, joined: false, picked: false, note: '', remote: null, picture: null, votes: {}, autoPlay: '', _seenN: -1, settled: '' };
+  var _items = [];
+
+  function curPic() { return mp.picture || OS.fresh(); }
+  function seatList() { return (mp.rs && mp.rs.seats) || []; }
+  function heldArr() { return seatList().map(function (x) { return !!x.id; }); }
+  function heldIds() { return seatList().filter(function (x) { return x.id; }).map(function (x) { return x.id; }); }
+  function myId() { return mp.rs && mp.rs.me ? mp.rs.me.id : null; }
+  function mySeatIdx() {
+    var r = mp.rs, i;
+    if (!r || !r.me || !r.me.seat) return -1;
+    for (i = 0; i < r.seats.length; i++) if (r.seats[i].seat === r.me.seat) return i;
+    return -1;
   }
-  function isHost(people) {
-    people = people || mp.people;
-    if (!people.length) return true;
-    var m = people[0].id, i;
-    for (i = 0; i < people.length; i++) if (people[i].id < m) m = people[i].id;
-    return mp.id === m;
+  function nameOfId(id) {
+    var s = seatList(), i;
+    for (i = 0; i < s.length; i++) if (s[i].id === id) return (s[i].name || 'Player') + (s[i].here === 'away' ? ' …' : '');
+    return 'Player';
   }
-  function nameOf(pic, id) {
-    if (!id) return 'open';
-    return (pic && pic.names && pic.names[id]) || 'Player';
+  function bothHeld() { return heldIds().length >= 2; }
+  function actorIdx() { return OS.actorIndex(curPic(), heldArr()); }
+  function actorRow() { var i = actorIdx(); return i >= 0 ? seatList()[i] : null; }
+  function myTurn() {
+    var pic = curPic();
+    return ROOM && mp.on && pic.phase === 'draw' && bothHeld() && mySeatIdx() >= 0 && actorIdx() === mySeatIdx();
   }
-  function putMe(extra) {
-    var row = { id: mp.id, name: mp.name, at: nowMs(), intent: null };
-    if (mp.row && mp.row.intent) row.intent = mp.row.intent;
-    if (extra && extra.intent !== undefined) row.intent = extra.intent;
-    mp.row = row;
-    mpDb.put(row).catch(function () {});
+  function say(e) { mp.note = e && e.message ? e.message : ''; mpRender(); }
+  function mpPut(rec, fresh) {
+    mp.picture = rec;
+    mpRender();
+    var p = fresh ? gifos.room.newRound('picture', rec) : gifos.room.move('picture', rec);
+    return p.catch(function (e) { mp.picture = mp.remote; pads.f.clearPending(); say(e); });
   }
-  function putPicture(p) { mp.picture = p; mpDb.put(p).catch(function () {}); }
+  function voteKey(pic) { return (pic.round || 1) + ':' + pic.strokes.length; }
+  // the votes of held seats for this vote: { id: title }
+  function votesNow() {
+    var pic = curPic(), key = voteKey(pic), held = heldIds(), out = {}, i, it;
+    for (i = 0; i < _items.length; i++) {
+      it = _items[i];
+      if (it && it.key === key && held.indexOf(it.id) >= 0 && it.title) out[it.id] = it.title;
+    }
+    return out;
+  }
+
+  function oldNote() { $('roomNote').textContent = T('needsNewer'); $('roomNote').hidden = false; }
+  $('solo').addEventListener('pointerdown', function () { mp.picked = true; });
+  $('solo').addEventListener('click', function () { mp.picked = true; });
+  $('soloFriends').onclick = function () { mp.picked = true; mpEnter(); };
 
   function mpEnter() {
-    if (!mpDb) { setChip('wait', 'Needs storage'); return; }
-    (window.gifos ? gifos.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (me) {
-      mp.id = me.id; mp.name = me.name || 'You'; mp.on = true; mp.row = null;
-      hideAll();
-      $('friend').hidden = false;
-      $('soloFriends').hidden = true;
-      $('fLeave').hidden = false;
-      setChip('ready', 'A friend');
-      pads.f.clearPending();
-      pads.f.stopPlay();
-      if (!mp.sub) {
-        mp.sub = true;
-        mpDb.subscribe(function (items) { _items = items || []; mpRefresh(); });
-      }
-      putMe();
-      if (mp.hb) clearInterval(mp.hb);
-      mp.hb = setInterval(function () { if (mp.on) putMe(); }, HB_MS);
-      mpRender();
-    });
+    if (!ROOM) { oldNote(); return; }
+    mp.on = true;
+    hideAll();
+    $('friend').hidden = false;
+    $('soloFriends').hidden = true;
+    $('fLeave').hidden = false;
+    setChip('ready', 'A friend');
+    pads.f.clearPending();
+    pads.f.stopPlay();
+    mpJoin();
+    mpRender();
+  }
+  // opening the game is asking to play, once; the room seats, lines up, or asks the host
+  function mpJoin() {
+    var r = mp.rs;
+    if (ROOM && r && !mp.joined && r.me && r.me.role === 'watcher') { mp.joined = true; gifos.room.join().catch(function () {}); }
   }
   function mpLeave() {
-    mp.on = false;
-    if (mp.hb) clearInterval(mp.hb); mp.hb = 0;
-    if (mpDb && mp.id) mpDb.delete(mp.id).catch(function () {});
+    mp.on = false; mp.picked = true;
+    if (ROOM) { mp.joined = false; gifos.room.leave().catch(function () {}); }
     $('soloFriends').hidden = false;
     $('fLeave').hidden = true;
     openSolo(solo);
   }
   $('fLeave').onclick = mpLeave;
 
-  function livePeople(items, t) {
-    var people = [], picture = null, i, it;
-    t = t || nowMs();
-    for (i = 0; i < items.length; i++) {
-      it = items[i];
-      if (!it || !it.id) continue;
-      if (it.id === 'picture') { picture = it; continue; }
-      if (it.at && t - it.at < PRES_TTL) people.push(it);
-    }
-    if (mp.id && !people.some(function (p) { return p.id === mp.id; })) {
-      people.push(mp.row || { id: mp.id, name: mp.name, at: t });
-    }
-    return { people: people, picture: picture };
-  }
-
-  function seatIds(people, existing) {
-    var ids = [], have = {}, i, id;
-    if (existing && existing.length) {
-      for (i = 0; i < existing.length; i++) {
-        id = existing[i];
-        if (!id || have[id]) continue;
-        have[id] = 1;
-        ids.push(id);
-      }
-    }
-    var extra = people.map(function (p) { return p.id; }).filter(function (id) { return !have[id]; });
-    extra.sort();
-    for (i = 0; i < extra.length && ids.length < OS.MAX_SEATS; i++) ids.push(extra[i]);
-    return ids;
-  }
-
-  function mpRefresh() {
+  // After every change of the room or the data: show it, play what arrived, and finish a vote that is complete.
+  function mpAfter() {
     if (!mp.on) return;
-    var pack = livePeople(_items);
-    var people = pack.people, picture = pack.picture, i;
-    mp.people = people;
-    mp.picture = picture;
-    if (mp.row) {
-      for (i = 0; i < people.length; i++) if (people[i].id === mp.id) mp.row = people[i];
+    var pic = curPic(), me = myId();
+    if (mp.picture && pic.strokes.length) {
+      var last = pic.strokes[pic.strokes.length - 1];
+      if (pads.f.sent() && last && last.by === me) { pads.f.clearPending(); pads.f.play('arrive'); }
+      else if (last && last.by !== me && mp._seenN !== last.n && pic.phase === 'draw') { mp._seenN = last.n; pads.f.play('arrive'); }
     }
-    if (!picture) {
-      if (isHost(people)) {
-        putPicture(OS.fresh(seatIds(people, []), {
-          host: mp.id,
-          names: namesFrom(people),
-          now: nowMs()
-        }));
-      }
-      mpRender();
-      return;
-    }
-    if (isHost(people)) {
-      var next = mpReconcile(picture, people);
-      if (next) { putPicture(next); return; }
-    }
-    if (mp.row && mp.row.intent && picture.seq !== mp.row.intent.seq) {
-      var keepVote = mp.row.intent.kind === 'vote' && picture.phase === 'vote';
-      if (!keepVote) putMe({ intent: null });
-    }
-    if (mp.row && mp.row.intent && mp.row.intent.kind === 'stroke') {
-      var committed = (picture.strokes || []).some(function (s) {
-        return s.by === mp.id && s.n === (picture.strokes.length - 1);
-      });
-      if (committed || picture.seq !== mp.row.intent.seq) {
-        pads.f.clearPending();
-        if (committed) pads.f.play('arrive');
-      }
-    } else if (picture.strokes && picture.strokes.length) {
-      var last = picture.strokes[picture.strokes.length - 1];
-      if (last && last.by !== mp.id && mp._seenN !== last.n && picture.phase === 'draw') {
-        mp._seenN = last.n;
-        pads.f.play('arrive');
-      }
+    if (pic.phase === 'vote' && mySeatIdx() >= 0) {
+      var next = OS.settle(pic, votesNow(), heldIds());
+      var key = voteKey(pic);
+      if (next && mp.settled !== key) { mp.settled = key; mpPut(next); return; }
     }
     mpRender();
   }
 
-  function namesFrom(people) {
-    var n = {}, i;
-    for (i = 0; i < people.length; i++) n[people[i].id] = people[i].name || 'Player';
-    return n;
-  }
-
-  function mpReconcile(P, people) {
-    var pic = JSON.parse(JSON.stringify(P));
-    var ch = false;
-    var live = {}, i, p;
-    for (i = 0; i < people.length; i++) {
-      p = people[i];
-      live[p.id] = p;
-      if (pic.names[p.id] !== p.name) { pic.names[p.id] = p.name; ch = true; }
-    }
-    var frozen = (pic.strokes || []).length > 0 || pic.phase !== 'draw';
-    if (!frozen) {
-      var seats = seatIds(people, pic.seats);
-      if (seats.join('\0') !== (pic.seats || []).join('\0')) {
-        pic.seats = seats;
-        ch = true;
-      }
-    }
-    if (pic.host !== mp.id) { pic.host = mp.id; ch = true; }
-
-    if (pic.phase === 'draw' && pic.seats.length) {
-      var actor = pic.seats[pic.turn];
-      if (actor && !live[actor] && people.length) {
-        var skipped = OS.skipAbsent(pic, live);
-        if (skipped) { pic = skipped; ch = true; }
-      }
-    }
-
-    var rows = people.map(function (row) {
-      return { id: row.id, intent: row.intent };
-    });
-    var applied = OS.applyIntents(pic, rows);
-    if (applied) { pic = applied; ch = true; }
-
-    /* Votes land above; if the only seats still missing are ones that left
-       the room, finish the vote rather than waiting on them forever. */
-    if (pic.phase === 'vote') {
-      var settled = OS.settleVotes(pic, live);
-      if (settled) { pic = settled; ch = true; }
-    }
-    return ch ? pic : null;
-  }
-
-  function myTurn() {
-    var pic = mp.picture;
-    if (!pic || pic.phase !== 'draw') return false;
-    if (!pic.seats || pic.seats.length < 2) return false;
-    return OS.actorOf(pic) === mp.id;
-  }
-
   pads.f = makePad($('fPad'), {
     canDraw: function () { return mp.on && myTurn(); },
-    strokes: function () { return mp.picture ? mp.picture.strokes : []; },
+    strokes: function () { return curPic().strokes; },
     onChange: mpRender
   });
 
   function mpPlayStroke() {
-    var pic = mp.picture;
+    var pic = curPic();
     var p = pads.f.pending();
-    if (!pic || !myTurn() || !p || p.pts.length < 2) return;
-    putMe({ intent: { kind: 'stroke', seq: pic.seq, pts: p.pts, c: p.c, w: p.w } });
+    if (!myTurn() || !p || p.pts.length < 2) return;
+    var next = OS.addStroke(pic, mySeatIdx(), myId(), { pts: p.pts, c: p.c, w: p.w }, heldArr());
+    if (!next) { pads.f.clearPending(); return; }
     pads.f.markSent();
+    mpPut(next);
   }
 
   $('fUndo').onclick = function () { pads.f.undo(); };
   $('fSend').onclick = mpPlayStroke;
+  // a smooth random line sent as your stroke, for a turn you would rather not draw
+  $('fRandom').onclick = function () {
+    if (!myTurn() || pads.f.sent()) return;
+    var pts = OS.randomLine();
+    var next = pts && OS.addStroke(curPic(), mySeatIdx(), myId(), { pts: pts, c: color, w: width }, heldArr());
+    if (!next) return;
+    pads.f.clearPending();
+    pads.f.markSent();
+    mpPut(next);
+  };
   $('fPlay').onclick = function () {
     var on = pads.f.play('loop');
     $('fPlay').textContent = on ? 'Stop loop' : 'Play loop';
     mpRender();
   };
   $('fAgain').onclick = function () {
-    var pic = mp.picture;
-    if (!pic || pic.phase !== 'play' || mySeat(pic) < 0) return;
-    putMe({ intent: { kind: 'again', seq: pic.seq } });
+    var next = OS.another(curPic());
+    if (!next || mySeatIdx() < 0) return;
+    mpPut(next);
   };
   $('fNew').onclick = function () {
-    var pic = mp.picture;
-    if (!pic || mySeat(pic) < 0) return;
-    putMe({ intent: { kind: 'new', seq: pic.seq } });
+    var pic = curPic();
+    if (mySeatIdx() < 0) return;
+    pads.f.clearPending();
+    mpPut(OS.fresh({ suggestions: pic.suggestions }), true);
   };
 
   function voteFor(title) {
-    var pic = mp.picture;
-    if (!pic || pic.phase !== 'vote' || mySeat(pic) < 0) return;
+    var pic = curPic();
+    if (!ROOM || pic.phase !== 'vote' || mySeatIdx() < 0 || !mp.rs.me) return;
     title = OS.sanitizeTitle(title);
     if (!title) return;
-    putMe({ intent: { kind: 'vote', seq: pic.seq, title: title } });
+    gifos.db('room').put({ id: myId(), key: voteKey(pic), title: title }).catch(function () {});
   }
   $('fVoteForm').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -675,7 +599,7 @@
   function paintVotes(pic) {
     var box = $('fVoteList');
     box.innerHTML = '';
-    var mine = (pic.votes && pic.votes[mp.id]) || (mp.row && mp.row.intent && mp.row.intent.kind === 'vote' && mp.row.intent.title) || '';
+    var mine = votesNow()[myId()] || '';
     (pic.suggestions || OS.SUGGESTIONS).forEach(function (t) {
       var b = document.createElement('button');
       b.type = 'button';
@@ -688,29 +612,21 @@
 
   function mpRender() {
     if (!mp.on) return;
-    var pic = mp.picture, status = $('fStatus');
+    var pic = curPic(), status = $('fStatus'), r = mp.rs;
     var hint = $('fHint'), wait = $('fWait');
-    if (!pic) {
-      $('fSeats').innerHTML = '';
-      status.textContent = 'Setting up the page…';
-      hint.hidden = true;
-      wait.hidden = true;
-      return;
-    }
-    var seat = mySeat(pic);
-    var actor = OS.actorOf(pic);
-    var waiting = mp.people.filter(function (p) { return pic.seats.indexOf(p.id) < 0; });
+    // with others here the room (top-bar back, OS leave) is how you go; alone you may return to solo
+    $('fLeave').hidden = !!(r && r.live);
+    var seatIdx = mySeatIdx();
+    var seat = seatIdx;
+    var aIdx = actorIdx(), aRow = aIdx >= 0 ? seatList()[aIdx] : null;
+    var waiting = (r && r.line) || [];
     var n = (pic.strokes || []).length;
-    var both = pic.seats.length >= 2;
-    function bothTurn(p, id) {
-      return both && p.phase === 'draw' && p.seats[p.turn] === id;
-    }
-    $('fSeats').innerHTML = pic.seats.map(function (id) {
-      var mine = id === mp.id;
-      var turn = bothTurn(pic, id);
-      var label = mine ? 'You' : esc(nameOf(pic, id));
-      return '<div class="seat' + (mine ? ' me' : '') + (turn ? ' turn' : '') + '">' +
-        label + '</div>';
+    var both = bothHeld();
+    $('fSeats').innerHTML = seatList().filter(function (x) { return x.id; }).map(function (x) {
+      var mine = x.id === myId();
+      var turn = both && pic.phase === 'draw' && aRow && aRow.id === x.id;
+      var label = mine ? 'You' : esc((x.name || 'Player') + (x.here === 'away' ? ' …' : ''));
+      return '<div class="seat' + (mine ? ' me' : '') + (turn ? ' turn' : '') + '">' + label + '</div>';
     }).join('') || '<div class="seat"><span class="open">open</span></div>';
     $('fQueue').textContent = waiting.length
       ? ('Watching: ' + waiting.map(function (p) { return p.name || 'Player'; }).join(', '))
@@ -721,8 +637,11 @@
     var mineNow = myTurn();
     $('fPaper').classList.toggle('locked', !mineNow);
     $('fPaper').classList.toggle('mine', mineNow && !ready && !pads.f.playing());
-    $('fSend').disabled = !(myTurn() && ready) || pads.f.sent();
+    $('fSend').disabled = !(mineNow && ready) || pads.f.sent();
     $('fUndo').disabled = !ready || pads.f.sent();
+    $('fRandom').hidden = !(mineNow && !pads.f.sent());
+    // colour and width are for the stroke you have drawn: pick them while it is still yours to change
+    $('fInk').hidden = !(mineNow && ready && !pads.f.sent()); $('fWidths').hidden = $('fInk').hidden;
     $('fAgain').hidden = pic.phase !== 'play' || seat < 0;
     $('fNew').hidden = (pic.phase !== 'play' && pic.phase !== 'vote') || seat < 0;
     $('fVote').hidden = pic.phase !== 'vote' || seat < 0;
@@ -731,7 +650,13 @@
     wait.hidden = true;
 
     $('friend').classList.toggle('waiting', !both);
-    if (!both) {
+    if (mp.note) {
+      setStatus(status, mp.note, '');
+    } else if (r && r.me && r.me.role === 'asking') {
+      setStatus(status, 'Waiting for the host to let you in…', '');
+      setChip('wait', 'Asking');
+      setControls('fControls', n ? 'idle' : 'empty');
+    } else if (!both) {
       status.innerHTML = 'Press <b>Invite</b> in the bar above. The people who open the link sit here.';
       setChip('wait', 'Waiting');
       wait.hidden = false;
@@ -740,8 +665,9 @@
       setControls('fControls', 'empty');
     } else if (pic.phase === 'vote') {
       paintVotes(pic);
+      var myVote = votesNow()[myId()];
       if (seat < 0) setStatus(status, 'Spectating the vote.', '');
-      else if (pic.votes && pic.votes[mp.id]) setStatus(status, 'You voted. Waiting for the others.', '');
+      else if (myVote) setStatus(status, 'You voted. Waiting for the others.', '');
       else setStatus(status, 'Name this picture.', 'turn');
       setChip('turn', 'Title');
       setControls('fControls', n ? 'idle' : 'empty');
@@ -750,8 +676,9 @@
       setStatus(status, ttl + ' — arriving, in order.', 'good');
       setChip('ready', pic.title || 'Loop');
       setControls('fControls', 'play');
-      if (mp.autoPlay !== pic.seq) {
-        mp.autoPlay = pic.seq;
+      var pk = pic.round + ':' + n;
+      if (mp.autoPlay !== pk) {
+        mp.autoPlay = pk;
         if (!pads.f.playing()) {
           pads.f.play('loop');
           $('fPlay').textContent = 'Stop loop';
@@ -761,7 +688,7 @@
       setStatus(status, 'Spectating.', '');
       setChip('wait', 'Watching');
       setControls('fControls', n ? 'idle' : 'empty');
-    } else if (actor === mp.id) {
+    } else if (mineNow) {
       if (ready) {
         setStatus(status, 'Undo, or send this stroke.', 'turn');
         setChip('turn', 'Your stroke');
@@ -776,12 +703,15 @@
         }
         setControls('fControls', n ? 'idle' : 'empty');
       }
-    } else {
-      setStatus(status, 'Waiting for ' + nameOf(pic, actor) + '…');
-      setChip('wait', nameOf(pic, actor));
+    } else if (aRow) {
+      setStatus(status, 'Waiting for ' + (aRow.name || 'Player') + (aRow.here === 'away' ? ' (reconnecting)' : '') + '…');
+      setChip('wait', aRow.name || 'Player');
       wait.hidden = false;
-      $('fWaitName').textContent = nameOf(pic, actor);
+      $('fWaitName').textContent = aRow.name || 'Player';
       $('fWaitMsg').textContent = 'is drawing the next line';
+      setControls('fControls', n ? 'idle' : 'empty');
+    } else {
+      setStatus(status, 'Waiting…');
       setControls('fControls', n ? 'idle' : 'empty');
     }
     if (pads.f.playing()) {
@@ -795,13 +725,40 @@
     pads.f.redraw();
   }
 
+  if (ROOM) {
+    if (picDb) picDb.subscribe(function (items) {
+      var b = null, i;
+      for (i = 0; i < (items || []).length; i++) if (items[i] && items[i].id === 'picture') b = items[i];
+      mp.remote = b; mp.picture = b; mp.note = '';
+      mpAfter();
+    });
+    gifos.db('room').subscribe(function (items) { _items = items || []; mpAfter(); });
+    gifos.room.subscribe(function (s) {
+      mp.rs = s; mp.note = '';   // a refusal's note goes with the next room state
+      // with other people here the shared page is what you see; alone you start on the solo page
+      if (!mp.on && !mp.picked && s.live && !$('solo').hidden && !(solo && solo.strokes && solo.strokes.length)) { mpEnter(); return; }
+      if (mp.on) mpJoin();
+      mpAfter();
+    });
+  } else {
+    oldNote();
+  }
+
+  // Read-only, for the room kit: the shared picture only.
+  window['__one-stroke'] = {
+    state: function () {
+      var p = mp.remote;
+      return p ? { strokes: p.strokes.map(function (s) { return s.by + ':' + s.pts.length; }).join(','), phase: p.phase, round: p.round, title: p.title, turn: p.turn } : { strokes: '', phase: 'draw', round: 1, title: '', turn: 0 };
+    }
+  };
+
   window.addEventListener('resize', function () {
     if (!$('solo').hidden) pads.solo.redraw();
     if (!$('friend').hidden) pads.f.redraw();
   });
 
   if (window.gifos && gifos.onBack) gifos.onBack(function () {
-    if (!$('friend').hidden) mpLeave();
+    if (!$('friend').hidden && !(mp.rs && mp.rs.live)) mpLeave();
   });
 
   setChip('turn', 'Your turn');

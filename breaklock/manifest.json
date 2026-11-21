@@ -3,8 +3,8 @@
   "appId": "breaklock",
   "name": "BreakLock",
   "shortName": "BreakLock",
-  "version": "1.0.0",
-  "minBuild": 947,
+  "version": "1.1.0",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [17, 102, 153],
   "capabilities": {
@@ -15,5 +15,6 @@
     "prefs": { "visibility": "private" },
     "match": { "visibility": "read-write" },
     "players": { "visibility": "read-write" }
-  }
+  },
+  "room": { "seats": 4, "min": 2, "turns": "free", "moves": ["match"] }
 }
