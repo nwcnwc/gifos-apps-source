@@ -191,10 +191,7 @@
     jamEl = document.getElementById('jam');
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
-    if (!PEOPLE) {
-      if (jamEl) { jamEl.hidden = false; jamEl.textContent = NEEDS_NEWER; }
-      return Promise.resolve({ owner: true, others: 0 });
-    }
+    if (!PEOPLE) return Promise.resolve({ owner: true, others: 0 });
 
     return readRoom().then(function () {
       if (!me.id) return { owner: owner, others: 0 };
@@ -242,4 +239,11 @@
     },
     amHost: function () { return isHost(); }
   };
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'bb-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
