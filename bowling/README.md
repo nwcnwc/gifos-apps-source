@@ -28,7 +28,7 @@ build.mjs           packs all of the above into site/apps/bowling/bowling.gif
 | `db` | Sound pref in a `private` collection; each scorecard in a `read-write` one. |
 | `multiplayer` | The room. Invite is OS chrome — this app never draws a share button. |
 
-Needs nothing newer than the App Store itself, so `minBuild` is **947**.
+Needs gifos.room (build 5861), so `minBuild` is **5861** (gifos.room).
 
 ## Two devices, no game server
 
