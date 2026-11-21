@@ -558,7 +558,6 @@
       if (!mp.sub) {
         mp.sub = true;
         roomDb.subscribe(function (items) { _items = items || []; mpRefresh(); });
-        setInterval(readRoom, PEOPLE_MS);
       }
       putMe({ phase: 'lobby', round: 0, seed: null, called: [], bingo: false, pattern: null, marked: null });
       mpRefresh();
@@ -935,6 +934,9 @@
     _n.textContent = NEEDS_NEWER;
     if (document.body) document.body.appendChild(_n);
     else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  } else {
+    readRoom();
+    setInterval(readRoom, PEOPLE_MS);
   }
 
   window['__bingo'] = {
