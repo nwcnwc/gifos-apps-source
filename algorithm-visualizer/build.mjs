@@ -65,8 +65,8 @@ if (!manifest.capabilities || manifest.capabilities.db !== true) {
 if (!manifest.capabilities.multiplayer) {
   throw new Error('manifest must declare capabilities.multiplayer');
 }
-if (manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947 — this app needs nothing newer than the store');
+if (manifest.minBuild < 5861) {
+  throw new Error('minBuild must be >= 5861 — gifos.people()');
 }
 if (!listing.basedOn || listing.basedOn.blessed !== false) {
   throw new Error('listing.basedOn.blessed must be false');

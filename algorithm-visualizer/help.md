@@ -26,7 +26,7 @@ Numbers in the array box are the values being sorted or searched. **Run** rebuil
 
 ## A friend following along
 
-If someone else is in the room, they see the same algorithm, the same input, and your cursor. You drive; they watch. Shuffle and Play stay with the person who opened the app.
+If someone else is in the room, they see the same algorithm, the same input, and your cursor. Who is here comes from the room; the person who shared the app drives, and GifOS hands that on when they leave. An older GifOS shows one plain line — solo still works, nothing is shared.
 
 ## What is saved
 
