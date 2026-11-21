@@ -7,6 +7,11 @@
 (function (root) {
   'use strict';
 
+  var NEEDS_NEWER = 'Backdooms needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var roomPeople = [], roomKey = '', owner = false, roomRead = false;
+
   var db = null, me = { id: 'solo', name: 'you' };
   var lastPub = 0;
   var lastShot = {};
@@ -14,12 +19,43 @@
   var shotSeq = 0;
   var roster = [];
 
+  function readRoom() {
+    if (!PEOPLE || !root.gifos) return Promise.resolve();
+    return Promise.all([
+      root.gifos.people(),
+      root.gifos.info ? root.gifos.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      roomKey = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me = { id: mine.id, name: mine.name || 'you' }; }
+      onAll(roster);
+    }, function () {});
+  }
+
   function init() {
     if (!root.gifos || !root.gifos.db) return Promise.resolve();
+    if (!PEOPLE) {
+      var el = document.getElementById('hud') || document.body;
+      if (el && el !== document.body) el.insertAdjacentHTML('beforeend', '<p id="bd-needs">' + NEEDS_NEWER + '</p>');
+      else {
+        var p = document.createElement('p');
+        p.id = 'bd-needs';
+        p.textContent = NEEDS_NEWER;
+        document.body.appendChild(p);
+      }
+      return Promise.resolve();
+    }
     db = gifos.db('players');
-    return gifos.me().then(function (who) {
-      if (who && who.id) me = who;
+    return readRoom().then(function () {
+      if (!me.id || me.id === 'solo') return;
       db.subscribe(onAll);
+      setInterval(readRoom, PEOPLE_MS);
       publish(true);
     }).catch(function () {});
   }
@@ -35,14 +71,19 @@
   }
 
   function onAll(rows) {
-    var now = Date.now(), list = [], i, r, hits, seq;
-    roster = rows || [];
+    var now = Date.now(), list = [], i, r, hits, seq, names = {}, id;
+    if (rows) roster = rows;
+    for (i = 0; i < roomPeople.length; i++) {
+      if (roomPeople[i] && roomPeople[i].id && roomPeople[i].here !== 'gone') {
+        names[roomPeople[i].id] = roomPeople[i].name;
+      }
+    }
     for (i = 0; i < roster.length; i++) {
       r = roster[i];
       if (!r || !r.id) continue;
-      if (now - (r.t || 0) > 8000) continue;
+      if (!Object.prototype.hasOwnProperty.call(names, r.id)) continue;
       if (r.id === me.id) continue;
-      list.push({ id: r.id, x: r.x, y: r.y, a: r.a, h: r.hp, name: r.name });
+      list.push({ id: r.id, x: r.x, y: r.y, a: r.a, h: r.hp, name: names[r.id] || 'you' });
       seq = r.shot | 0;
       hits = r.hits || [];
       if (seq && seq !== lastShot[r.id] && hits.indexOf(me.id) >= 0) {
@@ -84,7 +125,6 @@
    * This is a mitigation, not the fix. Positions are service-3 traffic riding
    * service 4, and service 3 does not exist yet.
    */
-  var KEEPALIVE = 2500;
   var lastSent = null;
 
   function worthSending(s) {
@@ -102,12 +142,12 @@
     var s = root.Backdooms.state();
     if (!force) {
       if (now - lastPub < 120) return;
-      if (!worthSending(s) && now - lastPub < KEEPALIVE) return;
+      if (!worthSending(s)) return;
     }
     lastPub = now;
     lastSent = { x: s.x, y: s.y, a: s.a, hp: s.hp, score: s.score, ammo: s.ammo };
     db.put({
-      id: me.id, name: me.name || 'you',
+      id: me.id,
       x: s.x, y: s.y, a: s.a, hp: s.hp, score: s.score, seed: s.seed,
       shot: shotSeq, hits: lastHits, t: now
     }).catch(function () {});
@@ -130,5 +170,24 @@
     publish: publish,
     onShot: onShot,
     sharedSeed: sharedSeed
+  };
+
+  root['__backdooms'] = {
+    state: function () {
+      var s = root.Backdooms && root.Backdooms.state ? root.Backdooms.state() : null;
+      return s ? { seed: s.seed, score: s.score | 0 } : null;
+    },
+    people: function () {
+      var out = [], i, r, names = {};
+      for (i = 0; i < roomPeople.length; i++) {
+        if (roomPeople[i] && roomPeople[i].id && roomPeople[i].here !== 'gone') names[roomPeople[i].id] = 1;
+      }
+      for (i = 0; i < roster.length; i++) {
+        r = roster[i];
+        if (r && r.id && names[r.id]) out.push(r.id);
+      }
+      return out;
+    },
+    amHost: function () { return !!db && owner && roomPeople.length > 1; }
   };
 })(window);
