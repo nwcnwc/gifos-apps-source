@@ -72,8 +72,9 @@ if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capa
 if (manifest.capabilities.wasm) throw new Error('do not declare wasm');
 if (manifest.capabilities.network) throw new Error('quiz-buzzer has no network path');
 if (manifest.capabilities.pointer) throw new Error('do not declare pointer');
-if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947');
+// 5861 = the first GifOS with gifos.people() (0.9.27): who is here comes from the room, not from app rows.
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild < 5861) {
+  throw new Error('minBuild must be at least 5861 (gifos.people)');
 }
 if (manifest.appId !== 'quiz-buzzer') throw new Error('appId must be quiz-buzzer');
 if (!manifest.data || !manifest.data.prefs || manifest.data.prefs.visibility !== 'private') {

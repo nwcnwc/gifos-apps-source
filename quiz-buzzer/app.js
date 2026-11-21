@@ -11,7 +11,12 @@
     });
   };
 
-  var PRES_TTL = 9000, HB_MS = 3000, TICK_MS = 200;
+  var TICK_MS = 200;
+  var NEEDS_NEWER = 'Quiz Buzzer needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  // Who is here is the room's (gifos.people(), GifOS 0.9.27+): this app keeps no presence rows, no heartbeat and no
+  // "still here" window. people() does not push changes, so it is read on a calm local timer (a local call, no network).
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(window.gifos && gifos.people);
   var view = 'home';
   var prefsDb = null, matchDb = null, playersDb = null;
   try {
@@ -244,8 +249,9 @@
 
   // ---- multiplayer ----
   var mp = {
-    on: false, id: null, name: 'You', row: null,
-    people: [], hb: 0, sub: false, tick: 0,
+    on: false, id: null, name: 'You',
+    people: [], sub: false, tick: 0,
+    room: [], owner: false, auto: false,
     choice: null, buzzAt: 0, round: 0, seconds: 15, correctA: 0, length: 10
   };
   var match = null;
@@ -253,35 +259,28 @@
   var _playerItems = [];
   var liveAnswer = null;
 
-  function livePeople(items, t) {
-    t = t || nowMs();
-    var out = [], i, it;
+  // The players: the people in the room (people()) who have a row here, named by the room.
+  function playersHere(items) {
+    var names = {}, out = [], seen = {}, i, it;
+    for (i = 0; i < mp.room.length; i++) names[mp.room[i].id] = mp.room[i].name;
     for (i = 0; i < (items || []).length; i++) {
       it = items[i];
-      if (!it || !it.id) continue;
-      if (it.at && t - it.at >= PRES_TTL) continue;
-      out.push(it);
+      if (!it || !it.id || !Object.prototype.hasOwnProperty.call(names, it.id) || seen[it.id]) continue;
+      seen[it.id] = true;
+      out.push(Object.assign({}, it, { name: names[it.id] || 'Player' }));
     }
     return out;
   }
-  function isHost(people) {
-    people = people || mp.people;
-    if (match && match.host) {
-      var i, alive = false;
-      for (i = 0; i < people.length; i++) if (people[i].id === match.host) alive = true;
-      if (alive) return mp.id === match.host;
-    }
-    if (!people.length) return true;
-    var m = people[0].id;
-    for (i = 1; i < people.length; i++) if (people[i].id < m) m = people[i].id;
-    return mp.id === m;
+  // The host is the app's owner: the person who shared it (it runs the app's data). When the owner leaves a
+  // resilient room, GifOS hands the app to the next person and that copy becomes the owner, and the host.
+  function isHost() {
+    return mp.on && mp.owner;
   }
+  // My row changes only when I do something (join, a new round, a buzz): never on a timer.
   function putMe(extra) {
     if (!playersDb || !mp.id) return;
     var row = {
       id: mp.id,
-      name: mp.name,
-      at: nowMs(),
       round: mp.round,
       choice: mp.choice,
       buzzAt: mp.buzzAt || 0,
@@ -290,7 +289,6 @@
     if (extra) {
       Object.keys(extra).forEach(function (k) { row[k] = extra[k]; });
     }
-    mp.row = row;
     playersDb.put(row).catch(function () {});
   }
   function putMatch(m) {
@@ -306,15 +304,13 @@
 
   $('friendBtn').onclick = mpEnter;
   function mpEnter() {
-    if (!matchDb || !playersDb) {
-      $('homeNote').textContent = 'Play with friends needs a GifOS room. The pack still works on this device.';
+    if (!PEOPLE || !matchDb || !playersDb) {
+      $('homeNote').textContent = NEEDS_NEWER;
       return;
     }
-    (window.gifos && gifos.me ? gifos.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (me) {
-      mp.id = (me && me.id) || 'local';
-      mp.name = (me && me.name) || 'You';
+    readRoom().then(function () {
+      if (!mp.id) return;
       mp.on = true;
-      mp.row = null;
       mp.choice = null;
       mp.buzzAt = 0;
       mp.round = 0;
@@ -328,14 +324,11 @@
         matchDb.subscribe(function (items) { _matchItems = items || []; mpRefresh(); });
       }
       putMe({ round: 0, choice: null, buzzAt: 0 });
-      if (mp.hb) clearInterval(mp.hb);
-      mp.hb = setInterval(function () { if (mp.on) putMe(); }, HB_MS);
       mpRefresh();
     }).catch(function () {});
   }
   function mpLeave() {
     mp.on = false;
-    if (mp.hb) { clearInterval(mp.hb); mp.hb = 0; }
     if (playersDb && mp.id) playersDb.delete(mp.id).catch(function () {});
     match = null;
     liveAnswer = null;
@@ -643,15 +636,16 @@
     renderPlay();
   }
 
+  // The host's copy keeps the match record naming it: one write when the app (and so the host) changes hands.
   function ensureMatch(people) {
+    if (!isHost()) return;
     if (match && match.id === 'm') {
-      if (isHost(people) && match.host !== mp.id) {
+      if (match.host !== mp.id) {
         match.host = mp.id;
         putMatch(match);
       }
       return;
     }
-    if (!isHost(people)) return;
     putMatch({
       id: 'm', host: mp.id, phase: 'lobby', round: 0,
       scores: {}, names: namesOf(people),
@@ -661,9 +655,9 @@
 
   function mpRefresh() {
     if (!mp.on) return;
-    var people = livePeople(_playerItems);
+    var people = playersHere(_playerItems);
     if (!people.some(function (p) { return p.id === mp.id; })) {
-      people.push(mp.row || { id: mp.id, name: mp.name, at: nowMs() });
+      people.push({ id: mp.id, name: mp.name, round: mp.round, choice: mp.choice, buzzAt: mp.buzzAt || 0 });
     }
     mp.people = people;
     var m = null, i, it;
@@ -1012,6 +1006,7 @@
     mp.on = true;
     mp.id = 'host';
     mp.name = 'Host';
+    mp.owner = true;
     mp.round = 3;
     mp.choice = null;
     mp.seconds = 15;
@@ -1049,9 +1044,35 @@
     setChip('win', 'LIVE');
   };
 
+  // The room: who is here (gifos.people()) and whether this copy is the app's owner (gifos.info().owner).
+  function readRoom() {
+    if (!PEOPLE) return Promise.resolve();
+    return Promise.all([gifos.people(), gifos.info ? gifos.info() : Promise.resolve({})]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; }), me = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) me = ppl[i];
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (r[1] && r[1].owner ? '|o' : '');
+      var changed = key !== mp.roomKey;
+      mp.roomKey = key;
+      mp.room = ppl;
+      mp.owner = !!(r[1] && r[1].owner);
+      if (me) { mp.id = me.id; mp.name = me.name || 'You'; }
+      // Opened in a room with other people: play together at once, no button to find.
+      if (!mp.auto && !mp.on && !solo && ppl.length > 1) { mp.auto = true; mpEnter(); }
+      else if (changed && mp.on) mpRefresh();
+    }, function () {});
+  }
+  // For the checks (gifos.room kit --people) and testers: the shared game, the players this copy shows, its role.
+  window['__quiz-buzzer'] = {
+    state: function () { return match ? { phase: match.phase, round: match.round || 0, scores: match.scores || {}, host: match.host || null } : null; },
+    people: function () { return mp.on ? mp.people.map(function (p) { return p.id; }) : []; },
+    amHost: function () { return isHost(); }
+  };
+
   setChip('ready', 'Ready');
-  if (!matchDb) {
-    $('homeNote').textContent = 'Solo works on this device. Play with friends needs a GifOS room.';
+  if (!PEOPLE || !matchDb) {
+    // An older GifOS (no gifos.people): say so in plain words; solo still works, nothing is shared.
+    $('homeNote').textContent = NEEDS_NEWER;
+    $('friendBtn').disabled = true;
   }
   if (prefsDb) {
     prefsDb.getAll().then(function (rows) {
@@ -1075,4 +1096,5 @@
   }
   renderHome();
   mp.tick = setInterval(tick, TICK_MS);
+  if (PEOPLE) { readRoom(); mp.peopleTimer = setInterval(readRoom, PEOPLE_MS); }
 })();
