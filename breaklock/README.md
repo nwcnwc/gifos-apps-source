@@ -35,7 +35,7 @@ scripts, so the port is the same 3×3 rules without the bundler. `connect-src
 | `db` | Streak / bests / a solo lock in progress in a `private` collection; the live secret on `match`; each player writes only their own `players` row. |
 | `multiplayer` | The room. Invite is OS chrome — this app never draws that button. |
 
-Needs nothing newer than the App Store itself, so `minBuild` is **947**.
+`gifos.room` (seats, who is here, the line) needs `minBuild` **5861**. Up to four seats; the match row goes through `gifos.room.move`; each seated person writes only their own players row. No heartbeat.
 
 ## Building
 

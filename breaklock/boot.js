@@ -77,6 +77,7 @@
   var cdDur = 60;
   var saveTimer = 0;
   var watchSig = '';
+  var voidKey = '';
   var api = typeof gifos !== 'undefined' ? gifos : null;
   var prefsDb = null;
   var lastStacked = null;
@@ -84,6 +85,13 @@
   try {
     if (api && api.db) prefsDb = api.db('prefs');
   } catch (e) {}
+
+  var ROOM = !!(api && api.room && api.room.subscribe);
+  var EN = { needsNewer: 'BreakLock needs a newer GifOS to play together. Reload the page to update.' };
+  function T(k) {
+    var v = api && api.i18n && api.i18n.t ? api.i18n.t(k) : k;
+    return v === k && EN.hasOwnProperty(k) ? EN[k] : v;
+  }
 
   function versusOn() {
     return Net && Net.versusOn && Net.versusOn();
@@ -541,6 +549,15 @@
     }
     var m = Net.match();
     if (!m) return;
+    // the setter's seat went to somebody else (or nobody): the lock is void, the round ends with no winner
+    if ((m.state === 'setting' || m.state === 'playing') && m.setterId && m.setterId !== meId() && !Net.isHeld(m.setterId) && Net.seated()) {
+      var vk = m.round + ':' + m.state;
+      if (voidKey !== vk) {
+        voidKey = vk;
+        publishMatch({ state: 'over', difficulty: m.difficulty, setterId: m.setterId, setterName: m.setterName, secret: m.secret || [], round: m.round, winnerId: '', winnerName: '' });
+        return;
+      }
+    }
     if (G.role === 'watch' && m.state === 'playing') restackWatch();
     var act = Net.vsNext(m, meId(), {
       screen: G.screen,
@@ -564,11 +581,13 @@
 
   function renderVersus() {
     var el = $('versus');
+    $('abortBtn').hidden = false; $('btnHome').hidden = false;
     if (!versusOn() || G.screen === 'menu') {
       el.hidden = true;
       return;
     }
     el.hidden = false;
+    $('abortBtn').hidden = true; $('btnHome').hidden = true;
     var pills = $('pills');
     pills.textContent = '';
     function addPill(p, mine) {
@@ -622,7 +641,11 @@
       var m = Net.match();
       var others = Net.others();
       var names = others.map(function (p) { return p.name || 'Friend'; }).join(', ');
-      if (m && (m.state === 'setting' || m.state === 'playing') && m.setterId && m.setterId !== meId()) {
+      if (!Net.seated()) {
+        note.textContent = Net.waiting() ? 'Both seats are taken. You are next in line.' : 'Watching ' + names + '.';
+        btn.textContent = 'WATCHING_';
+        btn.disabled = true;
+      } else if (m && (m.state === 'setting' || m.state === 'playing') && m.setterId && m.setterId !== meId()) {
         if (m.state === 'playing' && m.secret && m.secret.length) {
           note.textContent = (m.setterName || names) + ' set a lock. CRACK_ to find it.';
           btn.textContent = 'CRACK_';
@@ -637,8 +660,9 @@
         btn.textContent = 'SET A LOCK_';
         btn.disabled = false;
       }
+      if (Net.note()) note.textContent = Net.note();
     } else {
-      note.hidden = true;
+      if (!ROOM) { note.hidden = false; note.textContent = T('needsNewer'); } else note.hidden = true;
       btn.textContent = 'START_';
       btn.disabled = false;
     }
@@ -710,6 +734,8 @@
   }
 
   function onBack() {
+    // with others here the room (top-bar back, OS leave) is how you go
+    if (versusOn()) return true;
     if (G.screen === 'summary') {
       goHome();
       return true;
@@ -780,14 +806,20 @@
     });
     room.then(function () {
       if (Net && Net.onChange) Net.onChange(onNetChange);
-      publishMe();
-      setInterval(function () { publishMe(); }, 3000);
       onNetChange();
     });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
+
+  // Read-only, for the room kit: the shared match only.
+  root['__breaklock'] = {
+    state: function () {
+      var m = Net && Net.match && Net.match();
+      return m ? { state: m.state, setterId: m.setterId, round: m.round, winnerId: m.winnerId || '' } : { state: '' };
+    }
+  };
 
   root.BreakLockRules = {
     TYPE: TYPE,

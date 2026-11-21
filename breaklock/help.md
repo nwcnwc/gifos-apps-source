@@ -38,6 +38,8 @@ There is no keyboard. There is nothing to tap on the grid itself except the draw
 
 Press **Invite** in the bar above the app. You draw a secret they cannot see. They have to crack it. You watch their tries land in the history — the same pegs, the same miniatures. First to match the secret wins. **YOUR TURN_** hands them the next secret to set.
 
+The room seats up to four people as they open the link (two are needed); extras watch and are next in line. When other people are here, the game opens on the shared menu and the leave buttons are hidden.
+
 Two of you on one phone: pass it after you have set the lock.
 
 ## What is saved

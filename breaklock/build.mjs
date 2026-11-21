@@ -51,7 +51,8 @@ for (const need of VENDOR) {
   if (!existsSync(join(dir, need))) throw new Error(need + ' is missing');
 }
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947');
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild < 5861) throw new Error('minBuild must be at least 5861 (the first build with gifos.room)');
+if (!manifest.room || !manifest.room.moves || manifest.room.moves.indexOf('match') < 0) throw new Error('manifest must declare a room block with match as its moves collection');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
 }
@@ -156,6 +157,13 @@ for (const n of ['boot.js', 'net.js', 'vendor/lock.js', 'vendor/pattern.js']) {
 }
 if (!files['boot.js'].includes('prefs') || !files['net.js'].includes('players')) {
   throw new Error('must persist prefs and publish players');
+}
+if (!files['net.js'].includes('gifos.room') && !files['net.js'].includes('api.room.subscribe')) {
+  throw new Error('net.js must read the room (api.room.subscribe) and write the match through api.room.move');
+}
+if (!files['net.js'].includes('api.room.move')) throw new Error('the match row must go through api.room.move');
+if (/HB_MS|STALE_MS|setInterval/.test(files['net.js']) || /setInterval\(function \(\) \{ publishMe/.test(files['boot.js'])) {
+  throw new Error('no heartbeat or presence timer: the room says who is here');
 }
 if (!files['COPYING-breaklock.txt'].includes('maxwellito')) {
   throw new Error('COPYING-breaklock.txt is not maxwellito\'s MIT notice');
