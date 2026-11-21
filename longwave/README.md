@@ -12,7 +12,7 @@ index.html     setup / two here / play a friend
 style.css      fat spectrum, poles, grab-knob, reveal
 cards.js       the original basic + advanced spectrum cards
 rules.js       21-tick line, 4-3-2-0 scoring, seeded deck
-app.js         hotseat + psychic/guesser seats (own-row, host applies)
+app.js         hotseat + psychic/guesser seats from gifos.room
 icon.mjs       procedural sliding-knob icon + 1200×720 cover
 build.mjs      packs the GIF into site/apps/longwave/longwave.gif
 COPYING.txt    upstream MIT notice (also packed inside the GIF)
@@ -24,10 +24,11 @@ COPYING.txt    upstream MIT notice (also packed inside the GIF)
   the device over. Guesser places the needle. Then you swap. An in-progress
   game is saved in the file, so you can close it and continue.
 - **Play a friend** — send the invite (top bar; that button is OS chrome).
-  Two seats: psychic and guesser. Each person writes only their own row. The
-  host of the board (lowest id) is the only writer of the board row: a player
-  publishes an intent (clue, needle, lock, next), the host applies it if it
-  is legal.
+  `gifos.room` seats two people and passes the turn (`turns: "order"`:
+  psychic clue, guesser lock, psychic reveal, then the seats swap). The mover
+  writes the whole board with `gifos.room.move`. The mark stays on the
+  psychic's page (private row) until the reveal. The live needle is plain
+  shared data.
 
 Seven cards. Dead-on is four points (counted as three, and you keep the card).
 Close is three or two. A miss is nothing. The psychic seat passes after each
@@ -51,7 +52,7 @@ enough to draw in classic scripts.
 | `db` | Saved best score, in-progress hotseat, and the shared board. |
 | `multiplayer` | The room. |
 
-No `wasm`. No `network`. `minBuild` is **947**.
+No `wasm`. No `network`. `minBuild` is **5861**.
 
 ## Building
 

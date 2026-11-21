@@ -3,8 +3,8 @@
   "appId": "longwave",
   "name": "Longwave",
   "shortName": "Longwave",
-  "version": "1.1",
-  "minBuild": 947,
+  "version": "1.2",
+  "minBuild": 5861,
   "description": "A needle on a spectrum. One of you hints. The other finds the mark.",
   "entry": "index.html",
   "accent": [118, 86, 214],
@@ -14,6 +14,8 @@
   },
   "data": {
     "lw": { "visibility": "private" },
-    "lw-mp": { "visibility": "read-write" }
-  }
+    "lw-mp": { "visibility": "read-write" },
+    "lw-needle": { "visibility": "read-write" }
+  },
+  "room": { "seats": 2, "turns": "order", "moves": ["lw-mp"] }
 }
