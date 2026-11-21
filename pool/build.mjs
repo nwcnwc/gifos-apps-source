@@ -64,7 +64,10 @@ for (const need of NEED) {
   }
 }
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947 — this app needs nothing newer than the store.');
+if (!(manifest.minBuild >= 5861)) throw new Error('minBuild must be at least 5861 (gifos.room)');
+if (!manifest.room || manifest.room.seats.join() !== 'Player 1,Player 2' || manifest.room.turns !== 'free') {
+  throw new Error('manifest.room must declare the two seats, turns free');
+}
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
 }
@@ -72,8 +75,8 @@ if (manifest.capabilities.network) throw new Error('pool has no network path');
 if (!manifest.data || !manifest.data.prefs || manifest.data.prefs.visibility !== 'private') {
   throw new Error('prefs must be private');
 }
-if (!manifest.data.players || manifest.data.players.visibility !== 'read-write') {
-  throw new Error('players must be read-write');
+if (!manifest.data.shots || !manifest.data.table || manifest.data.shots.visibility !== 'read-write' || manifest.data.table.visibility !== 'read-write') {
+  throw new Error('shots and table must be read-write');
 }
 if (listing.author && listing.author.name === 'GifOS') {
   throw new Error('author is henshmi, never GifOS — this is a port');
@@ -154,6 +157,10 @@ const src = files['boot.js'];
 for (const bad of ['fetch(', 'XMLHttpRequest', 'WebSocket', 'navigator.sendBeacon', 'eval(', 'new Function(']) {
   if (src.includes(bad)) throw new Error('boot.js uses ' + bad);
 }
+if (!src.includes('gifos.room.subscribe') || !src.includes('gifos.room.join') || !src.includes('needsNewer')) {
+  throw new Error('boot.js must take its seats from gifos.room and carry the older-GifOS line');
+}
+if (/setInterval|STALE_MS|HB_MS|heartbeat/.test(src)) throw new Error('no heartbeat or stale window');
 if (/<button\b[^>]*>\s*Invite\s*</i.test(html) || /<button\b[^>]*id=["'][^"']*invite/i.test(html)) {
   throw new Error('do not draw an Invite button — that is OS chrome');
 }

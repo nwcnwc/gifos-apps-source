@@ -39,9 +39,9 @@ The name that lights up at the top is the person who shoots. Once colours are se
 
 **Two on this device** — pass the screen and take turns.
 
-**Invite** in the bar above the app — a friend takes the other turn on their own phone or computer. You go first (the host, who opened the app). They join, a fresh frame starts. They leave, you are back at the menu. A third person can watch; they do not get a stick.
+**Invite** in the bar above the app — a friend takes the other turn on their own phone or computer. The first two people to open it take the two seats. They join, a fresh frame starts. They leave, you are back at the menu. A third person can watch; they do not get a stick.
 
-The host runs the balls; the friend sends the shot.
+The app's owner runs the balls (GifOS hands that on if the owner leaves); the other player sends the shot.
 
 ## What is saved
 
