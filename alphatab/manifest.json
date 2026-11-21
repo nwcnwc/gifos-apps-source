@@ -3,7 +3,7 @@
   "appId": "alphatab",
   "name": "alphaTab",
   "shortName": "alphaTab",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minBuild": 947,
   "description": "Open a guitar tab. It stays in the file. Invite follows the playhead.",
   "entry": "index.html",
