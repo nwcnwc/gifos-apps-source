@@ -24,7 +24,7 @@ A slow/fast slider sits under the picture.
 
 ## A live friend
 
-On your own it is the original games. A friend who joins this copy lands on the **same game and level**, with the **same blocks**. Whoever snaps last, both screens follow.
+On your own it is the original games. A friend who joins this copy lands on the **same game and level**, with the **same blocks**. Whoever snaps last, both screens follow. Who is here comes from the room; GifOS hands the host on when the owner leaves. An older GifOS shows one plain line — solo still works.
 
 ## What is saved
 
