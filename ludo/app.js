@@ -1,32 +1,29 @@
 // Ludo — four seats. Invite is OS chrome. The file is the save.
-// Guests publish presence on join; the host (lowest live id) assigns
-// Red, Green, Yellow, Blue so two people never sit the same colour.
+// Online, gifos.room seats people (Red, Green, Yellow, Blue in join order) and
+// keeps who is here; the board is the whole game record the mover writes.
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var L = window.LUDO;
   var saveDb = null, roomDb = null;
-  var PRES_TTL = 9000, HB_MS = 3000;
-  var me = { id: 'solo', name: 'You' };
+  var EN = { needsNewer: 'Ludo needs a newer GifOS to play together. Reload the page to update.' };
+  var T = function (k) {
+    var v = window.gifos && gifos.i18n && gifos.i18n.t ? gifos.i18n.t(k) : k;
+    return v === k && EN.hasOwnProperty(k) ? EN[k] : v;
+  };
+  var ROOM = !!(window.gifos && gifos.room && gifos.room.subscribe);
   var mode = 'local';
   var mySeat = 0;
   var game = L.fresh(4);
   var nPlayers = 4;
-  var seats = [null, null, null, null];
-  var names = {};
-  var mpOn = false;
-  var seq = 0;
-  var hb = 0;
-  var subbed = false;
-  var people = [];
-  var boardRow = null;
-  var myRow = null;
-  var items = [];
+  var rs = null, joined = false, picked = false, note = '', advKey = '';
+  var stash = null;
+  var rgame = null;   // the shared game record's game, as the room data last said
 
   try {
     if (window.gifos) {
       saveDb = gifos.db('save');
-      roomDb = gifos.db('room');
+      roomDb = gifos.db('game');
     }
   } catch (e) {}
 
@@ -38,49 +35,47 @@
     if (!saveDb || mode !== 'local') return;
     saveDb.put({ id: 'save', game: game, n: nPlayers }).catch(function () {});
   }
-  function nowMs() { return Date.now(); }
-  function isHost(list) {
-    list = list || people;
-    if (!list.length) return true;
-    var m = list[0].id, i;
-    for (i = 0; i < list.length; i++) if (list[i].id < m) m = list[i].id;
-    return me.id === m;
+  // ---- the room's word ----
+  function held() { return [0, 1, 2, 3].map(function (p) { var x = rs && rs.seats && rs.seats[p]; return !!(x && x.id); }); }
+  function heldCount() { return held().filter(Boolean).length; }
+  // The game as the table stands: only held seats play.
+  function shown() {
+    var g = L.clone(rgame || L.fresh(4));
+    g.playing = held();
+    return g;
   }
-  function putMe(extra) {
-    if (!roomDb || !mpOn || !me.id || me.id === 'solo') return;
-    var row = { id: me.id, name: me.name, at: nowMs(), intent: null, seat: mySeat };
-    if (myRow && myRow.intent) row.intent = myRow.intent;
-    if (extra && extra.intent !== undefined) row.intent = extra.intent;
-    myRow = row;
-    roomDb.put(row).catch(function () {});
+  function myIndex() {
+    var i = -1, p;
+    if (rs && rs.me && rs.me.seat) for (p = 0; p < 4; p++) if (L.NAMES[p] === rs.me.seat) i = p;
+    return i;
   }
-  function putBoard(b) {
-    boardRow = b;
-    if (!roomDb || !mpOn) return;
-    roomDb.put(b).catch(function () {});
+  function say(e) {
+    note = e && e.message ? e.message : '';
+    paintBoard();
   }
-  function freshBoard(hostId) {
-    return {
-      id: 'game', host: hostId, seats: [null, null, null, null], names: {},
-      game: L.fresh(4), seq: 0, t: nowMs()
-    };
+  function put(g, fresh) {
+    var rec = { id: 'game', game: g };
+    if (fresh) return gifos.room.newRound('game', rec, { first: 'Red' }).catch(say);
+    return gifos.room.move('game', rec).catch(function (e) { rgame = null; say(e); });
   }
 
   function paintRoster() {
     var el = $('roster');
     if (!el) return;
     if (mode !== 'mp') { el.innerHTML = ''; return; }
-    var html = '', p;
+    var html = '', p, x;
     for (p = 0; p < 4; p++) {
-      var who = seats[p] ? (names[seats[p]] || 'Player') : 'waiting';
-      var mine = seats[p] === me.id;
-      html += '<li class="' + L.COLORS[p] + (mine ? ' me' : '') + (game.turn === p && game.winner < 0 ? ' turn' : '') + '">'
+      x = rs && rs.seats && rs.seats[p] ? rs.seats[p] : { id: null, name: '', here: 'open' };
+      var who = x.id ? (x.name || 'Player') + (x.here === 'away' ? ' …' : '') : 'open';
+      var mine = p === mySeat;
+      html += '<li class="' + L.COLORS[p] + (mine ? ' me' : '') + (game.turn === p && game.winner < 0 && x.id ? ' turn' : '') + '">'
         + '<span class="swatch"></span>' + L.NAMES[p] + ' — ' + (mine ? 'you' : who) + '</li>';
     }
     el.innerHTML = html;
   }
 
   function paintBoard() {
+    if (mode === 'mp' && ROOM) { game = shown(); mySeat = myIndex(); }
     var el = $('board');
     if (el.children.length !== 225) {
       el.innerHTML = '';
@@ -126,7 +121,15 @@
       var btn = el.querySelector('[data-p="' + game.turn + '"][data-t="' + legal[i].t + '"]');
       if (btn) btn.classList.add('lit');
     }
+    // only a token you can move now is a live button
+    var toks = el.querySelectorAll('.tok'), k;
+    for (k = 0; k < toks.length; k++) toks[k].disabled = !(toks[k].classList.contains('lit') && canAct());
     $('status').textContent = game.log || (L.NAMES[game.turn] + ' to play');
+    if (mode === 'mp') {
+      if (!ROOM) $('status').textContent = T('needsNewer');
+      else if (heldCount() < 2) $('status').textContent = 'Waiting for another player… press Invite (top bar) to bring a friend.';
+      else if (note) $('status').textContent = note;
+    }
     $('die').textContent = game.die ? String(game.die) : '·';
     var myTurn = canAct();
     $('rollBtn').disabled = !myTurn || !!game.rolled || game.winner >= 0;
@@ -135,6 +138,8 @@
     if (game.winner >= 0) {
       setChip('win', L.NAMES[game.winner] + ' wins');
       $('status').textContent = L.NAMES[game.winner] + ' got all four home.';
+    } else if (mode === 'mp' && !ROOM) {
+      setChip('play', 'Read only');
     } else if (mode === 'mp' && mySeat >= 0) {
       var label = L.NAMES[mySeat];
       if (myTurn) setChip('play', 'You (' + label + ') — ' + (game.rolled ? 'pick a token' : 'roll'));
@@ -142,19 +147,25 @@
     } else {
       setChip('play', L.NAMES[game.turn] + (game.rolled ? ' — pick a token' : ' — roll'));
     }
+    // with others here the room (top-bar back, OS leave) is how you go; alone you may return to the menu
+    $('backBtn').hidden = mode === 'mp' && !!rs && rs.live;
     paintRoster();
   }
 
   function canAct() {
     if (game.winner >= 0) return false;
     if (mode === 'local') return true;
-    return mySeat === game.turn && mySeat >= 0;
+    if (!ROOM || heldCount() < 2) return false;
+    var x = rs.seats[game.turn];
+    return mySeat === game.turn && mySeat >= 0 && !!x && x.here !== 'away';
   }
 
   function doRoll() {
     if (!canAct() || game.rolled) return;
     if (mode === 'mp') {
-      putMe({ intent: { kind: 'roll', seq: seq } });
+      game = L.roll(game);
+      rgame = game;
+      paintBoard(); put(game);
       return;
     }
     game = L.roll(game);
@@ -163,7 +174,12 @@
   function doMove(t) {
     if (!canAct() || !game.rolled) return;
     if (mode === 'mp') {
-      putMe({ intent: { kind: 'move', t: t, seq: seq } });
+      var legal = L.moves(game), ok = false, i;
+      for (i = 0; i < legal.length; i++) if (legal[i].t === t) ok = true;
+      if (!ok) return;
+      game = L.apply(game, t);
+      rgame = game;
+      paintBoard(); put(game);
       return;
     }
     game = L.apply(game, t);
@@ -171,7 +187,11 @@
   }
   function doNew() {
     if (mode === 'mp') {
-      putMe({ intent: { kind: 'new', seq: seq } });
+      if (!ROOM || mySeat < 0) return;
+      var g = L.fresh(4);
+      g.playing = held();
+      rgame = g;
+      put(g, true);
       return;
     }
     game = L.fresh(nPlayers);
@@ -201,6 +221,7 @@
     nPlayers = +b.getAttribute('data-n');
   };
   $('soloBtn').onclick = function () {
+    picked = true;
     leaveMp();
     mode = 'local';
     game = L.fresh(nPlayers);
@@ -209,6 +230,7 @@
     paintBoard(); persist();
   };
   $('contBtn').onclick = function () {
+    picked = true;
     leaveMp();
     mode = 'local';
     mySeat = 0;
@@ -216,6 +238,7 @@
     paintBoard();
   };
   $('friendBtn').onclick = function () {
+    picked = true;
     if (!roomDb) {
       $('homeErr').hidden = false;
       $('homeErr').textContent = 'Play with friends needs the room. You can still play on this device.';
@@ -223,136 +246,48 @@
     }
     mpEnter();
   };
-  $('backBtn').onclick = function () { show('home'); };
+  $('backBtn').onclick = function () { picked = true; leaveMp(); show('home'); };
 
   function leaveMp() {
-    mpOn = false;
-    if (hb) clearInterval(hb); hb = 0;
-    if (roomDb && me.id && me.id !== 'solo') roomDb.delete(me.id).catch(function () {});
+    if (mode !== 'mp') return;
+    mode = 'local';
+    if (stash) { game = stash.game; nPlayers = stash.n; stash = null; }
+    // with others here the room is how you go; leaving the table frees your colour for the next in line
+    if (ROOM) { joined = false; gifos.room.leave().catch(function () {}); }
   }
 
   function mpEnter() {
-    var start = function (who) {
-      if (who && who.id) { me.id = who.id; me.name = who.name || 'You'; }
-      mpOn = true;
-      mode = 'mp';
-      nPlayers = 4;
-      mySeat = -1;
-      seats = [null, null, null, null];
-      names = {};
-      game = L.fresh(4);
-      show('play');
-      $('status').textContent = 'Press Invite in the bar above. Seats fill as people open the link.';
-      setChip('play', 'Press Invite');
-      paintBoard();
-      putMe();
-      if (hb) clearInterval(hb);
-      hb = setInterval(function () { if (mpOn) putMe(); }, HB_MS);
-      if (!subbed && roomDb) {
-        subbed = true;
-        roomDb.subscribe(function (rows) { items = rows || []; mpRefresh(); });
-      } else mpRefresh();
-    };
-    if (window.gifos && gifos.me) {
-      gifos.me().then(start).catch(function () { start({ id: 'local', name: 'You' }); });
-    } else start({ id: 'local', name: 'You' });
-  }
-
-  function mpRefresh() {
-    if (!mpOn) return;
-    var t = nowMs();
-    var live = [], board = null, i, it;
-    for (i = 0; i < items.length; i++) {
-      it = items[i];
-      if (!it || !it.id) continue;
-      if (it.id === 'game') { board = it; continue; }
-      if (it.at && t - it.at < PRES_TTL) live.push(it);
-    }
-    if (!live.some(function (p) { return p.id === me.id; })) {
-      live.push(myRow || { id: me.id, name: me.name, at: t });
-    }
-    people = live;
-    boardRow = board;
-    if (myRow) {
-      for (i = 0; i < live.length; i++) if (live[i].id === me.id) myRow = live[i];
-    }
-    if (!board) {
-      if (isHost(live)) putBoard(freshBoard(me.id));
-      paintBoard();
-      return;
-    }
-    if (isHost(live)) {
-      var next = reconcile(board, live);
-      if (next) { putBoard(next); return; }
-    }
-    applyBoard(board);
-    if (myRow && myRow.intent && board.seq !== myRow.intent.seq) putMe({ intent: null });
-  }
-
-  function applyBoard(b) {
-    seats = (b.seats || [null, null, null, null]).slice();
-    names = b.names || {};
-    seq = b.seq || 0;
-    if (b.game) game = b.game;
-    mySeat = -1;
-    var p;
-    for (p = 0; p < 4; p++) if (seats[p] === me.id) mySeat = p;
+    if (mode === 'local') stash = { game: game, n: nPlayers };
+    mode = 'mp';
+    nPlayers = 4;
+    mySeat = myIndex();
+    game = shown();
+    show('play');
+    setChip('play', ROOM ? 'Four seats' : 'Read only');
+    if (ROOM && rs && !joined && rs.me && rs.me.role === 'watcher') { joined = true; gifos.room.join().catch(function () {}); }
     paintBoard();
   }
 
-  function reconcile(B, live) {
-    var b = JSON.parse(JSON.stringify(B));
-    var ch = false;
-    var ids = {}, list = [], i, p;
-    live.forEach(function (row) {
-      ids[row.id] = row;
-      if (b.names[row.id] !== row.name) { b.names[row.id] = row.name; ch = true; }
-    });
-    live = live.slice().sort(function (a, b) {
-      var da = a.at || 0, db = b.at || 0;
-      if (da !== db) return da - db;
-      return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
-    });
-    live.forEach(function (row) { list.push(row.id); });
-    var seated = L.seatPeople(b.seats, list);
-    for (i = 0; i < 4; i++) if (seated[i] !== (b.seats && b.seats[i])) { b.seats = seated; ch = true; break; }
-    var playing = L.playingFromSeats(b.seats);
-    if (!b.game) { b.game = L.fresh(4); ch = true; }
-    for (p = 0; p < 4; p++) if (b.game.playing[p] !== playing[p]) { b.game.playing = playing; ch = true; break; }
-    if (b.game.winner < 0 && !b.game.playing[b.game.turn]) {
-      L.nextTurn(b.game);
-      ch = true;
-    }
-    live.forEach(function (row) {
-      var intent = row.intent;
-      if (!intent || intent.seq !== b.seq) return;
-      var seat = -1;
-      for (p = 0; p < 4; p++) if (b.seats[p] === row.id) seat = p;
-      if (seat < 0) return;
-      if (intent.kind === 'roll') {
-        if (b.game.winner >= 0 || b.game.turn !== seat || b.game.rolled) return;
-        b.game = L.roll(b.game);
-        b.seq = (b.seq || 0) + 1;
-        ch = true;
-      } else if (intent.kind === 'move') {
-        if (b.game.winner >= 0 || b.game.turn !== seat || !b.game.rolled) return;
-        if (typeof intent.t !== 'number') return;
-        var legal = L.moves(b.game), ok = false, mi;
-        for (mi = 0; mi < legal.length; mi++) if (legal[mi].t === intent.t) ok = true;
-        if (!ok) return;
-        b.game = L.apply(b.game, intent.t);
-        b.seq = (b.seq || 0) + 1;
-        ch = true;
-      } else if (intent.kind === 'new') {
-        b.game = L.fresh(4);
-        b.game.playing = L.playingFromSeats(b.seats);
-        b.seq = (b.seq || 0) + 1;
-        ch = true;
-      }
-    });
-    if (b.host !== me.id) { b.host = me.id; ch = true; }
-    b.t = nowMs();
-    return ch ? b : null;
+  // The shared game record. Empty seats are skipped: when the colour on turn is open, the first seated player
+  // moves the turn on (the room itself does not pass over an open seat).
+  function onItems(items) {
+    note = '';
+    var b = null, i;
+    for (i = 0; i < (items || []).length; i++) if (items[i] && items[i].id === 'game') b = items[i];
+    rgame = b && b.game ? b.game : null;
+    advance();
+    if (mode === 'mp') paintBoard();
+  }
+  function advance() {
+    if (mode !== 'mp' || !ROOM || !rs || heldCount() < 2) return;
+    var g = shown(), me = myIndex(), first = held().indexOf(true);
+    if (g.winner >= 0 || me < 0 || me !== first || g.playing[g.turn]) return;
+    var key = JSON.stringify([rs.round, g.turn, g.tokens, g.playing]);
+    if (key === advKey) return;
+    advKey = key;
+    L.nextTurn(g);
+    rgame = g;
+    put(g);
   }
 
   function onBack() {
@@ -377,12 +312,31 @@
         }
       }).catch(function () {});
     }
-    if (window.gifos && gifos.me) gifos.me().then(function (who) { if (who && who.id) me = who; }).catch(function () {});
+    if (!ROOM) { $('homeErr').hidden = false; $('homeErr').textContent = T('needsNewer'); }
+    if (roomDb) roomDb.subscribe(onItems);
+    if (ROOM) {
+      gifos.room.subscribe(function (s) {
+        note = '';   // a refusal's note goes with the next room state
+        rs = s;
+        // with other people here, room play is what you see; alone you start on the menu
+        if (mode !== 'mp' && !picked && s.live) { mpEnter(); return; }
+        if (mode === 'mp' && !joined && s.me && s.me.role === 'watcher') { joined = true; gifos.room.join().catch(function () {}); }
+        advance();
+        if (mode === 'mp') paintBoard();
+      });
+    }
   }
   boot();
 
+  // Read-only, for the room kit: the game only.
+  window.__ludo = {
+    state: function () {
+      var g = rgame;
+      return g ? { turn: g.turn, die: g.die, rolled: g.rolled, winner: g.winner, tokens: JSON.stringify(g.tokens) } : { turn: null };
+    }
+  };
   window.LudoApp = {
-    seatPeople: L.seatPeople, canAct: canAct,
-    get game() { return game; }, get seats() { return seats; }, get mode() { return mode; }
+    canAct: canAct,
+    get game() { return game; }, get seats() { return rs ? rs.seats : []; }, get mode() { return mode; }
   };
 })();

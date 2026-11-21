@@ -7,10 +7,13 @@ by chukwumaijem (MIT). Upstream is React + Electron with a lobby. This
 directory is a classic-script rewrite of the race (six to leave, 56 steps
 home, capture, extra turn on six). Generic Ludo, not a branded product.
 
-Guests publish presence on join. The host assigns Red, Green, Yellow, Blue
-so two people never sit the same colour. Empty seats are skipped.
+Online, `gifos.room` seats people (Red, Green, Yellow, Blue in join order, two
+needed to play) and keeps who is here. Empty seats are skipped. The roller
+rolls and moves on their own page and writes the whole game record with
+`gifos.room.move`. Turns are "free" in the room because the OS passes the turn
+to the next seat even when it is empty; the game's own turn skips empty colours.
 
-`minBuild` is **947**. No wasm, no network.
+`minBuild` is **5861**. No wasm, no network.
 
 ```bash
 node apps/ludo/build.mjs
