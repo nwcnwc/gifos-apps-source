@@ -66,7 +66,33 @@
     return /^(join|leave|list|record|transcribe|status|send)\b/i.test(String(text || '').trim());
   }
 
+  // Join with bounded retries. Calls join(attempt) up to `tries` times, waiting
+  // delays[i] ms between tries. Resolves { ok, attempts, session } or
+  // { ok:false, attempts, error } once tries are used up; never rejects.
+  function joinWithRetry(join, opts) {
+    opts = opts || {};
+    var tries = opts.tries || 3;
+    var delays = opts.delays || [2000, 5000];
+    var wait = opts.sleep || function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+    var n = 0;
+    function go() {
+      n++;
+      var p;
+      try { p = Promise.resolve(join(n)); } catch (e) { p = Promise.reject(e); }
+      return p.then(function (session) {
+        return { ok: true, attempts: n, session: session };
+      }, function (e) {
+        var msg = String(e && e.message || e || 'join failed');
+        if (opts.onFail) opts.onFail(n, msg, n < tries);
+        if (n >= tries) return { ok: false, attempts: n, error: msg };
+        return wait(delays[Math.min(n - 1, delays.length - 1)]).then(go);
+      });
+    }
+    return go();
+  }
+
   root.BotProto = {
+    joinWithRetry: joinWithRetry,
     strength: strength,
     suggest: suggest,
     derive: derive,
