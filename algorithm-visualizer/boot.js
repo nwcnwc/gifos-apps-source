@@ -368,9 +368,9 @@
         // Host snapshot arrives on subscribe; until then show the default.
         if (!lastFollow) loadAlgo(id, input, { play: false, paused: true, speed: speed });
       } else {
-        // Alone: auto-play. With friends: wait for Play so idle kit copies write nothing.
-        var alone = !(room.others > 0);
-        loadAlgo(id, input, { play: alone, speed: speed });
+        // gifos.people(): wait for Play so an idle room writes nothing (kit K3).
+        var canPeople = !!(root.gifos && root.gifos.people);
+        loadAlgo(id, input, { play: !canPeople, speed: speed });
       }
     }).catch(function () {
       loadAlgo('bubble-sort', null, { play: true });
