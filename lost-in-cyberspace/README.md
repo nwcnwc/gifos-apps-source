@@ -15,7 +15,7 @@ index.html          home / hacker / navigator
 style.css           CRT green on black
 vendor/network.js   maze + access-code generator (pinned)
 maze.js             doors, sectors, timer, win/lose
-app.js              seats, Invite room, both views
+app.js              seats from gifos.room, both views
 icon.mjs            procedural icon + 1200×720 cover
 build.mjs           packs the GIF into site/apps/lost-in-cyberspace/
 vendor/COPYING-lost-in-cyberspace.txt
@@ -36,10 +36,10 @@ vendor/UPSTREAM.txt
 
 | capability | why |
 |---|---|
-| `db` | Top scores (`save`, private) and the public room (`room`, read-write). |
+| `db` | Top scores (`save`, private) and the hacker's own row (`room`, read-write: codes sent, score, clock; no presence rows). |
 | `multiplayer` | The room. The invite is the room. |
 
-No `wasm`. No `network`. No WebRTC. `minBuild` is **947**.
+No `wasm`. No `network`. No WebRTC. `minBuild` is **5861**.
 
 ## Building
 
