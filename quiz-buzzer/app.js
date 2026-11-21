@@ -1063,7 +1063,7 @@
   }
   // For the checks (gifos.room kit --people) and testers: the shared game, the players this copy shows, its role.
   window['__quiz-buzzer'] = {
-    state: function () { return match ? { phase: match.phase, round: match.round || 0, scores: match.scores || {}, host: match.host || null } : null; },
+    state: function () { var m = _matchItems.filter(function (x) { return x && x.id === 'm'; })[0]; return m ? { phase: m.phase, round: m.round || 0, scores: m.scores || {}, host: m.host || null } : null; },
     people: function () { return mp.on ? mp.people.map(function (p) { return p.id; }) : []; },
     amHost: function () { return isHost(); }
   };
