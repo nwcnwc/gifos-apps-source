@@ -31,7 +31,7 @@ Check, then checkmate, wins. Stalemate is **not** a draw: the side that left the
 
 - **Computer** — you choose White or Black. It thinks on this device. It looks a little way ahead and never cheats.
 - **Two here** — pass the device. White goes first.
-- **Play a friend** — you sit one colour, they sit the other. After you press Play a friend, press **Invite** in the bar above the app and send the link. The first two people to join take the seats; anyone else watches. **Resign** is there once the game has a move on it.
+- **Play a friend** — you sit one colour, they sit the other. After you press Play a friend, press **Invite** in the bar above the app and send the link. The room seats the first two people; anyone else watches and is next in line. **Resign** is there on your turn once the game has a move on it. **New game** starts the next one. When other people are here, the game opens straight on the shared board.
 
 Invite is not a button inside this game. It lives in the bar above.
 
