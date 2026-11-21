@@ -54,7 +54,7 @@
     var i, r, pick = null, bestT = Infinity;
     for (i = 0; i < roster.length; i++) {
       r = roster[i];
-      if (!r || r.id === me.id || r.seed == null) continue;
+      if (!r || r.seed == null) continue;
       if ((r.t || 0) < bestT) { bestT = r.t || 0; pick = r.seed; }
     }
     return pick;
