@@ -41,7 +41,7 @@ vendor/         GENERATED. Classic scripts + inlined felt art.
 
 | capability | why |
 |---|---|
-| `db` | Solo save (private) and the room’s live totals (read-write). Needs nothing newer than the App Store itself, so `minBuild` is **947**. |
+| `db` | Solo save (private) and the room’s live totals (read-write). Needs gifos.room (build 5861), so `minBuild` is **5861**. |
 | `multiplayer` | The room. Invite is OS chrome — this app never draws its own share sheet. |
 
 No `network`, no `wasm`. The original is plain JS.

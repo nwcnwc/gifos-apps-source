@@ -213,7 +213,7 @@
 
   if (root.gifos && root.gifos.onBack) {
     root.gifos.onBack(function () {
-      if (Y.mp && Y.Mp) Y.Mp.leave();
+      if (Y.mp && Y.Mp && !Y.Mp.inRoom()) Y.Mp.leave();
     });
   }
 
