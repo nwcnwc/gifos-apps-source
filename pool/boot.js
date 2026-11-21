@@ -6,16 +6,23 @@
  * aim with a ghost ball, a portrait table that fills the phone, and two-device
  * turns over gifos.db.
  *
- * MULTIPLAYER. Invite is OS chrome — this app never draws a share button.
- * Host (the person who opened the app) is player 1 and simulates the balls.
- * The friend writes only their own shot (and, after a foul, where they put
- * the white). Nobody writes anybody else's row.
+ * MULTIPLAYER (gifos.room). Invite is OS chrome — this app never draws a
+ * share button. The seats (Player 1, Player 2) come from gifos.room; the line
+ * waits. Turns are 'free' in the room because a pool turn is decided by the
+ * physics (potting keeps the turn, a foul gives ball in hand), which only the
+ * simulation knows: the table row carries whose turn it is. The app's owner
+ * (gifos.info().owner) simulates the balls and writes the 'table' row when it
+ * changes. The other seat writes only its own row in 'shots', and only when it
+ * shoots (or places the white after a foul); the owner applies it and deletes
+ * it. When the owner leaves, GifOS hands the app to the next copy, which takes
+ * the simulation over. Rows are written only when something changes.
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 20;
-  var STALE_MS = 3500;
+  var OWNER_POLL = 2000;   // ms between local info() reads, taken inside the frame loop (no network)
+  var EN = { needsNewer: 'Pool needs a newer GifOS to play together. Reload the page to update.' };
   var PULL_DEAD = 28;
   var PULL_SCALE = 3.6;
   var MIN_SHOT = 7;
@@ -26,13 +33,16 @@
     ((navigator.maxTouchPoints || 0) > 0 && NARROW);
 
   var api = root.gifos || null;
+  var ROOM = !!(api && api.room && api.room.subscribe);
   var me = { id: 'local', name: 'You' };
   var owner = true;
-  var others = {};
+  var rs = null, joined = false, ownerAt = 0, lastTableSig = null, tableN = 0, shotCount = 0, lastWrote = '';
+  var rows = {};          // 'shots' rows by person id (only the seated opponent's counts)
+  var world = null;       // the owner's 'table' row
   var opponent = null;
   var hadOpponent = false;
   var acc = 0;
-  var netReady = !api;
+  var netReady = !ROOM;
   var soundOn = true;
   var actx = null;
   var pulling = false;
@@ -40,10 +50,6 @@
   var held = false;
   var aimed = false;
   var loopGen = 0;
-  var shotSeq = 0;
-  var placeSeq = 0;
-  var lastShotSeq = 0;
-  var lastPlaceSeq = 0;
   var localLock = false;
   var pendingShot = null;
   var pendingPlace = null;
@@ -72,12 +78,20 @@
   function clamp(n, a, b) { return n < a ? a : n > b ? b : n; }
   function db(n) { return api && api.db ? api.db(n) : null; }
   function now() { return Date.now(); }
-  function isMp() { return !!(opponent && (now() - opponent.seen) < STALE_MS); }
+  // My seat: 0 or 1, -1 when I only watch or wait. Local play (no room yet) is seat 0.
+  function mySide() {
+    if (!ROOM || !rs || !rs.me) return 0;
+    for (var i = 0; i < 2; i++) if (rs.seats[i] && rs.seats[i].id && rs.seats[i].id === rs.me.id) return i;
+    return -1;
+  }
+  function watching() { return ROOM && !!rs && mySide() < 0 && !!(rs.seats[0].id && rs.seats[1].id); }
+  function isMp() { return !!opponent || watching(); }
+  // This copy paints the owner's table instead of simulating (not the owner, or not seated).
+  function guestPath() { return isMp() && (!owner || mySide() < 0); }
   function myTurn() {
     if (!Game.policy) return true;
     if (!isMp()) return !AI_ON || Game.policy.turn !== AI_PLAYER_NUM;
-    if (!owner && !opponent) return false;
-    return Game.policy.turn === (owner ? 0 : 1);
+    return Game.policy.turn === mySide();
   }
   function isPortrait() {
     return (window.innerHeight || 0) > (window.innerWidth || 0) + 24;
@@ -194,7 +208,7 @@
 
   GamePolicy.prototype.updateTurnOutcome = function () {
     if (this.turnPlayed && this.won) {
-      var we = isMp() ? (this.turn === (owner ? 0 : 1)) : (!AI_ON || this.turn !== AI_PLAYER_NUM);
+      var we = isMp() ? (this.turn === mySide()) : (!AI_ON || this.turn !== AI_PLAYER_NUM);
       if (!this.foul) showBanner(we ? 'You win' : (AI_ON ? 'Computer wins' : 'Player ' + (this.turn + 1) + ' wins'), 2400);
       else showBanner(we ? 'Foul on the black' : 'They take it', 2200);
     } else if (this.turnPlayed && this.foul) {
@@ -250,20 +264,20 @@
 
   function fire(stick) {
     if (!stick || stick.power < MIN_SHOT) return;
-    if (isMp() && !owner) {
-      if (localLock) return;
+    if (guestPath()) {
+      if (localLock || mySide() < 0) return;
       localLock = true;
-      shotSeq += 1;
-      pendingShot = { seq: shotSeq, power: stick.power, rotation: stick.rotation };
+      pendingShot = { n: world ? world.sc | 0 : 0, power: stick.power, rotation: stick.rotation };
       stick.shooting = true;
       Game.policy.turnPlayed = true;
       stick.origin = stick.shotOrigin.copy();
       Game.gameWorld.whiteBall.moving = true;
       setTimeout(function () { stick.visible = false; }, 500);
       playKind('strike', clamp(stick.power / 10, 0, 1));
-      publish(true);
+      putMine();
       return;
     }
+    shotCount += 1;
     origShoot.call(stick, stick.power, stick.rotation);
   }
 
@@ -281,11 +295,11 @@
 
   function finishPlace(pos) {
     if (!canPlaceAt(pos)) return false;
-    if (isMp() && !owner) {
-      placeSeq += 1;
-      pendingPlace = { seq: placeSeq, x: pos.x, y: pos.y };
+    if (guestPath()) {
+      if (mySide() < 0) return false;
+      pendingPlace = { n: world ? world.sc | 0 : 0, x: pos.x, y: pos.y };
       Game.gameWorld.whiteBall.position = pos.copy();
-      publish(true);
+      putMine();
       return true;
     }
     KEYBOARD_INPUT_ON = true;
@@ -436,7 +450,7 @@
     function frame() {
       if (gen !== loopGen || GAME_STOPPED || menuOn) return;
       if (DISPLAY) {
-        if (isMp() && !owner) guestTick();
+        if (guestPath()) guestTick();
         else {
           maybeApplyRemote();
           Game.gameWorld.handleInput(DELTA);
@@ -446,7 +460,8 @@
           drawAimGuide();
           Mouse.reset();
           Game.handleInput();
-          publish(false);
+          publish();
+          pollOwner();
         }
         setPowerUi();
         setHint();
@@ -474,8 +489,9 @@
     AI.init(Game.gameWorld, Game.policy);
     if (AI_ON && AI_PLAYER_NUM === 0) AI.startSession();
     hideMenu();
+    shotCount = 0;
+    lastTableSig = null;   // a new table: the next look is compared with the stored one (see publish)
     Game.mainLoop();
-    publish(true);
   };
 
   function goMenu() {
@@ -505,6 +521,8 @@
       }
     }
     var pol = Game.policy;
+    if (pendingShot && (h.sc | 0) > pendingShot.n) pendingShot = null;     // the owner took my shot
+    if (pendingPlace && (h.sc | 0) > pendingPlace.n || (pendingPlace && !h.foul)) pendingPlace = null;
     pol.turn = h.turn | 0;
     pol.foul = !!h.foul;
     pol.turnPlayed = !!h.tp;
@@ -533,8 +551,8 @@
   }
 
   function guestTick() {
-    if (opponent) applyHost(opponent);
-    if (myTurn() && Game.policy && !Game.policy.turnPlayed && !(opponent && opponent.moving)) {
+    if (world) applyHost(world);
+    if (myTurn() && Game.policy && !Game.policy.turnPlayed && !(world && world.moving)) {
       Game.gameWorld.handleInput(DELTA);
       if (Game.policy.foul) Game.gameWorld.ballInHand();
     }
@@ -543,25 +561,32 @@
     drawAimGuide();
     Mouse.reset();
     Game.handleInput();
-    publish(false);
   }
 
+  // The owner applies what the other seat asked for: a shot or the white's new place, when it is that seat's turn.
   function maybeApplyRemote() {
-    if (!isMp() || !owner || !opponent || !Game.gameWorld) return;
+    if (!isMp() || !owner || !opponent || !Game.gameWorld || mySide() < 0) return;
     if (Game.gameWorld.ballsMoving()) return;
-    if (Game.policy.turn !== 1) return;
-    if (Game.policy.foul && opponent.place && opponent.place.seq !== lastPlaceSeq) {
-      var pos = new Vector2(opponent.place.x, opponent.place.y);
-      if (finishPlace(pos)) lastPlaceSeq = opponent.place.seq;
+    if (Game.policy.turn !== 1 - mySide()) return;
+    var row = rows[opponent.id], done = false;
+    if (!row) return;
+    if (Game.policy.foul && row.place && row.place.n === shotCount) {
+      done = finishPlace(new Vector2(row.place.x, row.place.y));
+    } else if (!Game.policy.foul && row.shot && row.shot.n === shotCount && !Game.policy.turnPlayed) {
+      shotCount += 1;
+      origShoot.call(Game.gameWorld.stick, row.shot.power, row.shot.rotation);
+      done = true;
     }
-    if (!Game.policy.foul && opponent.shot && opponent.shot.seq !== lastShotSeq && !Game.policy.turnPlayed) {
-      lastShotSeq = opponent.shot.seq;
-      origShoot.call(Game.gameWorld.stick, opponent.shot.power, opponent.shot.rotation);
+    if (done) {
+      delete rows[opponent.id];
+      var shots = db('shots');
+      if (shots && shots.delete) shots.delete(opponent.id).catch(function () {});
     }
   }
 
   /* ------------------------------------------------------------------ */
-  /* net — each player owns exactly one row                              */
+  /* net — gifos.room seats; the other seat writes one row, only when it  */
+  /* acts; the app's owner simulates and owns the 'table' row             */
   /* ------------------------------------------------------------------ */
 
   function packBalls() {
@@ -579,40 +604,32 @@
     return out;
   }
 
-  function ingest(list) {
-    var t = now(), seen = {}, i, p;
-    opponent = null;
-    for (i = 0; i < list.length; i++) {
-      p = list[i];
-      if (!p || !p.id || p.id === me.id) continue;
-      seen[p.id] = 1;
-      var cur = others[p.id];
-      var moved = !cur || cur.stamp !== p.at || cur.host !== p.host;
-      others[p.id] = {
-        id: p.id,
-        name: p.name || 'Friend',
-        stamp: p.at,
-        seen: moved ? t : cur.seen,
-        host: p.host,
-        balls: p.balls,
-        turn: p.turn, foul: p.foul, tp: p.tp, won: p.won, scored: p.scored, fc: p.fc,
-        p0m: p.p0m, p1m: p.p1m, p0t: p.p0t, p1t: p.p1t, p0c: p.p0c, p1c: p.p1c,
-        sr: p.sr, sp: p.sp, sv: p.sv, moving: p.moving,
-        shot: p.shot, place: p.place
-      };
-    }
-    for (var id in others) if (!seen[id] || t - others[id].seen > STALE_MS) delete others[id];
+  function findOpponent() {
+    var sd = mySide();
+    if (!ROOM || !rs || sd < 0) return null;
+    var st = rs.seats[1 - sd];
+    if (!st || !st.id || st.here !== 'here') return null;
+    return { id: st.id, name: st.name || 'Friend' };
+  }
 
-    var ids = Object.keys(others).sort();
-    if (!owner) {
-      for (i = 0; i < ids.length; i++) {
-        if (others[ids[i]].host) { opponent = others[ids[i]]; break; }
-      }
-      if (!opponent && ids.length) opponent = others[ids[0]];
-    } else if (ids.length) {
-      opponent = others[ids[0]];
-    }
+  function refresh() {
+    opponent = findOpponent();
     maybeSwitchMode();
+  }
+
+  function ingestShots(list) {
+    rows = {};
+    for (var i = 0; i < (list || []).length; i++) {
+      var p = list[i];
+      if (!p || !p.id || p.id === me.id) continue;
+      rows[p.id] = { shot: p.shot || null, place: p.place || null };   // only the seated opponent's row is ever read
+    }
+  }
+
+  function ingestTable(list) {
+    var w = null;
+    for (var i = 0; i < (list || []).length; i++) if (list[i] && list[i].id === 'table') w = list[i];
+    world = w;
   }
 
   function maybeSwitchMode() {
@@ -620,10 +637,6 @@
     if (want && !hadOpponent) {
       hadOpponent = true;
       AI_ON = false;
-      lastShotSeq = 0;
-      lastPlaceSeq = 0;
-      shotSeq = 0;
-      placeSeq = 0;
       pendingShot = null;
       pendingPlace = null;
       Game.startNewGame();
@@ -637,73 +650,101 @@
     setHint();
   }
 
-  function publish(force) {
-    var players = db('players');
-    if (!netReady || !players || !me.id || me.id === 'local') return;
-    if (!Game.gameWorld) return;
-    if (!force) {
-      acc += DELTA;
-      if (acc < 1 / PUBLISH_HZ) return;
-    }
-    acc = 0;
-    var rec = {
-      id: me.id,
-      name: me.name,
-      at: now()
-    };
+  // The other seat's row: written only by an action (a shot, the white placed), never on a timer.
+  function putMine() {
+    var shots = db('shots');
+    if (!netReady || !shots || !rs || !rs.me || mySide() < 0 || !isMp()) return;
+    var rec = { id: rs.me.id };
     if (pendingShot) rec.shot = pendingShot;
     if (pendingPlace) rec.place = pendingPlace;
-    if (owner) {
-      var pol = Game.policy;
-      var stick = Game.gameWorld.stick;
-      rec.host = 1;
-      rec.balls = packBalls();
-      rec.turn = pol.turn;
-      rec.foul = pol.foul ? 1 : 0;
-      rec.tp = pol.turnPlayed ? 1 : 0;
-      rec.won = pol.won ? 1 : 0;
-      rec.scored = pol.scored ? 1 : 0;
-      rec.fc = pol.firstCollision ? 1 : 0;
-      rec.p0m = pol.players[0].matchScore.value;
-      rec.p1m = pol.players[1].matchScore.value;
-      rec.p0t = pol.players[0].totalScore.value;
-      rec.p1t = pol.players[1].totalScore.value;
-      rec.p0c = pol.players[0].color || '';
-      rec.p1c = pol.players[1].color || '';
-      rec.sr = Math.round(stick.rotation * 1000) / 1000;
-      rec.sp = Math.round(stick.power * 10) / 10;
-      rec.sv = stick.visible ? 1 : 0;
-      rec.moving = Game.gameWorld.ballsMoving() ? 1 : 0;
-    }
-    players.put(rec).catch(function () {});
+    shots.put(rec).catch(function () {});
+  }
+
+  // The owner's table row, written only when the table or the stick changed (20 Hz at most). A look at a still
+  // table writes nothing, unless the stored row is of another game (then it is replaced once).
+  function publish() {
+    if (!netReady || !isMp() || !owner || mySide() < 0 || !Game.gameWorld) return;
+    var tables = db('table');
+    if (!tables) return;
+    acc += DELTA;
+    if (acc < 1 / PUBLISH_HZ) return;
+    acc = 0;
+    var pol = Game.policy, stick = Game.gameWorld.stick;
+    var rec = {
+      id: 'table',
+      balls: packBalls(),
+      turn: pol.turn,
+      foul: pol.foul ? 1 : 0,
+      tp: pol.turnPlayed ? 1 : 0,
+      won: pol.won ? 1 : 0,
+      scored: pol.scored ? 1 : 0,
+      fc: pol.firstCollision ? 1 : 0,
+      p0m: pol.players[0].matchScore.value,
+      p1m: pol.players[1].matchScore.value,
+      p0t: pol.players[0].totalScore.value,
+      p1t: pol.players[1].totalScore.value,
+      p0c: pol.players[0].color || '',
+      p1c: pol.players[1].color || '',
+      sr: Math.round(stick.rotation * 1000) / 1000,
+      sp: Math.round(stick.power * 10) / 10,
+      sv: stick.visible ? 1 : 0,
+      moving: Game.gameWorld.ballsMoving() ? 1 : 0,
+      sc: shotCount
+    };
+    var sig = JSON.stringify(rec);
+    var first = lastTableSig === null;
+    if (sig === lastTableSig) return;
+    lastTableSig = sig;
+    if (first && (!world || world.sig === sig)) { return; }   // nothing stored, or the same table: no write
+    rec.sig = sig;
+    rec.n = ++tableN;
+    tables.put(rec).catch(function () {});
+  }
+
+  // Who owns the app can change (the owner leaves, GifOS hands it on): a local read, no network.
+  function pollOwner() {
+    if (!ROOM || !api.info) return;
+    var t = now();
+    if (t - ownerAt < OWNER_POLL) return;
+    ownerAt = t;
+    readOwner();
+  }
+  function readOwner() {
+    api.info().then(function (i) {
+      var o = !!(i && i.owner);
+      if (o === owner) return;
+      owner = o;
+      lastTableSig = null;
+      // Handed the app: the table painted so far is the game; the balls stand still and the original rules take over.
+      if (o && Game.gameWorld) {
+        shotCount = world ? world.sc | 0 : shotCount;
+        var balls = Game.gameWorld.balls;
+        for (var k = 0; k < balls.length; k++) { balls[k].moving = false; balls[k].velocity = Vector2.zero; }
+        localLock = false;
+      }
+      refresh();
+    }).catch(function () {});
+  }
+
+  function onRoom(s) {
+    rs = s;
+    if (s && s.me) { me.id = s.me.id; me.name = s.me.name || 'You'; }
+    // Opening the game is asking to play, once; the room seats me, lines me up, or asks the host.
+    if (!joined && s && s.me && s.me.role === 'watcher') { joined = true; gifos.room.join().catch(function () {}); }
+    readOwner();
+    refresh();
   }
 
   function bootNet() {
-    if (!api || !api.db) return;
-    var ready = [];
-    if (api.me) ready.push(api.me().then(function (m) {
-      me.id = (m && m.id) || 'local';
-      me.name = (m && m.name) || 'You';
-    }).catch(function () {}));
-    if (api.info) ready.push(api.info().then(function (i) {
-      owner = !!(i && i.owner);
-    }).catch(function () {}));
-    Promise.all(ready).then(function () {
+    if (!ROOM) { menuStatus.textContent = EN.needsNewer; return; }
+    var ready = api.info ? api.info().then(function (i) { owner = !!(i && i.owner); }).catch(function () {}) : Promise.resolve();
+    ready.then(function () {
       netReady = true;
-      db('players').subscribe(function (list) { ingest(list || []); });
+      db('shots').subscribe(ingestShots);
+      db('table').subscribe(ingestTable);
+      gifos.room.subscribe(onRoom);
       setNames();
-      heartbeat();
-      setInterval(heartbeat, 1000);
     });
-  }
-
-  function heartbeat() {
-    var players = db('players');
-    if (!netReady || !players || !me.id || me.id === 'local') return;
-    if (!menuOn && Game.gameWorld) return;
-    var rec = { id: me.id, name: me.name, at: now() };
-    if (owner) rec.host = 1;
-    players.put(rec).catch(function () {});
   }
 
   /* ------------------------------------------------------------------ */
@@ -846,11 +887,17 @@
     else if (color === Color.yellow) el.classList.add('yellow');
   }
 
+  function seatName(i) {
+    var st = rs && rs.seats && rs.seats[i];
+    if (st && st.id) return rs.me && st.id === rs.me.id ? (me.name || 'You') : (st.name || 'Friend');
+    return i === 0 ? 'Player 1' : 'Player 2';
+  }
+
   function setNames() {
     var n0, n1, turn = Game.policy ? Game.policy.turn : 0;
     if (isMp()) {
-      n0 = owner ? (me.name || 'You') : ((opponent && opponent.name) || 'Host');
-      n1 = owner ? ((opponent && opponent.name) || 'Friend') : (me.name || 'You');
+      n0 = seatName(0);
+      n1 = seatName(1);
     } else {
       n0 = me.name || 'You';
       n1 = AI_ON ? 'Computer' : 'Player 2';
@@ -870,7 +917,7 @@
   function setHint() {
     if (!Game.gameWorld || menuOn) return;
     if (isMp() && !myTurn()) {
-      hint.textContent = Game.gameWorld.ballsMoving() ? 'Balls moving…' : 'Their turn';
+      hint.textContent = mySide() < 0 ? 'Watching' : (Game.gameWorld.ballsMoving() ? 'Balls moving…' : 'Their turn');
       return;
     }
     if (Game.policy && Game.policy.foul && myTurn()) {
@@ -956,6 +1003,16 @@
   Game.start('gameArea', 'screen', 1500, 825);
   installResize();
   bindPointer();
+  // Low-rate shared state only (who is seated, the score) so copies can be compared.
+  root.__pool = {
+    state: function () {
+      return {
+        seats: rs ? rs.seats.map(function (x) { return x.id || null; }) : [],
+        score: world ? [world.p0m | 0, world.p1m | 0] : [0, 0]
+      };
+    }
+  };
+
   setNames();
   bootNet();
 })(window);

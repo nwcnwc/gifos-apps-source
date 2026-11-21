@@ -51,6 +51,17 @@ html, body {
   padding: 0;
 }
 #soundBtn.off { color: #887868; }
+#note {
+  position: absolute;
+  left: 50%;
+  top: max(52px, env(safe-area-inset-top));
+  transform: translateX(-50%);
+  max-width: 90vw;
+  font-size: clamp(12px, 2.4vw, 15px);
+  color: #ffe08a;
+  text-align: center;
+}
+#note[hidden] { display: none; }
 #hint {
   position: absolute;
   left: 50%;

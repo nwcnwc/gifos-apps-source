@@ -10,7 +10,7 @@ The picture is the old 256×240 screen. It scales up to fill the window. There i
 
 - Move: `W` `A` `S` `D` or the arrow keys
 - Fire: `J`, `K`, `Space`, or `Enter`
-- Pause: `P` or `Escape` (the host of the room pauses for everyone)
+- Pause: `P` or `Escape` (the owner of the app pauses for everyone)
 - Title: up/down to pick **1 PLAYER** or **2 PLAYERS**, then fire or `Enter`
 
 **Phone**
@@ -40,7 +40,7 @@ Score: 100 / 200 / 300 / 400 by enemy type, 500 for a prize.
 
 Alone, it is you against the computer. Press **Invite** in the bar above the app and a friend on another phone or computer is the green tank — same stage, same eagle, two guns. Pick **2 PLAYERS** on the title (it says **2 PLAYERS (INVITE)** until someone is in the room). If they join mid-stage they become green on the **next** stage.
 
-The host of the room runs the stage. Guests send move and fire.
+The app's owner runs the stage (GifOS hands that on if the owner leaves). The other player sends move and fire.
 
 ## What is saved
 

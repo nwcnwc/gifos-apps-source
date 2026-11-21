@@ -43,7 +43,10 @@ const read = (p) => readFileSync(join(dir, p), 'utf8');
 const manifest = JSON.parse(read('manifest.json'));
 const listing = JSON.parse(read('listing.json'));
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947 — this app needs nothing newer than the store.');
+if (!(manifest.minBuild >= 5861)) throw new Error('minBuild must be at least 5861 (gifos.room)');
+if (!manifest.room || manifest.room.seats.length !== 4 || manifest.room.turns !== 'free') {
+  throw new Error('manifest.room must declare four lanes, turns free');
+}
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
 }
@@ -129,6 +132,10 @@ if (files['app.js'].includes('id="invite"')) {
 if (!files['app.js'].includes('lanes') || !files['app.js'].includes('writeRace') && !files['race.js'].includes('writeRace')) {
   throw new Error('must keep host-only race writes and per-lane rows');
 }
+if (!files['app.js'].includes('api.room.subscribe') || !files['app.js'].includes('needsNewer')) {
+  throw new Error('seats must come from gifos.room and app.js must carry the older-GifOS line');
+}
+if (/STALE_MS|HB_MS|heartbeat|setInterval/.test(files['app.js'])) throw new Error('no heartbeat or stale window');
 if (!files['style.css'].includes('#0a0a0f')) throw new Error('dark background must be #0a0a0f');
 
 {

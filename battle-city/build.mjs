@@ -61,6 +61,16 @@ if (!existsSync(join(dir, 'help.md'))) throw new Error('help.md is missing');
   files['help.md'] = helpMd;
 }
 
+if (!(manifest.minBuild >= 5861)) throw new Error('minBuild must be at least 5861 (gifos.room)');
+if (!manifest.room || manifest.room.seats.join() !== 'P1,P2' || manifest.room.turns !== 'free') {
+  throw new Error('manifest.room must declare the P1 and P2 seats, turns free');
+}
+{
+  const net = files['net.js'] + files['boot.js'];
+  if (!net.includes('gifos.room.subscribe') && !net.includes('api.room.subscribe')) throw new Error('seats must come from gifos.room');
+  if (!net.includes('needsNewer')) throw new Error('boot.js must carry the older-GifOS line');
+  if (/STALE_MS|HB_MS|heartbeat/.test(net)) throw new Error('no heartbeat or stale window');
+}
 const html = files['index.html'];
 for (const s of SCRIPTS) {
   if (!html.includes('src="' + s + '"')) throw new Error('index.html does not load ' + s);

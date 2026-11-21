@@ -35,14 +35,15 @@ paddle.
 | `db` | Sound pref in a `private` collection; paddle/ball state in a `read-write` one. |
 | `multiplayer` | The room. Invite is OS chrome — this app never draws a share button. |
 
-Needs nothing newer than the App Store itself, so `minBuild` is **947**.
+Seats (Left, Right) come from `gifos.room`, so `minBuild` is **5861**. On an older GifOS the app says so in one line and plays solo against the CPU, writing nothing shared.
 
 ## Two devices, no game server
 
-The host (the person who opened the app) simulates the ball and writes it on
-**their own row**, along with the score. The guest writes only their paddle
-`y`. Nobody writes anybody else's row — anyroad's rule, and the one that lets
-this work with no authority to arbitrate.
+The app's owner (`gifos.info().owner`; GifOS hands it to the next copy when the
+owner leaves) simulates the ball and writes the `world` row (ball and score).
+Each seated player writes only their own `paddles` row, and only when the
+paddle moves or when they ask for a serve. Rows of people who hold no seat are
+ignored. No heartbeat, no stale window: who is here comes from the room.
 
 A subscriber re-downloads the whole collection on every change, so traffic is
 O(players²) even for two people. The publish rate is 20 Hz of a handful of

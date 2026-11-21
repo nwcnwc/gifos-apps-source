@@ -78,6 +78,14 @@ html, body {
   padding: 4px 10px 8px;
   cursor: pointer;
 }
+#note {
+  flex: 0 0 auto;
+  font-size: clamp(11px, 2.4vw, 14px);
+  color: #d8c070;
+  text-align: center;
+  padding: 4px 10px;
+}
+#note[hidden] { display: none; }
 #pads {
   display: none;
   flex: 0 0 auto;

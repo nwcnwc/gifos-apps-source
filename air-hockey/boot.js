@@ -6,25 +6,33 @@
  * no dat.GUI, loaders that do not XHR (the sandbox blocks it), Web Audio
  * fallback, touch, and two-device play over gifos.db.
  *
- * MULTIPLAYER. Invite is OS chrome — this app never draws a share button.
- * The host (the person who opened the app) is the near paddle and simulates
- * the puck. The friend writes only their own paddle. Nobody writes anybody
- * else's row.
+ * MULTIPLAYER (gifos.room). Invite is OS chrome — this app never draws a
+ * share button. The seats (Near, Far) come from gifos.room; the line waits.
+ * Each seated player writes only their own paddle row, and only while they
+ * move it. The app's owner (gifos.info().owner) simulates the puck and writes
+ * the 'world' row when it changes; the other copy paints it. When the owner
+ * leaves, GifOS hands the app to the next copy, which takes the simulation
+ * over. An empty Far seat is the CPU.
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 20;
-  var STALE_MS = 2500;
+  var OWNER_POLL = 2;   // seconds of frames between local info() reads (no network)
+  var EN = { needsNewer: 'Air Hockey needs a newer GifOS to play together. Reload the page to update.' };
 
   var api = root.gifos || null;
+  var ROOM = !!(api && api.room && api.room.subscribe);
   var me = { id: 'local', name: 'You' };
   var owner = true;
-  var others = {};
+  var rs = null, joined = false, ownerAcc = 0, moved = false, lastWrote = null, lastWorldSig = null, worldN = 0;
+  var rows = {};          // paddle rows by person id
+  var world = null, worldAt = 0;
   var opponent = null;
   var hadOpponent = false;
   var acc = 0;
-  var netReady = !api;
+  var netReady = !ROOM;
+  var origUpdate = null;
   var soundOn = true;
   var actx = null;
   var gameScene = null;
@@ -33,6 +41,7 @@
   var projector = null;
 
   var hint = document.getElementById('hint');
+  var note = document.getElementById('note');
   var soundBtn = document.getElementById('soundBtn');
   var scoreA = document.getElementById('playerA_score');
   var scoreB = document.getElementById('playerB_score');
@@ -40,7 +49,14 @@
   function clamp(n, a, b) { return n < a ? a : n > b ? b : n; }
   function db(n) { return api && api.db ? api.db(n) : null; }
   function now() { return Date.now(); }
-  function isMp() { return !!(opponent && (now() - opponent.seen) < STALE_MS); }
+  function isMp() { return !!opponent; }
+  // My side: 0 near (player A), 1 far (player B), -1 not seated. Local play (no room yet) is near.
+  function mySide() {
+    if (!ROOM || !rs || !rs.me) return 0;
+    for (var i = 0; i < 2; i++) if (rs.seats[i] && rs.seats[i].id && rs.seats[i].id === rs.me.id) return i;
+    return -1;
+  }
+  function spectating() { return ROOM && !!rs && mySide() < 0; }
   function round(n) { return Math.round(n * 1000) / 1000; }
 
   /* ------------------------------------------------------------------ */
@@ -227,25 +243,31 @@
     model.soundEnabled = soundOn;
     gameScene = new Hockey.GameScene(renderer, model);
 
-    var origUpdate = Hockey.GameScene.prototype.update;
+    origUpdate = Hockey.GameScene.prototype.update;
     Hockey.GameScene.prototype.update = function () {
       if (this.model.state === Hockey.GameModel.STATES.LOADING) return;
       if (!this.model.playerA || !this.model.playerA.paddle) return;
-      if (isMp() && !owner) {
-        guestUpdate(this);
-        return;
-      }
-      if (isMp() && owner && opponent && this.model.playerB.paddle) {
-        this.model.playerB.paddle.position.x = opponent.x;
-        this.model.playerB.paddle.position.z = opponent.z;
-        this.model.playerB.paddle.position.y = this.model.tableSize.height;
-        var ai = this.ai;
-        this.ai = { play: function () {} };
+      var sd = mySide();
+      if (spectating()) { watchUpdate(this); return; }
+      if (owner || !isMp()) {
+        if (sd === 1) { farSimUpdate(this); return; }
+        if (isMp() && opponent && opponent.x != null && this.model.playerB.paddle) {
+          this.model.playerB.paddle.position.x = opponent.x;
+          this.model.playerB.paddle.position.z = opponent.z;
+          this.model.playerB.paddle.position.y = this.model.tableSize.height;
+        }
+        if (isMp()) {
+          var ai = this.ai;
+          this.ai = { play: function () {} };
+          try { origUpdate.call(this); } catch (e) {}
+          this.ai = ai;
+          return;
+        }
         try { origUpdate.call(this); } catch (e) {}
-        this.ai = ai;
         return;
       }
-      try { origUpdate.call(this); } catch (e) {}
+      if (sd === 1) { guestUpdate(this); return; }
+      nearGuestUpdate(this);
     };
 
     Hockey.GameScene.prototype.updateScores = function () {
@@ -258,11 +280,11 @@
     canvas.addEventListener('pointerdown', function (ev) {
       resumeAudio();
       try { canvas.setPointerCapture(ev.pointerId); } catch (e) {}
-      if (gameScene) gameScene.processInput(ev.clientX, ev.clientY);
+      if (gameScene && !spectating()) { moved = true; gameScene.processInput(ev.clientX, ev.clientY); }
       ev.preventDefault();
     }, { passive: false });
     canvas.addEventListener('pointermove', function (ev) {
-      if (gameScene) gameScene.processInput(ev.clientX, ev.clientY);
+      if (gameScene && !spectating()) { moved = true; gameScene.processInput(ev.clientX, ev.clientY); }
       ev.preventDefault();
     }, { passive: false });
 
@@ -272,6 +294,7 @@
       var dt = Math.min(0.05, (t - last) / 1000);
       last = t;
       if (gameScene) gameScene.render();
+      pollOwner(dt);
       publish(dt);
       requestAnimationFrame(frame);
     }
@@ -296,13 +319,13 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /* guest: paint host puck, move own paddle, never simulate a goal      */
+  /* the far end: camera turned round, my paddle is player B             */
   /* ------------------------------------------------------------------ */
 
-  function guestUpdate(scene) {
+  function farView(scene) {
     var model = scene.model;
     var tableSize = model.tableSize;
-    if (!tableSize || !tableSize.width || !model.playerB.paddle) return;
+    if (!tableSize || !tableSize.width || !model.playerB.paddle) return false;
 
     var camera = scene.camera;
     var cy = 2.5 + tableSize.height;
@@ -328,17 +351,23 @@
         paddle.position.z = -tableSize.depth * (0.5 - model.goalSize.depth) + paddleRadius;
       }
     }
+    return true;
+  }
 
-    if (!opponent) return;
-    if (model.playerA.paddle && opponent.ax != null) {
-      model.playerA.paddle.position.x = opponent.ax;
-      model.playerA.paddle.position.z = opponent.az;
-      model.playerA.paddle.position.y = tableSize.height;
-    }
-    if (opponent.pucks && model.pucks) {
-      var age = Math.max(0, Math.min(0.12, (now() - opponent.seen) / 1000));
-      for (var i = 0; i < model.pucks.length && i < opponent.pucks.length; i++) {
-        var src = opponent.pucks[i];
+  function setPaddle(p, x, z, h) {
+    if (!p || x == null) return;
+    p.position.x = x;
+    p.position.z = z;
+    p.position.y = h;
+  }
+
+  function paintWorld(scene) {
+    var model = scene.model, w = world;
+    if (!w) return;
+    if (w.pucks && model.pucks) {
+      var age = Math.max(0, Math.min(0.12, (now() - worldAt) / 1000));
+      for (var i = 0; i < model.pucks.length && i < w.pucks.length; i++) {
+        var src = w.pucks[i];
         var dst = model.pucks[i];
         if (!dst || !dst.mesh) continue;
         dst.mesh.position.x = src.x + (src.vx || 0) * age;
@@ -347,55 +376,93 @@
         dst.mesh.traverse(function (o) { o.visible = !!src.on; });
       }
     }
-    if (opponent.sa != null) model.playerA.score = opponent.sa;
-    if (opponent.sb != null) model.playerB.score = opponent.sb;
+    if (w.sa != null) model.playerA.score = w.sa;
+    if (w.sb != null) model.playerB.score = w.sb;
     paintScores();
   }
 
+  // The owner sits at the far end: the original update only knows the near end, so run the far end here.
+  function farSimUpdate(scene) {
+    var model = scene.model;
+    if (!farView(scene)) return;
+    if (opponent) setPaddle(model.playerA.paddle, opponent.x, opponent.z, model.tableSize.height);
+    if (model.state === Hockey.GameModel.STATES.PLAYING && scene.simulation) {
+      try { scene.simulation.updatePaddles(); scene.simulation.simulate(); } catch (e) {}
+    }
+  }
+
+  // Far end, not the owner: paint the owner's puck and the near paddle, move my own paddle.
+  function guestUpdate(scene) {
+    var model = scene.model;
+    if (!farView(scene)) return;
+    if (opponent) setPaddle(model.playerA.paddle, opponent.x, opponent.z, model.tableSize.height);
+    paintWorld(scene);
+  }
+
+  // Near end, not the owner: the original update with the simulation held (RESTING), then paint.
+  function nearGuestUpdate(scene) {
+    var model = scene.model, st = model.state;
+    model.state = Hockey.GameModel.STATES.RESTING;
+    try { origUpdate.call(scene); } catch (e) {}
+    model.state = st;
+    if (opponent) setPaddle(model.playerB.paddle, opponent.x, opponent.z, model.tableSize.height);
+    paintWorld(scene);
+  }
+
+  // Not seated: both paddles from their rows, the puck from the world row.
+  function watchUpdate(scene) {
+    var model = scene.model, st = model.state;
+    model.state = Hockey.GameModel.STATES.RESTING;
+    try { origUpdate.call(scene); } catch (e) {}
+    model.state = st;
+    for (var i = 0; i < 2; i++) {
+      var seat = rs.seats[i], r = seat && seat.id ? rows[seat.id] : null;
+      if (r) setPaddle((i === 0 ? model.playerA : model.playerB).paddle, r.x, r.z, model.tableSize.height);
+    }
+    paintWorld(scene);
+  }
+
   /* ------------------------------------------------------------------ */
-  /* net — each player owns exactly one row                              */
+  /* net — gifos.room seats; each seated player owns one paddle row;      */
+  /* the app's owner simulates and owns the 'world' row                   */
   /* ------------------------------------------------------------------ */
 
-  function ingest(list) {
-    var t = now(), seen = {};
-    opponent = null;
-    for (var i = 0; i < list.length; i++) {
+  function findOpponent() {
+    var sd = mySide();
+    if (!ROOM || !rs || sd < 0) return null;
+    var st = rs.seats[1 - sd];
+    if (!st || !st.id || st.here !== 'here') return null;
+    var r = rows[st.id] || {};
+    return { id: st.id, name: st.name || 'Friend', x: r.x, z: r.z };
+  }
+
+  function refresh() {
+    opponent = findOpponent();
+    maybeSwitchMode();
+  }
+
+  function ingestPaddles(list) {
+    rows = {};
+    for (var i = 0; i < (list || []).length; i++) {
       var p = list[i];
       if (!p || !p.id || p.id === me.id) continue;
-      seen[p.id] = 1;
-      var cur = others[p.id];
-      var moved = !cur || cur.x !== p.x || cur.z !== p.z || cur.stamp !== p.t || cur.host !== p.host;
-      others[p.id] = {
-        id: p.id,
-        name: p.name || 'Friend',
-        x: p.x, z: p.z,
-        ax: p.ax, az: p.az,
-        stamp: p.t,
-        seen: moved ? t : cur.seen,
-        host: p.host,
-        pucks: p.pucks,
-        sa: p.sa, sb: p.sb
-      };
+      rows[p.id] = { x: p.x, z: p.z };   // used only for ids that hold a seat (findOpponent / watchUpdate)
     }
-    for (var id in others) if (!seen[id] || t - others[id].seen > STALE_MS) delete others[id];
+    refresh();
+  }
 
-    var ids = Object.keys(others).sort();
-    if (!owner) {
-      for (var j = 0; j < ids.length; j++) {
-        if (others[ids[j]].host) { opponent = others[ids[j]]; break; }
-      }
-      if (!opponent && ids.length) opponent = others[ids[0]];
-    } else if (ids.length) {
-      opponent = others[ids[0]];
-    }
-    maybeSwitchMode();
+  function ingestWorld(list) {
+    var w = null;
+    for (var i = 0; i < (list || []).length; i++) if (list[i] && list[i].id === 'world') w = list[i];
+    if (w && (!world || w.n !== world.n)) worldAt = now();
+    world = w;
   }
 
   function maybeSwitchMode() {
     var want = isMp();
     if (want && !hadOpponent) {
       hadOpponent = true;
-      if (gameScene && gameScene.model) {
+      if (owner && gameScene && gameScene.model) {
         gameScene.model.playerA.score = 0;
         gameScene.model.playerB.score = 0;
         if (gameScene.prepareToServe) gameScene.prepareToServe();
@@ -409,61 +476,89 @@
 
   function myPaddle() {
     if (!gameScene || !gameScene.model) return null;
-    return (!isMp() || owner) ? gameScene.model.playerA.paddle : gameScene.model.playerB.paddle;
+    return mySide() === 1 ? gameScene.model.playerB.paddle : gameScene.model.playerA.paddle;
   }
 
+  // Both writes happen only while someone is playing: my paddle row once I have moved and it changed, the world
+  // row when the puck or score changed. Nothing is written while the table is still.
   function publish(dt) {
-    var players = db('players');
-    if (!netReady || !players || !me.id || me.id === 'local') return;
+    if (!netReady || !isMp() || !rs || !rs.me || mySide() < 0) return;
     if (!gameScene || !gameScene.model || gameScene.model.state === Hockey.GameModel.STATES.LOADING) return;
-    var paddle = myPaddle();
-    if (!paddle) return;
     acc += dt;
     if (acc < 1 / PUBLISH_HZ) return;
     acc = 0;
-    var rec = {
-      id: me.id,
-      name: me.name,
-      x: round(paddle.position.x),
-      z: round(paddle.position.z),
-      t: now()
-    };
-    if (owner) {
-      rec.host = 1;
-      rec.ax = rec.x;
-      rec.az = rec.z;
-      rec.sa = gameScene.model.playerA.score;
-      rec.sb = gameScene.model.playerB.score;
-      rec.pucks = [];
-      var list = gameScene.model.pucks || [];
-      for (var i = 0; i < list.length; i++) {
-        var puck = list[i];
-        var v = gameScene.simulation ? gameScene.simulation.getPuckVelocity(puck.mesh) : { x: 0, y: 0 };
-        rec.pucks.push({
-          x: round(puck.mesh.position.x),
-          z: round(puck.mesh.position.z),
-          vx: round(v.x || 0),
-          vz: round(v.y || 0),
-          on: puck.active ? 1 : 0
-        });
+    var paddle = myPaddle();
+    var paddles = db('paddles');
+    if (paddle && paddles && moved) {
+      var x = round(paddle.position.x), z = round(paddle.position.z);
+      var psig = x + ':' + z;
+      if (psig !== lastWrote) {
+        lastWrote = psig;
+        paddles.put({ id: rs.me.id, x: x, z: z }).catch(function () {});
       }
     }
-    players.put(rec).catch(function () {});
+    if (!owner) { lastWorldSig = null; return; }
+    var worlds = db('world');
+    if (!worlds) return;
+    var w = { id: 'world', sa: gameScene.model.playerA.score, sb: gameScene.model.playerB.score, pucks: [] };
+    var list = gameScene.model.pucks || [];
+    for (var i = 0; i < list.length; i++) {
+      var puck = list[i];
+      var v = gameScene.simulation ? gameScene.simulation.getPuckVelocity(puck.mesh) : { x: 0, y: 0 };
+      w.pucks.push({
+        x: round(puck.mesh.position.x),
+        z: round(puck.mesh.position.z),
+        vx: round(v.x || 0),
+        vz: round(v.y || 0),
+        on: puck.active ? 1 : 0
+      });
+    }
+    var sig = JSON.stringify([w.sa, w.sb, w.pucks]);
+    var first = lastWorldSig === null;
+    var same = sig === lastWorldSig;
+    lastWorldSig = sig;
+    if (first || same) return;   // the first look is only a baseline: a still table writes nothing
+    w.n = ++worldN;
+    worlds.put(w).catch(function () {});
+  }
+
+  // Who owns the app can change (the owner leaves, GifOS hands it on): a local read, no network.
+  function pollOwner(dt) {
+    if (!ROOM || !api.info) return;
+    ownerAcc += dt;
+    if (ownerAcc < OWNER_POLL) return;
+    ownerAcc = 0;
+    readOwner();
+  }
+  function readOwner() {
+    api.info().then(function (i) {
+      var o = !!(i && i.owner);
+      if (o === owner) return;
+      owner = o;
+      lastWorldSig = null;
+      // Handed the app: the puck bodies take the painted positions and this copy simulates from here.
+      if (o && gameScene && gameScene.simulation) { try { gameScene.simulation.updatePucks(); } catch (e) {} }
+      refresh();
+    }).catch(function () {});
+  }
+
+  function onRoom(s) {
+    rs = s;
+    if (s && s.me) { me.id = s.me.id; me.name = s.me.name || 'You'; }
+    // Opening the game is asking to play, once; the room seats me, lines me up, or asks the host.
+    if (!joined && s && s.me && s.me.role === 'watcher') { joined = true; gifos.room.join().catch(function () {}); }
+    readOwner();
+    refresh();
   }
 
   function bootNet() {
-    if (!api || !api.db) return;
-    var ready = [];
-    if (api.me) ready.push(api.me().then(function (m) {
-      me.id = (m && m.id) || 'local';
-      me.name = (m && m.name) || 'You';
-    }).catch(function () {}));
-    if (api.info) ready.push(api.info().then(function (i) {
-      owner = !!(i && i.owner);
-    }).catch(function () {}));
-    Promise.all(ready).then(function () {
+    if (!ROOM) { note.textContent = EN.needsNewer; note.hidden = false; return; }
+    var ready = api.info ? api.info().then(function (i) { owner = !!(i && i.owner); }).catch(function () {}) : Promise.resolve();
+    ready.then(function () {
       netReady = true;
-      db('players').subscribe(function (list) { ingest(list || []); });
+      db('paddles').subscribe(ingestPaddles);
+      db('world').subscribe(ingestWorld);
+      gifos.room.subscribe(onRoom);
       setHint();
       paintScores();
     });
@@ -473,23 +568,33 @@
   /* chrome                                                              */
   /* ------------------------------------------------------------------ */
 
+  function seatLabel(i) {
+    var st = rs && rs.seats && rs.seats[i];
+    if (st && st.id) return rs.me && st.id === rs.me.id ? (me.name || 'You') : (st.name || 'Friend');
+    return null;
+  }
+
   function paintScores() {
     if (!gameScene || !gameScene.model) return;
     var a = gameScene.model.playerA.score || 0;
     var b = gameScene.model.playerB.score || 0;
-    var left = owner || !isMp() ? (me.name || 'You') : ((opponent && opponent.name) || 'Host');
-    var right;
-    if (isMp()) right = owner ? ((opponent && opponent.name) || 'Friend') : (me.name || 'You');
-    else right = 'CPU';
+    var left, right;
+    if (!ROOM || !rs) { left = me.name || 'You'; right = 'CPU'; }
+    else {
+      left = seatLabel(0) || 'Open';
+      // The CPU plays the far end, on the copy that simulates, when nobody holds it.
+      right = seatLabel(1) || ((owner || !isMp()) && mySide() === 0 ? 'CPU' : 'Open');
+    }
     scoreA.textContent = left + ': ' + a;
     scoreB.textContent = right + ': ' + b;
   }
 
   function setHint() {
-    if (isMp()) {
-      hint.textContent = owner
-        ? 'You are this end · drag your paddle'
-        : 'You are the far end · drag your paddle';
+    if (ROOM && rs && rs.me && rs.me.role === 'waiting') hint.textContent = 'You are next in line';
+    else if (ROOM && rs && rs.me && rs.me.role === 'asking') hint.textContent = 'Waiting for the host to seat you';
+    else if (spectating()) hint.textContent = 'Watching';
+    else if (isMp()) {
+      hint.textContent = mySide() === 1 ? 'You are the far end · drag your paddle' : 'You are this end · drag your paddle';
     } else {
       hint.textContent = 'Drag your paddle · Press Invite for a friend';
     }
@@ -515,6 +620,16 @@
       if (r && r.on === false) setSound(false);
     }).catch(function () {});
   }
+
+  // Low-rate shared state only (who is seated, the score) so copies can be compared.
+  root['__air-hockey'] = {
+    state: function () {
+      return {
+        seats: rs ? rs.seats.map(function (x) { return x.id || null; }) : [],
+        score: world ? [world.sa | 0, world.sb | 0] : [0, 0]
+      };
+    }
+  };
 
   setHint();
   bootNet();

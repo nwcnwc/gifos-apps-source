@@ -118,7 +118,10 @@ if (!/no battery chip/i.test(helpMd)) {
 }
 if (!listing.basedOn || listing.basedOn.blessed !== false) throw new Error('basedOn.blessed must be false');
 if (listing.author && /gifos/i.test(listing.author.name)) throw new Error('author is them, not GifOS');
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947');
+if (!(manifest.minBuild >= 5861)) throw new Error('minBuild must be at least 5861 (gifos.room)');
+if (!manifest.room || manifest.room.seats.join() !== 'Pad 1,Pad 2' || manifest.room.turns !== 'free') {
+  throw new Error('manifest.room must declare the Pad 1 and Pad 2 seats, turns free');
+}
 if (!manifest.capabilities || manifest.capabilities.db !== true) throw new Error('capabilities.db');
 if (!manifest.capabilities.multiplayer) throw new Error('capabilities.multiplayer');
 if (manifest.capabilities.network) throw new Error('no network — carts are in the GIF');
@@ -157,6 +160,11 @@ const files = {
   'UPSTREAM.txt': read('vendor/UPSTREAM.txt'),
 };
 
+{
+  const nj = files['net.js'] + files['boot.js'];
+  if (!nj.includes('api.room.subscribe') || !nj.includes('needsNewer')) throw new Error('seats must come from gifos.room and boot.js must carry the older-GifOS line');
+  if (/STALE_MS|PUBLISH_HZ|heartbeat/.test(nj)) throw new Error('no heartbeat or stale window: a pad row is written only when the mask changes');
+}
 for (const [n, s] of Object.entries(files)) {
   if (!n.endsWith('.js')) continue;
   if (/<\/script/i.test(s)) throw new Error(n + ' contains </script — cannot inline safely');

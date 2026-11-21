@@ -3,8 +3,8 @@
   "appId": "pool",
   "name": "Pool",
   "shortName": "Pool",
-  "version": "1.0.0",
-  "minBuild": 947,
+  "version": "1.1.0",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [46, 150, 78],
   "capabilities": {
@@ -15,8 +15,14 @@
     "prefs": {
       "visibility": "private"
     },
-    "players": {
+    "shots": {
+      "visibility": "read-write"
+    },
+    "table": {
       "visibility": "read-write"
     }
+  },
+  "room": {
+    "seats": ["Player 1", "Player 2"], "turns": "free", "min": 1, "moves": []
   }
 }

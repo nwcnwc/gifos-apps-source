@@ -85,8 +85,15 @@ for (const [n, s] of Object.entries(files)) {
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
 }
-if (manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947 — this app needs nothing newer than the store itself.');
+if (!(manifest.minBuild >= 5861)) throw new Error('minBuild must be at least 5861 (gifos.room)');
+if (!manifest.room || manifest.room.seats.join() !== 'Left,Right' || manifest.room.turns !== 'free') {
+  throw new Error('manifest.room must declare the Left and Right seats, turns free');
+}
+{
+  const js = files['boot.js'];
+  if (!js.includes('gifos.room.subscribe') || !js.includes('gifos.room.join')) throw new Error('boot.js must take its seats from gifos.room');
+  if (/setInterval|STALE_MS|HB_MS|heartbeat/.test(js)) throw new Error('no heartbeat or stale window: rows are written only when the paddle moves');
+  if (!js.includes('needsNewer')) throw new Error('boot.js must carry the older-GifOS line');
 }
 
 const shot = screenshotPng();

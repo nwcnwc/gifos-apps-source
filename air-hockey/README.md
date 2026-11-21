@@ -43,13 +43,16 @@ feeding the loaders from the GIF filesystem (the sandbox refuses XHR).
 | `db` | Sound pref in a `private` collection; paddle/puck state in a `read-write` one. |
 | `multiplayer` | The room. Invite is OS chrome — this app never draws a share button. |
 
-Needs nothing newer than the App Store itself, so `minBuild` is **947**.
+Seats (Near, Far) come from `gifos.room`, so `minBuild` is **5861**. On an older GifOS the app says so in one line and plays solo against the CPU, writing nothing shared.
 
 ## Two devices, no game server
 
-The host (the person who opened the app) simulates the puck and writes it on
-**their own row**, along with the score and their paddle. The guest writes only
-their paddle. Nobody writes anybody else's row.
+The app's owner (`gifos.info().owner`; GifOS hands it to the next copy when the
+owner leaves) simulates the puck and writes the `world` row (puck and score)
+when it changes. Each seated player writes only their own `paddles` row, and
+only while they move it. Rows of people who hold no seat are ignored. No
+heartbeat, no stale window. When the owner sits at the far end the CPU cannot
+stand in for the near end (the original AI only plays the far paddle).
 
 A subscriber re-downloads the whole collection on every change, so traffic is
 O(players²) even for two people. The publish rate is 20 Hz of a handful of

@@ -3,8 +3,8 @@
   "appId": "thumb-sprint",
   "name": "Thumb Sprint",
   "shortName": "Sprint",
-  "version": "1.0.0",
-  "minBuild": 947,
+  "version": "1.1.0",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [255, 92, 74],
   "capabilities": {
@@ -15,5 +15,8 @@
     "save": { "visibility": "private" },
     "race": { "visibility": "read-only" },
     "lanes": { "visibility": "read-write" }
+  },
+  "room": {
+    "seats": ["Lane 1", "Lane 2", "Lane 3", "Lane 4"], "turns": "free", "min": 1, "moves": []
   }
 }

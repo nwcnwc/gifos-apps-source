@@ -19,6 +19,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var gamesBtn = $('btn-games'), closeBtn = $('lib-close'), dropBtn = $('btn-drop');
   var fileEl = $('file'), libEl = $('library');
+  var EN = { needsNewer: 'jsnes needs a newer GifOS to play together. Reload the page to update.' };
   var nameEl = $('cart-name'), whoEl = $('who'), hintEl = $('hint');
   var pauseBtn = $('btn-pause'), resetBtn = $('btn-reset'), muteBtn = $('btn-mute');
   var saveBtn = $('btn-save'), loadBtn = $('btn-load'), slotBtn = $('btn-slot');
@@ -113,8 +114,8 @@
       return;
     }
     whoEl.hidden = false;
-    var pad = root.Net.owner() ? 'P1' : 'P2';
-    whoEl.textContent = pad + ' · ' + root.Net.count() + ' pads';
+    var mine = root.Net.myPad();
+    whoEl.textContent = (mine ? 'P' + mine : 'Watching') + ' · ' + root.Net.count() + ' pads';
   }
 
   function paintChrome() {
@@ -388,6 +389,11 @@
         root.Net.onCart(followHost);
       }
       paintWho();
+      if (room.old) {
+        var note = $('note');
+        note.textContent = EN.needsNewer;
+        note.hidden = false;
+      }
       if (!room.owner) {
         var pend = root.Net && root.Net.pendingCart();
         if (pend) followHost(pend);
@@ -406,6 +412,14 @@
       }
     });
   }
+
+  /* Low-rate shared state only (who is seated, which cart) so copies can be compared. */
+  root.__jsnes = {
+    state: function () {
+      var s = root.Net ? root.Net.session() : null;
+      return { seats: root.Net ? root.Net.seats() : [], cart: s ? s.hash || '' : '' };
+    }
+  };
 
   function start() {
     loadPrefs().then(loadLibrary).then(boot);

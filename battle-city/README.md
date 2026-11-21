@@ -17,9 +17,9 @@ index.html          canvas, the hidden SFX tags, the on-screen pad
 style.css           pad / fire button
 stages.js           the 35 stages, generated from vendor/stages
 game.js             sim + draw (classic IIFE)
-net.js              presence, pose/fire, the host's world snapshot
+net.js              room seats, pose/fire, the owner's world snapshot
 sound.js            plays the inlined <audio> tags
-boot.js             input, host/guest loop, title
+boot.js             input, owner/guest loop, title
 icon.mjs            yellow-tank icon + 1200×720 cover
 vendor/sound        feichao93's OGG SFX
 vendor/stages       feichao93's stage JSON
@@ -34,7 +34,7 @@ build.mjs           packs site/apps/battle-city/battle-city.gif
 | `multiplayer` | The room. Invite is OS chrome — this app does not draw a share button. |
 
 No `network`. Nobody writes anybody else's row: each device publishes its
-own tank, the host publishes the stage.
+own tank (only when it changes, only while seated), the app's owner publishes the stage. Seats come from `gifos.room` (minBuild 5861).
 
 ## The remake, honestly
 

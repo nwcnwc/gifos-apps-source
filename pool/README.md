@@ -39,14 +39,15 @@ stick, and not shipping the 9 MB jazz track or the menu PNGs.
 | `db` | Sound pref in a `private` collection; shots and the table in a `read-write` one. |
 | `multiplayer` | The room. Invite is OS chrome — this app never draws a share button. |
 
-Needs nothing newer than the App Store itself, so `minBuild` is **947**.
+Seats (Player 1, Player 2) come from `gifos.room`, so `minBuild` is **5861**. Turns are `free` in the room: a pool turn is decided by the physics (potting keeps it, a foul gives the other player the white), so the table row carries whose turn it is. On an older GifOS the app says so in one line; the menu games still work, nothing shared is written.
 
 ## Two devices, no game server
 
-The host (the person who opened the app) simulates the balls and writes the
-table on **their own row**. The guest writes only a shot — power and angle —
-and, after a foul, where they put the white. Nobody writes anybody else's
-row.
+The app's owner (`gifos.info().owner`; GifOS hands it to the next copy when the
+owner leaves) simulates the balls and writes the `table` row when it changes.
+The other seat writes only its own `shots` row, and only when it shoots (power
+and angle) or places the white after a foul; the owner applies it and deletes
+the row. No heartbeat, no stale window.
 
 A subscriber re-downloads the whole collection on every change, so traffic is
 O(players²) even for two people. The publish rate is 20 Hz of a handful of

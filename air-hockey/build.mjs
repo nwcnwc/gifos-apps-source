@@ -63,7 +63,10 @@ for (const need of NEED) {
   }
 }
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947 — this app needs nothing newer than the store.');
+if (!(manifest.minBuild >= 5861)) throw new Error('minBuild must be at least 5861 (gifos.room)');
+if (!manifest.room || manifest.room.seats.join() !== 'Near,Far' || manifest.room.turns !== 'free') {
+  throw new Error('manifest.room must declare the Near and Far seats, turns free');
+}
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
 }
@@ -71,8 +74,8 @@ if (manifest.capabilities.network) throw new Error('air-hockey has no network pa
 if (!manifest.data || !manifest.data.prefs || manifest.data.prefs.visibility !== 'private') {
   throw new Error('prefs must be private');
 }
-if (!manifest.data.players || manifest.data.players.visibility !== 'read-write') {
-  throw new Error('players must be read-write');
+if (!manifest.data.paddles || !manifest.data.world || manifest.data.paddles.visibility !== 'read-write') {
+  throw new Error('paddles and world must be read-write');
 }
 if (listing.author && listing.author.name === 'GifOS') {
   throw new Error('author is MortimerGoro, never GifOS — this is a port');
@@ -127,6 +130,12 @@ const files = {
 if (!existsSync(join(dir, 'help.md'))) throw new Error('help.md is missing');
 files['help.md'] = read('help.md');
 if (files['help.md'].trim().length < 400) throw new Error('help.md is too short');
+{
+  const js = files['boot.js'];
+  if (!js.includes('gifos.room.subscribe') || !js.includes('gifos.room.join')) throw new Error('boot.js must take its seats from gifos.room');
+  if (/setInterval|STALE_MS|HB_MS|heartbeat/.test(js)) throw new Error('no heartbeat or stale window: rows are written only when something changes');
+  if (!js.includes('needsNewer')) throw new Error('boot.js must carry the older-GifOS line');
+}
 
 const html = files['index.html'];
 for (const s of SCRIPTS) {
