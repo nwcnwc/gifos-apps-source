@@ -447,12 +447,14 @@ function runningBot(opts) {
   const left = [];
   const joined = [];
   let n = 0;
+  let workTries = 0;
   let onHeld = function () {};
   const held = new Promise(function (res) { onHeld = res; });
   const stubMeet = {
     join: function (room, password, name, o) {
       const s = { meetingId: 'mt_' + (++n), room: String(room), link: 'https://gifos.app/run.html#v=' + room };
       joined.push(s.meetingId);
+      if (opts.failWork && !(o && o.control)) { workTries++; return Promise.reject(new Error('Meeting session did not start.')); }
       if (opts.holdWorkJoin && !(o && o.control)) return new Promise(function (res) { opts.holdWorkJoin.release = function () { res(s); }; onHeld(); });
       return Promise.resolve(s);
     },
@@ -476,12 +478,21 @@ function runningBot(opts) {
   return ready.then(function () {
     const adminId = 'mt_2'; // mt_1 is the probe, which has left by now.
     return {
-      Bot: box.MeetingBot, left: left, joined: joined, started: started, ticks: ticks,
+      Bot: box.MeetingBot, tries: function () { return workTries; }, left: left, joined: joined, started: started, ticks: ticks,
       beat: function (fields) {
         const text = box.BotProto.encode(Object.assign({ v: 1, role: 'bot', op: 'beat', instance: 'other-bot', meetings: [] }, fields));
         chats.forEach(function (cb) { cb({ control: true, meetingId: adminId, text: text }); });
       }
     };
+  });
+}
+function joinFailCase() {
+  return runningBot({ failWork: true }).then(function (b) {
+    return b.started.then(b.ticks).then(function () {
+      const st = b.Bot.status();
+      check('failed work join: 3 tries, then listed as failed', b.tries() === 3 && st.failedJoins.length === 1 && st.failedJoins[0] === 'roomcode', JSON.stringify([b.tries(), st.failedJoins]));
+      check('failed work join: the reason is shown plainly', /Couldn't join roomcode/.test(st.warning) && /did not start/.test(st.warning), st.warning);
+    });
   });
 }
 function stepDownCase() {
@@ -530,18 +541,34 @@ function stepDownCase() {
   });
 }
 
+check('autoJoin uses bounded retry and shows a Retry state', /joinWithRetry/.test(app) && /join-retry/.test(app) && /id="join-failed"/.test(html));
+(async function () {
+  const noWait = () => Promise.resolve();
+  let calls = 0;
+  let r = await P.joinWithRetry(() => (++calls < 3 ? Promise.reject(new Error('Meeting session did not start.')) : Promise.resolve({ meetingId: 'm1' })), { sleep: noWait });
+  check('join succeeds on the 3rd try', r.ok && r.attempts === 3 && r.session.meetingId === 'm1');
+  calls = 0; const seen = [];
+  r = await P.joinWithRetry(() => { calls++; return Promise.reject(new Error('Meeting session did not start.')); }, { sleep: noWait, onFail: (n, m, again) => seen.push([n, again]) });
+  check('join gives up after 3 tries with the plain reason', !r.ok && calls === 3 && r.error === 'Meeting session did not start.' && JSON.stringify(seen) === '[[1,true],[2,true],[3,false]]');
+  const waits = [];
+  await P.joinWithRetry(() => Promise.reject(new Error('x')), { tries: 3, delays: [10, 20], sleep: (ms) => { waits.push(ms); return Promise.resolve(); } });
+  check('retries back off by the delay list', JSON.stringify(waits) === '[10,20]');
+  r = await P.joinWithRetry(() => { throw new Error('sync boom'); }, { tries: 1, sleep: noWait });
+  check('a synchronous throw is a failed try, not a crash', !r.ok && r.error === 'sync boom');
+})().then(function () {
 P.derive('harbor-maple', suggestion.password).then(function (a) {
   return P.derive('harbor-maple', suggestion.password).then(function (b) {
     return P.derive('harbor-maple', suggestion.password + 'x').then(function (c) {
       check('KDF room is stable and 32 hex chars', a.room === b.room && /^[a-f0-9]{32}$/.test(a.room), a.room);
       check('KDF password is stable and not the room', a.password === b.password && a.password !== a.room && /^[a-f0-9]{32}$/.test(a.password));
       check('a different password derives a different room', c.room !== a.room);
-      return voiceUnits().then(appCase).then(stepDownCase).then(function () {
+      return voiceUnits().then(appCase).then(stepDownCase).then(joinFailCase).then(function () {
         console.log(failures ? ('\n' + failures + ' FAILURE(S)') : '\nALL PASS');
         process.exit(failures ? 1 : 0);
       });
     });
   });
+});
 }).catch(function (e) {
   console.error(e);
   process.exit(1);

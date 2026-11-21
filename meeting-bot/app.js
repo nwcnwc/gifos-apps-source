@@ -4,6 +4,7 @@
   var DUP = BotProto.DUP;
   var state = {
     phase: 'idle',
+    failed: {},
     name: '',
     admin: null,
     adminId: '',
@@ -1136,22 +1137,59 @@
       speaking: !!state.speaking, listening: !!state.listen && !state.speaking, thinking: thinkingNow()
     })).catch(function () {});
   }
+  // Work-link joins: each link retries a bounded number of times; a link that
+  // still fails is shown plainly with a Retry button instead of a silent Running.
+  function joinWork(link) {
+    if (state.phase !== 'run') return Promise.resolve({ ok: false });
+    var gen = state.runSince;
+    state.failed[link] = null;
+    return BotProto.joinWithRetry(function () {
+      return gifos.meet.join(link, '', state.name, { bot: true });
+    }, {
+      onFail: function (n, msg, again) {
+        log('join failed (try ' + n + '): ' + msg + (again ? ' - retrying' : ''));
+        if (again) warn('Could not join ' + link + ' (' + msg + '). Retrying...');
+      }
+    }).then(function (r) {
+      if (r.ok) {
+        if (state.phase !== 'run' || state.runSince !== gen) {
+          return gifos.meet.leave(r.session.meetingId).catch(function () {}).then(function () { return r; });
+        }
+        remember(r.session, link, false);
+        paint();
+        log('joined ' + r.session.meetingId);
+      } else {
+        state.failed[link] = r.error;
+        log('gave up joining ' + link + ' after ' + r.attempts + ' tries');
+      }
+      paintFailed();
+      return r;
+    });
+  }
+  function paintFailed() {
+    var box = document.getElementById('join-failed');
+    var links = Object.keys(state.failed).filter(function (l) { return state.failed[l]; });
+    warn(links.length ? "Couldn't join " + links.join(', ') + ': ' + state.failed[links[0]] : '');
+    if (!box) return;
+    box.innerHTML = '';
+    links.forEach(function (link) {
+      var row = document.createElement('div');
+      row.className = 'join-failed-row';
+      row.textContent = "Couldn't join " + link + ' (' + state.failed[link] + ') ';
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = 'Retry';
+      b.className = 'join-retry';
+      b.onclick = function () { joinWork(link); };
+      row.appendChild(b);
+      box.appendChild(row);
+    });
+  }
   function autoJoin() {
     var links = String(rulesEl.value || '').split(/\n+/).map(function (s) { return s.trim(); }).filter(Boolean);
     var chain = Promise.resolve();
     links.forEach(function (link) {
-      chain = chain.then(function () {
-        if (state.phase !== 'run') return;
-        var gen = state.runSince;
-        return gifos.meet.join(link, '', state.name, { bot: true }).then(function (sess) {
-          if (state.phase !== 'run' || state.runSince !== gen) {
-            return gifos.meet.leave(sess.meetingId).catch(function () {});
-          }
-          remember(sess, link, false);
-          paint();
-          log('joined ' + sess.meetingId);
-        });
-      });
+      chain = chain.then(function () { return joinWork(link); });
     });
     return chain;
   }
@@ -1306,7 +1344,8 @@
   function status() {
     return {
       phase: state.phase, connected: !!state.adminId, name: state.name,
-      meetings: state.phase === 'run' ? workMeetings() : state.ctrlItems.slice(), warning: warnEl.textContent || '',
+      meetings: state.phase === 'run' ? workMeetings() : state.ctrlItems.slice(),
+      failedJoins: Object.keys(state.failed).filter(function (l) { return state.failed[l]; }), warning: warnEl.textContent || '',
       respond_to_command: !!state.respond,
       speak: !!state.speak,
       listen: !!state.listen,
