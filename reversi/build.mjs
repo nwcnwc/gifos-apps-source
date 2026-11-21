@@ -118,11 +118,11 @@ if (/>\s*Invite\s*</.test(html) || /id=["']invite/i.test(html)) {
 if (!files['COPYING-reversi.txt'].includes('Alexander Berson')) {
   throw new Error('COPYING-reversi.txt is not Alexander Berson\'s MIT notice');
 }
-if (!files['app.js'].includes('intent') || !files['app.js'].includes('putMe')) {
-  throw new Error('app.js must publish moves on the player\'s own row');
+if (!files['app.js'].includes('gifos.room.move') || /putMe|PRES_TTL|HB_MS/.test(files['app.js'])) {
+  throw new Error('app.js must move through gifos.room.move and keep no presence rows or heartbeat');
 }
-if (!files['app.js'].includes('putBoard') || !files['app.js'].includes('isHost')) {
-  throw new Error('host applies legal moves to the board row; nobody else writes it');
+if (!files['app.js'].includes('gifos.room.subscribe') || !/newer GifOS/.test(files['app.js'])) {
+  throw new Error('app.js must read seats and turn from gifos.room.subscribe and say plainly when GifOS is too old');
 }
 if (!files['app.js'].includes('flipping') || files['app.js'].includes('inversion')) {
   throw new Error('flips must be a disc turning over, not a CSS invert flash');

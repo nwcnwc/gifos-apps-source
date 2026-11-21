@@ -119,11 +119,11 @@ if (/>\s*Invite\s*</.test(html) || /id=["']invite/i.test(html)) {
 if (!files['COPYING-checkers.txt'].includes('stroibot')) {
   throw new Error('COPYING-checkers.txt is not stroibot\'s MIT notice');
 }
-if (!files['app.js'].includes('intent') || !files['app.js'].includes('putMe')) {
-  throw new Error('app.js must publish moves on the player\'s own row');
+if (!files['app.js'].includes('gifos.room.move') || /putMe|PRES_TTL|HB_MS/.test(files['app.js'])) {
+  throw new Error('app.js must move through gifos.room.move and keep no presence rows or heartbeat');
 }
-if (!files['app.js'].includes('putBoard') || !files['app.js'].includes('isHost')) {
-  throw new Error('host applies legal moves to the board row; nobody else writes it');
+if (!files['app.js'].includes('gifos.room.subscribe') || !/newer GifOS/.test(files['app.js'])) {
+  throw new Error('app.js must read seats and turn from gifos.room.subscribe and say plainly when GifOS is too old');
 }
 if (!files['style.css'].includes('touch-action:manipulation')) {
   throw new Error('the board must be touch-action:manipulation');

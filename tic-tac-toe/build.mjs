@@ -85,11 +85,11 @@ const packed = files['app.js'] + files['rules.js'] + html;
 if (/colyseus|joinOrCreate|@colyseus|pixi\.js/i.test(packed)) {
   throw new Error('Colyseus/Pixi must not ship — the room was ripped out');
 }
-if (!files['app.js'].includes('intent') || !files['app.js'].includes('putMe')) {
-  throw new Error('app.js must publish moves on the player\'s own row');
+if (!files['app.js'].includes('gifos.room.move') || /putMe|PRES_TTL|HB_MS/.test(files['app.js'])) {
+  throw new Error('app.js must move through gifos.room.move and keep no presence rows or heartbeat');
 }
-if (!files['app.js'].includes('putBoard') || !files['app.js'].includes('isHost')) {
-  throw new Error('host applies legal moves to the board row; nobody else writes it');
+if (!files['app.js'].includes('gifos.room.subscribe') || !/newer GifOS/.test(files['app.js'])) {
+  throw new Error('app.js must read seats and turn from gifos.room.subscribe and say plainly when GifOS is too old');
 }
 if (!files['rules.js'].includes('cpuPick') || !files['rules.js'].includes('cpuMoves')) {
   throw new Error('rules.js must include the perfect-play CPU');
