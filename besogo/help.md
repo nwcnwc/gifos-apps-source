@@ -16,15 +16,14 @@ Captures are listed under the board as **Taken**.
 
 ## A friend
 
-**Play a friend**, then press **Invite** in the bar above the app. The first two people to open the link sit black and white (black is seated first). Anyone else watches.
+**Play a friend**, then press **Invite** in the bar above the app. The room seats the first two people as black and white. Anyone else watches and is next in line. When other people are here, the game opens straight on the shared board.
 
-Tap an empty point on your turn. **Pass**, **Undo**, and **Resign** appear once both seats are filled.
+Tap an empty point on your turn. **Pass** and **Resign** appear on your turn, **Undo** once a stone is down.
 
-- Undo of the stone **you** just put down works at once, if they have not answered yet.
-- Undo further than that: both of you press **Undo**.
-- After a result (two passes, a resign, or someone leaving), the next game starts on its own in a few seconds.
+- Undo takes back a stone you just put down: press **Undo**, and the other player presses **Undo** to agree.
+- After a result (two passes or a resign), press **New game** for the next one.
 
-The board size is whatever the host had selected when the room opened.
+A new board in the room uses the size picked on the menu (19×19 if none).
 
 ## Rules this board actually enforces
 
