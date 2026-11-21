@@ -3,8 +3,8 @@
   "appId": "air-hockey",
   "name": "Air Hockey",
   "shortName": "Air Hockey",
-  "version": "1.0.0",
-  "minBuild": 947,
+  "version": "1.1.0",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [32, 168, 196],
   "capabilities": {
@@ -15,8 +15,14 @@
     "prefs": {
       "visibility": "private"
     },
-    "players": {
+    "paddles": {
+      "visibility": "read-write"
+    },
+    "world": {
       "visibility": "read-write"
     }
+  },
+  "room": {
+    "seats": ["Near", "Far"], "turns": "free", "min": 1, "moves": []
   }
 }

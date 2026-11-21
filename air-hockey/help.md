@@ -27,7 +27,7 @@ You are this end if you opened the app; they are the far end. The puck is the sa
 
 If they leave, the computer takes the far paddle back.
 
-The person who opened the app simulates the puck. A delayed paddle can look like it hit a puck that already missed. This is table ice with a friend over a link, not a tournament.
+The app's owner simulates the puck (GifOS hands it to the next person if the owner leaves). A delayed paddle can look like it hit a puck that already missed. This is table ice with a friend over a link, not a tournament.
 
 ## What is saved
 
