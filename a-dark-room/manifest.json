@@ -3,19 +3,31 @@
   "appId": "a-dark-room",
   "name": "A Dark Room",
   "shortName": "Dark Room",
-  "version": "1.4.0",
-  "minBuild": 1206,
+  "version": "1.5.0",
+  "minBuild": 5861,
   "entry": "index.html",
-  "accent": [232, 168, 72],
+  "accent": [
+    232,
+    168,
+    72
+  ],
   "help": "help.md",
   "capabilities": {
     "db": true,
     "multiplayer": true
   },
   "data": {
-    "save": { "visibility": "private" },
-    "fire": { "visibility": "read-only" },
-    "actions": { "visibility": "read-write" },
-    "presence": { "visibility": "read-write" }
+    "save": {
+      "visibility": "private"
+    },
+    "fire": {
+      "visibility": "read-only"
+    },
+    "actions": {
+      "visibility": "read-write"
+    },
+    "presence": {
+      "visibility": "read-write"
+    }
   }
 }

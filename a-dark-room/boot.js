@@ -7,13 +7,21 @@
 
   var saveDb = root.__adrSaveDb || null;
   try { if (!saveDb && root.gifos && root.gifos.db) saveDb = root.gifos.db('save'); } catch (e) {}
+  // Old GifOS: no writes on boot (kit K2). First tap thaws solo save.
+  var quiet = !!(root.gifos && root.gifos.db && !root.gifos.people);
+  if (quiet) {
+    document.addEventListener('pointerdown', function thaw() {
+      quiet = false;
+      document.removeEventListener('pointerdown', thaw);
+    }, true);
+  }
   var saveTimer = 0;
   var origSave = null;
   var audioCache = {};
   var audioIndex = root.__ADR_AUDIO_INDEX || {};
 
   function persistNow() {
-    if (!saveDb || !saveDb.put) return;
+    if (quiet || !saveDb || !saveDb.put) return;
     var raw;
     try { raw = localStorage.gameState; } catch (e) { raw = null; }
     if (raw == null && root.State) {

@@ -4,6 +4,13 @@
  */
 (function (root) {
   'use strict';
+  var NEEDS_NEWER = "A Dark Room needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.";
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var roomRead = false;
 
   var api = null;
   var me = { id: 'local', name: '' };
@@ -23,8 +30,11 @@
   function now() { return Date.now(); }
 
   function countOthers() {
-    var n = 0, i;
-    for (i = 0; i < roster.length; i++) if (roster[i].id !== me.id) n++;
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id !== me.id && p.here !== 'gone') n++;
+    }
     return n;
   }
 
@@ -117,10 +127,11 @@
     try { $(el).click(); } catch (e) {}
   }
 
-  function ingestPresence(list) {
-    roster = list || [];
+  function syncRoster() {
+    roster = roomPeople;
     paintBadge();
     live = countOthers() > 0 || !isOwner;
+    if (onRoster) onRoster(roster);
   }
 
   function ingestFire(list) {
@@ -164,30 +175,41 @@
     }, true);
   }
 
-  function heartbeat() {
-    var p = db('presence');
-    if (!p) return;
-    p.put({ id: me.id, name: me.name || 'wanderer', at: now() }).catch(function () {});
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomKey = key;
+      roomPeople = ppl;
+      var handed = !owner && !!info.owner && roomRead;
+      owner = !!info.owner;
+      isOwner = owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || ''; }
+      syncRoster();
+      // Handed the app while others are here: this copy hosts the fire now.
+      if (handed && roomPeople.length > 1) { live = true; }
+    }, function () {});
   }
 
   root.Net = {
     init: function () {
       api = root.gifos;
       if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
+      if (!PEOPLE) {
+        return Promise.resolve({ owner: true, others: 0 });
+      }
       interceptClicks();
-      var infoP = api.info ? api.info().then(function (i) {
-        isOwner = !!(i && i.owner);
-        return isOwner;
-      }).catch(function () { isOwner = true; return true; }) : Promise.resolve(true);
-
-      return infoP.then(function () {
-        return api.me ? api.me() : { id: 'local', name: '' };
-      }).then(function (id) {
-        me.id = (id && id.id) || 'local';
-        me.name = (id && id.name) || '';
-        heartbeat();
-        setInterval(heartbeat, 4000);
-        var settled = false;
+      var settled = false;
+      return readRoom().then(function () {
         return new Promise(function (resolve) {
           var done = function () {
             if (settled) return;
@@ -197,15 +219,8 @@
             resolve({ owner: isOwner, others: countOthers() });
           };
           setTimeout(done, 2200);
-          var pres = db('presence');
-          if (pres && pres.subscribe) {
-            pres.subscribe(function (list) {
-              ingestPresence(list || []);
-              done();
-            });
-          } else {
-            done();
-          }
+          setInterval(readRoom, PEOPLE_MS);
+          done();
           var fire = db('fire');
           if (fire && fire.subscribe) fire.subscribe(ingestFire);
           var actions = db('actions');
@@ -220,4 +235,15 @@
     me: function () { return me; },
     onRoster: function (cb) { onRoster = cb; if (cb) cb(roster); }
   };
+  root['__a-dark-room'] = {
+    state: function () { return { seq: seq }; },
+    people: function () {
+      return roomPeople.filter(function (p) { return p && p.id && p.here !== 'gone'; }).map(function (p) { return p.id; });
+    },
+    amHost: function () { return isOwner && live; }
+  };
+  if (!PEOPLE) {
+    var _need = document.getElementById("adr-room");
+    if (_need) { _need.hidden = false; _need.textContent = NEEDS_NEWER; }
+  }
 })(window);

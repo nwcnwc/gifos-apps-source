@@ -90,7 +90,7 @@ for (const need of [
   if (!existsSync(join(dir, need))) throw new Error(need + ' missing');
 }
 
-if (manifest.minBuild !== 1206) throw new Error('minBuild 1206 — packed .assets/ audio');
+if (manifest.minBuild < 5861) throw new Error('minBuild 5861 — packed .assets/ audio');
 if (manifest.appId !== 'a-dark-room') throw new Error('appId');
 if (!manifest.capabilities || manifest.capabilities.db !== true) throw new Error('db');
 if (!manifest.capabilities.multiplayer) throw new Error('multiplayer');

@@ -38,8 +38,7 @@ phones to an app-store splash; this copy plays.
 | `db` | The fire is a `private` save; the host publishes it `read-only` on `fire`; guests propose clicks on `actions`. |
 | `multiplayer` | The room. Invite is OS chrome. |
 
-`minBuild` is **1206** (0.9.6) — packed `.assets/` must be served into the
-sandbox. Needs nothing newer.
+`minBuild` is **5861**. Packed `.assets/` audio still needs a modern sandbox. Who is here comes from the room (`gifos.people()`); the person who shared the app (its owner) keeps the clock, and GifOS hands that on when they leave. An older GifOS shows one plain line and keeps solo play; nothing is shared.
 
 ## Building
 
