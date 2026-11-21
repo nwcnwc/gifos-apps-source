@@ -374,7 +374,11 @@
       for (id in names) out.push(id);
       return out;
     },
-    amHost: function () { return PEOPLE && owner && count() > 1; }
+    amHost: function () {
+      var names = peopleNames(), n = 0, id;
+      for (id in names) n++;
+      return PEOPLE && owner && n > 1;
+    }
   };
 
   if (!PEOPLE) {
