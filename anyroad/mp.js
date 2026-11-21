@@ -17,9 +17,15 @@
 (function (root) {
   'use strict';
 
+  var NEEDS_NEWER = 'Anyroad needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
   var PUBLISH_HZ = 5;
-  var STALE_MS = 7000;        // a player unheard-from this long stops being drawn
   var FINISH_RADIUS = 30;     // metres
+  var lastPubSig = '';
 
   var me = { id: null, name: 'Driver' };
   var frame = null;
@@ -49,105 +55,107 @@
     return m;
   }
 
-  function init() {
-    root.Host.me().then(function (id) {
-      me.id = id.id; me.name = id.name || 'Driver';
-    }).catch(function () { me.id = 'local'; });
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Driver';
+    }
+    return m;
+  }
 
-    db('players').subscribe(function (list) {
-      drainHits(list || []);
-      var now = Date.now();
-      var seen = {};
-      (list || []).forEach(function (p) {
-        if (!p || !p.id || p.id === me.id) return;
-        seen[p.id] = 1;
-        var cur = others[p.id];
-        // Staleness is measured by when WE last saw this record CHANGE, not by
-        // the sender's timestamp and not by when the collection was delivered.
-        //  - The sender's clock is not ours; peers are independent devices.
-        //  - Stamping `now` on every delivery makes every record permanently
-        //    fresh, so a driver who left months ago is still parked on the road
-        //    in every future session (their row lives on in the host's db).
-        var moved = !cur || cur.lat !== p.lat || cur.lon !== p.lon || cur.stamp !== p.t;
-        others[p.id] = {
-          lat: p.lat, lon: p.lon, yaw: p.yaw, spd: p.spd || 0, name: p.name || 'Driver',
-          flare: p.flare || 0,
-          stamp: p.t, seen: moved ? now : cur.seen, t: now, tint: tintFor(p.id),
-          prev: cur ? { lat: cur.lat, lon: cur.lon, yaw: cur.yaw, t: cur.t } : null,
-        };
-      });
-      for (var id in others) if (!seen[id]) delete others[id];
-    });
-
-    db('race').subscribe(function (list) {
-      var prevStart = raceRec && raceRec.startedAt;
-      var prevResults = (raceRec && raceRec.results || []).length;
-      raceRec = null; worldRec = null;
-      (list || []).forEach(function (r) {
-        if (r.id === 'race') raceRec = r;
-        if (r.id === 'world') worldRec = r;
-      });
-      // A NEW RACE CLEARS YOUR RESULT. myResult was only ever reset on a hop,
-      // so once you crossed a finish line you were "finished" forever: start
-      // another race and the arrow never came back, because your own copy still
-      // believed you had already done it. Keyed on startedAt, which is minted
-      // fresh by setRace.
-      if (raceRec && raceRec.startedAt !== prevStart) {
-        myResult = null;
-        celebrated = {};
+  function readRoom() {
+    if (!PEOPLE || !root.gifos) return Promise.resolve();
+    return Promise.all([
+      root.gifos.people(),
+      root.gifos.info ? root.gifos.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Driver'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        listeners.forEach(function (cb) { try { cb(); } catch (e) {} });
       }
-      // Somebody crossed the line. Everyone should know — a race where only the
-      // winner finds out is not an event, it is a private notification.
-      if (raceRec && finishCb) {
-        var res = raceRec.results || [];
-        if (res.length > prevResults) {
-          for (var i = prevResults; i < res.length; i++) {
-            var r2 = res[i];
-            if (!r2 || celebrated[r2.id + ':' + r2.ms]) continue;
-            celebrated[r2.id + ':' + r2.ms] = 1;
-            finishCb({ name: r2.name, ms: r2.ms, place: i + 1,
-                       mine: r2.id === me.id, total: res.length });
+    }, function () {});
+  }
+
+  function init() {
+    if (!PEOPLE) return;
+    readRoom().then(function () {
+      if (!me.id) return;
+      db('players').subscribe(function (list) {
+        drainHits(list || []);
+        var now = Date.now();
+        var seen = {};
+        var names = peopleNames();
+        (list || []).forEach(function (p) {
+          if (!p || !p.id || p.id === me.id) return;
+          if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
+          seen[p.id] = 1;
+          var cur = others[p.id];
+          others[p.id] = {
+            lat: p.lat, lon: p.lon, yaw: p.yaw, spd: p.spd || 0, name: names[p.id] || 'Driver',
+            flare: p.flare || 0,
+            stamp: p.t, t: now, tint: tintFor(p.id),
+            prev: cur ? { lat: cur.lat, lon: cur.lon, yaw: cur.yaw, t: cur.t } : null,
+          };
+        });
+        for (var id in others) if (!seen[id]) delete others[id];
+      });
+
+      db('race').subscribe(function (list) {
+        var prevStart = raceRec && raceRec.startedAt;
+        var prevResults = (raceRec && raceRec.results || []).length;
+        raceRec = null; worldRec = null;
+        (list || []).forEach(function (r) {
+          if (r.id === 'race') raceRec = r;
+          if (r.id === 'world') worldRec = r;
+        });
+        if (raceRec && raceRec.startedAt !== prevStart) {
+          myResult = null;
+          celebrated = {};
+        }
+        if (raceRec && finishCb) {
+          var res = raceRec.results || [];
+          if (res.length > prevResults) {
+            for (var i = prevResults; i < res.length; i++) {
+              var r2 = res[i];
+              if (!r2 || celebrated[r2.id + ':' + r2.ms]) continue;
+              celebrated[r2.id + ':' + r2.ms] = 1;
+              finishCb({ name: r2.name, ms: r2.ms, place: i + 1,
+                         mine: r2.id === me.id, total: res.length });
+            }
           }
         }
-      }
-      // A guest who opened the invite link has no world of their own yet: take
-      // the host's. This is what makes the link alone enough to join.
-      if (worldRec && isFinite(worldRec.lat) && isFinite(worldRec.lon) && !root.App.hasHopped()) {
-        root.App.hop(worldRec.lat, worldRec.lon, worldRec.place);
-        myWorld = { lat: worldRec.lat, lon: worldRec.lon };
-      } else if (worldRec && isFinite(worldRec.lat) && isFinite(worldRec.lon)
-                 && worldRec.byId && worldRec.byId !== me.id && myWorld
-                 && farFrom(myWorld, worldRec) && root.App.hasHopped()) {
-        // …AND THE ROOM MOVES TOGETHER AFTER THAT. This only ever ran for a
-        // player who had never hopped, so the moment BOTH had, a teleport by
-        // one silently stranded the other: their ghost is drawn from lat/lon
-        // in MY frame, which after their hop is thousands of kilometres away,
-        // where no terrain is loaded — so ghosts() skipped them forever while
-        // count() (which has no terrain test) still said two players. "Not
-        // able to see the other player after a while… may have been after
-        // teleporting." Following is what "we are driving together" means.
-        //
-        // LOOP-SAFE: hop() publishes the world again under MY id, the other
-        // side sees coordinates it already has, farFrom() is false, and the
-        // exchange stops. The distance gate is what does it — not a flag.
-        myWorld = { lat: worldRec.lat, lon: worldRec.lon };
-        root.App.hop(worldRec.lat, worldRec.lon, worldRec.place);
-        if (noteCb) noteCb((worldRec.by || 'They') + ' hopped to ' + (worldRec.place || 'somewhere else') + ' — following.');
-      }
-      listeners.forEach(function (cb) { try { cb(); } catch (e) {} });
+        if (worldRec && isFinite(worldRec.lat) && isFinite(worldRec.lon) && !root.App.hasHopped()) {
+          root.App.hop(worldRec.lat, worldRec.lon, worldRec.place);
+          myWorld = { lat: worldRec.lat, lon: worldRec.lon };
+        } else if (worldRec && isFinite(worldRec.lat) && isFinite(worldRec.lon)
+                   && worldRec.byId && worldRec.byId !== me.id && myWorld
+                   && farFrom(myWorld, worldRec) && root.App.hasHopped()) {
+          myWorld = { lat: worldRec.lat, lon: worldRec.lon };
+          root.App.hop(worldRec.lat, worldRec.lon, worldRec.place);
+          if (noteCb) noteCb((worldRec.by || 'They') + ' hopped to ' + (worldRec.place || 'somewhere else') + ' — following.');
+        }
+        listeners.forEach(function (cb) { try { cb(); } catch (e) {} });
+      });
+      setInterval(readRoom, PEOPLE_MS);
     });
   }
 
-  // Publish where the world is, so joiners land here too — and so everyone
-  // already here can FOLLOW (see the race subscription). `byId` is what keeps
-  // that from being a hall of mirrors: a client never follows its own write.
   var myWorld = null;
   function setFrame(f, lat, lon, place) {
     frame = f;
     myResult = null;
     myWorld = { lat: lat, lon: lon };
-    db('race').put({ id: 'world', lat: lat, lon: lon, place: place || '',
-                     by: me.name, byId: me.id, at: Date.now() }).catch(function () {});
+    if (PEOPLE && me.id) db('race').put({ id: 'world', lat: lat, lon: lon, place: place || '',
+                     byId: me.id, at: Date.now() }).catch(function () {});
   }
 
   // Two worlds are "the same place" if you could plausibly drive between them.
@@ -161,26 +169,31 @@
   }
 
   function tick(car, dt) {
-    if (!frame || !me.id) return;
+    if (!frame || !me.id || !PEOPLE) return;
     acc += dt;
     if (acc < 1 / PUBLISH_HZ) return;
     acc = 0;
     var g = frame.toGeo(car.x, car.z);
-    db('players').put({
-      id: me.id, name: me.name, lat: g.lat, lon: g.lon,
-      yaw: car.yaw, spd: Math.abs(car.speed), t: Date.now(),
+    var row = {
+      id: me.id, lat: g.lat, lon: g.lon,
+      yaw: car.yaw, spd: Math.abs(car.speed),
       // Shots I have FIRED, on my own row. Nobody ever writes to anybody
       // else's record: every player owns exactly one row and reads the rest,
       // which is the same shape the ghosts already use and needs no authority
       // to arbitrate. You claim a hit; the other browser decides what to do
-      // about it. Among friends over a link that is the right trade — anyone
+      // about it. Among friends over a link that is the right trade - anyone
       // running a modified copy can ignore it, and nothing else breaks.
       hits: myShots,
-      // A FLARE IS A TIMESTAMP. Everything else about it — where, what colour,
-      // how long it has left — is derived from the row it rides on, so it
+      // A FLARE IS A TIMESTAMP. Everything else about it - where, what colour,
+      // how long it has left - is derived from the row it rides on, so it
       // costs one number and cannot disagree with the position it marks.
-      flare: myFlare || 0,
-    }).catch(function () {});
+      flare: myFlare || 0
+    };
+    var sig = JSON.stringify(row);
+    if (sig === lastPubSig) return;
+    lastPubSig = sig;
+    row.t = Date.now();
+    db('players').put(row).catch(function () {});
   }
 
   // Other cars, in MY world frame, interpolated toward their latest sample.
@@ -220,10 +233,10 @@
 
   function ghosts() {
     if (!frame) return [];
-    var now = Date.now(), out = [];
+    var now = Date.now(), out = [], names = peopleNames();
     for (var id in others) {
       var o = others[id];
-      if (now - o.seen > STALE_MS) continue;
+      if (!Object.prototype.hasOwnProperty.call(names, id)) continue;
       var lat = o.lat, lon = o.lon, yaw = o.yaw;
       if (o.prev) {
         // Extrapolate across the gap between publishes so a ghost glides
@@ -268,9 +281,9 @@
   }
 
   function count() {
-    var now = Date.now(), n = 0;
-    for (var id in others) if (now - others[id].seen <= STALE_MS) n++;   // same rule as ghosts()
-    return n + 1;
+    var names = peopleNames(), n = 0, id;
+    for (id in others) if (Object.prototype.hasOwnProperty.call(names, id)) n++;
+    return n + (me.id && names[me.id] ? 1 : 0);
   }
 
   // ---- races ---------------------------------------------------------------
@@ -335,9 +348,6 @@
     sendFlare: sendFlare, flares: flares, FLARE_MS: FLARE_MS,
     onFinish: function (cb) { finishCb = cb; },
     onNote: function (cb) { noteCb = cb; },
-    // Test seam: the inputs the follow decision is made from. "The room did
-    // not follow" has five possible causes and no way to tell them apart from
-    // outside — this makes the guess unnecessary.
     worldState: function () {
       return { rec: worldRec ? { lat: worldRec.lat, lon: worldRec.lon, place: worldRec.place,
                                  by: worldRec.by, byId: worldRec.byId } : null,
@@ -346,5 +356,32 @@
     hasRace: function () { return !!raceRec; },
     onChange: function (cb) { listeners.push(cb); },
     me: function () { return me; },
+    owner: function () { return owner; },
+    live: function () { return PEOPLE && !!me.id && count() > 1; }
   };
+
+  root['__anyroad'] = {
+    state: function () {
+      if (!raceRec) return null;
+      return {
+        startedAt: raceRec.startedAt || 0,
+        results: (raceRec.results || []).length | 0,
+        snapped: !!raceRec.snapped
+      };
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
+    },
+    amHost: function () { return PEOPLE && owner && count() > 1; }
+  };
+
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'ar-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
