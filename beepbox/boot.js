@@ -24,14 +24,15 @@
     try { return editor.doc.song.toJsonObject(); } catch (e1) { return null; }
   }
 
-  function applySong(json, asNew) {
+  function applySong(json, asNew, silent) {
     if (!json || !editor || !editor.doc || !editor.doc.song) return;
     var p = pack(json);
     if (p && p === lastPacked) return;
     applying = true;
     try {
       editor.doc.song.fromJsonObject(json);
-      if (editor.doc.notifier && editor.doc.notifier.changed) editor.doc.notifier.changed();
+      // Remote jam applies stay silent — notifier.changed() re-entered publish forever.
+      if (!silent && editor.doc.notifier && editor.doc.notifier.changed) editor.doc.notifier.changed();
       if (asNew && editor.doc.goBackToStart) editor.doc.goBackToStart();
       // Round-trip form — fromJson/toJson drifts; using the wire pack made
       // persist() think every apply was a local edit and re-publish forever.
@@ -162,7 +163,7 @@
     if (root.BeepNet) {
       root.BeepNet.init({
         getJson: songJson,
-        applyJson: function (j) { applySong(j, false); }
+        applyJson: function (j) { applySong(j, false, true); }
       });
     }
 

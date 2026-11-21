@@ -215,7 +215,7 @@
       });
     }).then(function (roomInfo) {
       on = true;
-      publish();
+      // No publish() on boot — wait for a real editor change (kit K3 / no write storm).
       if (pubTimer) clearInterval(pubTimer);
       pubTimer = setInterval(function () {
         if (!on || !owner) return;
