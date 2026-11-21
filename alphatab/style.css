@@ -89,6 +89,12 @@ body { overflow: hidden; }
   min-height: 32px;
   padding: 4px 8px;
 }
+.meta.vol { display: inline-flex; align-items: center; gap: 4px; }
+.meta.vol input[type=range] {
+  width: 88px;
+  min-height: 32px;
+  accent-color: #c48c30;
+}
 .track {
   flex: 0 0 auto;
   border: 1px solid #3a3a44;

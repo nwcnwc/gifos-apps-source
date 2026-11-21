@@ -10,7 +10,10 @@
   var state = {
     name: '', kind: 'tex', tex: '', bytes: null,
     tick: 0, time: 0, endTime: 0, playing: false,
-    speed: 1, layout: 'page', stave: 'both', zoom: 1
+    speed: 1, layout: 'page', stave: 'both', zoom: 1,
+    // WebAudio (the synth) ignores the phone silent switch and can keep playing
+    // when the rocker is on another stream — mute + volume live in the app.
+    volume: 1, muted: false
   };
   var staveCycle = ['both', 'tab', 'score'];
   var lastTimeSec = -1;
@@ -41,6 +44,12 @@
     return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
   }
 
+  function applyVolume() {
+    if (!api) return;
+    var v = state.muted ? 0 : (state.volume == null ? 1 : state.volume);
+    try { api.masterVolume = v; } catch (e) {}
+  }
+
   function paintChrome() {
     $('title').textContent = state.name || 'alphaTab';
     $('time').textContent = fmt(state.time) + ' / ' + fmt(state.endTime);
@@ -50,6 +59,15 @@
     $('play').textContent = state.playing ? 'Pause' : 'Play';
     $('play').classList.toggle('playing', !!state.playing);
     $('play').setAttribute('aria-label', state.playing ? 'Pause' : 'Play');
+    if ($('mute')) {
+      $('mute').classList.toggle('on', !!state.muted);
+      $('mute').setAttribute('aria-pressed', state.muted ? 'true' : 'false');
+      $('mute').textContent = state.muted ? 'Unmute' : 'Mute';
+    }
+    if ($('volume')) {
+      $('volume').value = String(Math.round((state.volume == null ? 1 : state.volume) * 100));
+      $('volume').disabled = !!state.muted;
+    }
   }
 
   function applyDisplay(render) {
@@ -74,7 +92,8 @@
     return {
       name: state.name, kind: state.kind, tex: state.tex, bytes: state.bytes,
       tick: state.tick, speed: state.speed, layout: state.layout,
-      stave: state.stave, zoom: state.zoom, playing: state.playing, time: state.time
+      stave: state.stave, zoom: state.zoom, playing: state.playing, time: state.time,
+      volume: state.volume, muted: state.muted
     };
   }
 
@@ -164,6 +183,7 @@
       ready = true;
       $('play').disabled = false;
       $('stop').disabled = false;
+      applyVolume();
       status(state.name ? (state.name + ' · ready') : 'Ready');
     });
     api.error.on(function (err) {
@@ -268,6 +288,23 @@
       $('click').setAttribute('aria-pressed', on ? 'true' : 'false');
       api.metronomeVolume = on ? 1 : 0;
     };
+    if ($('mute')) {
+      $('mute').onclick = function () {
+        state.muted = !state.muted;
+        applyVolume();
+        paintChrome();
+        net.scheduleSave(snapshot());
+      };
+    }
+    if ($('volume')) {
+      $('volume').oninput = function () {
+        state.volume = Math.max(0, Math.min(1, (parseInt($('volume').value, 10) || 0) / 100));
+        if (state.volume > 0) state.muted = false;
+        applyVolume();
+        paintChrome();
+        net.scheduleSave(snapshot());
+      };
+    }
     $('speed').onchange = function () {
       state.speed = parseFloat($('speed').value) || 1;
       api.playbackSpeed = state.speed;
@@ -388,6 +425,9 @@
         if (rec.layout) state.layout = rec.layout;
         if (rec.stave) state.stave = rec.stave;
         if (rec.zoom) state.zoom = rec.zoom;
+        if (typeof rec.volume === 'number') state.volume = Math.max(0, Math.min(1, rec.volume));
+        if (typeof rec.muted === 'boolean') state.muted = rec.muted;
+        applyVolume();
         applyDisplay(false);
         paintChrome();
         if (rec.kind === 'tex' && rec.tex) { openTex(rec.name || 'saved.tex', rec.tex, false); return; }
