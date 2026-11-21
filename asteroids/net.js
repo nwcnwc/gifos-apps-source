@@ -97,14 +97,7 @@
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
-    if (!PEOPLE) {
-      var hud = document.getElementById('hud') || document.body;
-      var p = document.createElement('p');
-      p.id = 'ast-needs';
-      p.textContent = NEEDS_NEWER;
-      hud.appendChild(p);
-      return Promise.resolve({ owner: true, others: 0 });
-    }
+    if (!PEOPLE) return Promise.resolve({ owner: true, others: 0 });
     return readRoom().then(function () {
       if (!me.id) return { owner: owner, others: 0 };
       var settled = false;
@@ -480,4 +473,11 @@
     },
     amHost: function () { return !!api && PEOPLE && owner && countOthers() > 0; }
   };
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'ast-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);

@@ -186,14 +186,7 @@
   function watch() {
     api = root.gifos;
     if (!api || !api.db) return;
-    if (!PEOPLE) {
-      var bar = $('friend-bar') || document.body;
-      var p = document.createElement('p');
-      p.id = 'bitsy-needs';
-      p.textContent = NEEDS_NEWER;
-      bar.appendChild(p);
-      return;
-    }
+    if (!PEOPLE) return;
     room = room || api.db('room');
     readRoom().then(function () {
       if (subscribed) return;
@@ -302,4 +295,11 @@
   // across the top of the app forever. watch() subscribes without joining and
   // sits down only once somebody else is actually on the row.
   watch();
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'bitsy-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
