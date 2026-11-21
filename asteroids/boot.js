@@ -33,6 +33,7 @@
   }
 
   function paintRoster(list) {
+    if (G && root.Net) G.isHost = !!root.Net.owner();
     if (G && list && list.length > 1) {
       G.roomy = true;
       if (ffEl && G.isHost) ffEl.hidden = false;

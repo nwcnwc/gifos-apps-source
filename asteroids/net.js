@@ -19,9 +19,15 @@
 (function (root) {
   'use strict';
 
+  var NEEDS_NEWER = 'Asteroids needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var roomRead = false;
+
   var PUBLISH_HZ = 8;
   var WORLD_HZ = 8;
-  var STALE_MS = 9000;
   var CLAIM_RING = 8;
   var CLAIM_TTL = 12000;
 
@@ -29,6 +35,9 @@
   var me = { id: null, name: 'Pilot' };
   var others = {};
   var owner = true;
+  var lastPlayerList = [];
+  var lastPubSig = '';
+  var lastWorldSig = '';
   var world = null;
   var seq = 0;
   var claims = [];
@@ -54,19 +63,50 @@
     return 'hsl(' + hue + ', 70%, 72%)';
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Pilot';
+    }
+    return m;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Pilot'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        ingestPlayers(lastPlayerList);
+      }
+    }, function () {});
+  }
+
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
-    var infoP = api.info ? api.info().then(function (i) {
-      owner = !!(i && i.owner);
-      return owner;
-    }).catch(function () { owner = true; return true; }) : Promise.resolve(true);
-
-    return infoP.then(function () {
-      return api.me();
-    }).then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Pilot';
+    if (!PEOPLE) {
+      var hud = document.getElementById('hud') || document.body;
+      var p = document.createElement('p');
+      p.id = 'ast-needs';
+      p.textContent = NEEDS_NEWER;
+      hud.appendChild(p);
+      return Promise.resolve({ owner: true, others: 0 });
+    }
+    return readRoom().then(function () {
+      if (!me.id) return { owner: owner, others: 0 };
       var settled = false;
       return new Promise(function (resolve) {
         var done = function () {
@@ -76,12 +116,14 @@
         };
         setTimeout(done, 2500);
         db('players').subscribe(function (list) {
-          ingestPlayers(list || []);
+          lastPlayerList = list || [];
+          ingestPlayers(lastPlayerList);
           done();
         });
         db('world').subscribe(function (list) {
           ingestWorld(list || []);
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () {
       return { owner: true, others: 0 };
@@ -89,28 +131,28 @@
   }
 
   function ingestPlayers(list) {
-    var t = now(), seen = {};
+    var t = now(), seen = {}, names = peopleNames();
     for (var i = 0; i < list.length; i++) {
       var p = list[i];
       if (!p || !p.id) continue;
       if (p.id === me.id) continue;
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) continue;
       seen[p.id] = 1;
       drainHits(p);
       var cur = others[p.id];
-      var moved = !cur || cur.x !== p.x || cur.y !== p.y || cur.stamp !== p.t;
       others[p.id] = {
-        id: p.id, name: p.name || 'Pilot',
+        id: p.id, name: names[p.id] || 'Pilot',
         x: p.x, y: p.y, rot: p.rot || 0, vx: p.vx || 0, vy: p.vy || 0,
         thrust: !!p.th, alive: p.alive !== false,
         score: p.score || 0, lives: p.lives == null ? 0 : p.lives,
         shots: p.shots || [],
-        stamp: p.t, seen: moved ? t : cur.seen, t: t,
+        stamp: p.t, t: t,
         color: tintFor(p.id),
         prev: cur ? { x: cur.x, y: cur.y, rot: cur.rot, t: cur.t } : null
       };
     }
     for (var id in others) {
-      if (!seen[id] || now() - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id]) delete others[id];
     }
     if (onRoster) onRoster(roster());
     pushGhosts();
@@ -265,43 +307,51 @@
   }
 
   function publish(force) {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     var G = root.AsteroidsGame;
     if (!G || !G.ship) return;
     var t = now();
     if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
-    lastPublished = t;
     var sh = G.ship;
-    db('players').put({
-      id: me.id, name: me.name,
+    var row = {
+      id: me.id,
       x: r1(sh.x), y: r1(sh.y), rot: r1(sh.rot),
       vx: r2(sh.vel.x), vy: r2(sh.vel.y),
       th: !!(sh.children.exhaust && sh.children.exhaust.visible),
       alive: !!sh.visible, lives: G.lives, score: Math.floor(G.score),
       shots: G.localShots(),
       claims: claims.slice(),
-      hits: hits.slice(),
-      t: t
-    }).catch(function () {});
+      hits: hits.slice()
+    };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPublished = t;
+    row.t = t;
+    db('players').put(row).catch(function () {});
   }
 
   function publishWorld(force) {
-    if (!api || !me.id || !owner) return;
+    if (!api || !me.id || !owner || !PEOPLE) return;
     var G = root.AsteroidsGame;
     if (!G) return;
     var t = now();
     if (!force && t - lastWorld < 1000 / WORLD_HZ) return;
-    lastWorld = t;
-    db('world').put({
+    var row = {
       id: 'world',
       by: me.id,
       rocks: G.exportRocks(),
       alien: G.exportAlien(),
       wave: G.totalAsteroids,
       state: G.FSM.state,
-      ff: !!G.friendlyFire,
-      t: t
-    }).catch(function () {});
+      ff: !!G.friendlyFire
+    };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastWorldSig) return;
+    lastWorldSig = sig;
+    lastWorld = t;
+    row.t = t;
+    db('world').put(row).catch(function () {});
   }
 
   function tick() {
@@ -404,10 +454,30 @@
     me: function () { return me; },
     owner: function () { return owner; },
     count: function () { return countOthers() + (me.id ? 1 : 0); },
-    live: function () { return !!api && !!me.id; },
+    live: function () { return !!api && !!me.id && PEOPLE; },
     drawRemoteShots: drawRemoteShots,
     drawNames: drawNames,
     onRoster: function (fn) { onRoster = fn; },
     onFF: function (fn) { onFF = fn; }
+  };
+
+  root['__asteroids'] = {
+    state: function () {
+      var G = root.AsteroidsGame;
+      if (!G) return null;
+      return {
+        wave: G.totalAsteroids | 0,
+        score: Math.floor(G.score) | 0,
+        lives: G.lives | 0,
+        host: !!owner
+      };
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () { return !!api && PEOPLE && owner && countOthers() > 0; }
   };
 })(window);
