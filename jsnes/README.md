@@ -34,11 +34,11 @@ A user may drop their own dump; nothing Nintendo ships in this tree.
 | `db` | Last-play snapshot and battery SRAM in a `private` collection; quick states; the live pad in a `read-write` one; the host's cart in a `read-only` one the guest reads once. |
 | `multiplayer` | The room. Invite is OS chrome — this app never draws that button. |
 
-Needs nothing newer than the App Store itself, so `minBuild` is **947**.
+Seats (Pad 1, Pad 2) come from `gifos.room`, so `minBuild` is **5861**. On an older GifOS the app says so in one line; solo play still works and nothing shared is written.
 
 ## Two controllers
 
-The host is player 1. The first guest is player 2. Each writes only their
+The first two people in the room take Pad 1 and Pad 2 (a third watches); the app's owner writes the `session` and `cart` rows, and GifOS hands that on if the owner leaves. Each writes only their
 own row in `pads` (a button mask). Both run the same cart. A custom dump
 the host dropped is published once on `cart` so the guest can load it.
 

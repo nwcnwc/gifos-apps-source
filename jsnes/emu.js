@@ -172,9 +172,8 @@
     raf = root.requestAnimationFrame(loop);
     readGamepad();
     composeLocal();
-    var me = (root.Net && root.Net.live() && !root.Net.owner()) ? 2 : 1;
-    if (me === 1) applyMask(1, localMask);
-    else applyMask(2, localMask);
+    var me = root.Net ? root.Net.myPad() : 1;   // 1 or 2 by seat; 0 = watching, no pad
+    if (me > 0) applyMask(me, localMask);
     if (root.Net && root.Net.live()) root.Net.beforeFrame(localMask);
     if (!nes || !running || paused) { lastT = now; return; }
     if (!lastT) lastT = now;

@@ -27,7 +27,7 @@ A USB or Bluetooth gamepad is player 1.
 
 ## A friend on the other pad
 
-Press **Invite** in the bar above the app and send the link. You stay **player 1**. They are **player 2**, on their own phone or computer. They play whatever cart you have loaded. A third person who opens the link can watch.
+Press **Invite** in the bar above the app and send the link. The first two people in the room are **player 1** and **player 2**, on their own phone or computer. They play whatever cart you have loaded. A third person who opens the link can watch.
 
 When they join, pick **Concentration Room → 2 Players** and sit at the table. Lawn Mower is one player; the second pad does nothing there.
 
