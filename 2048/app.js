@@ -44,7 +44,6 @@
   var origMove = GameManager.prototype.move;
   GameManager.prototype.move = function (direction) {
     if (root.G2048.frozen || histOpen()) return;
-    if (LocalStorageManager.thawSave) LocalStorageManager.thawSave();
     origMove.call(this, direction);
   };
 

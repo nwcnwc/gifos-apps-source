@@ -1,3 +1,12 @@
+// Play a friend — a race, not a shared board.
+//
+// Shared seed so both boards spawn the same opening tiles. Each player then
+// plays THEIR board and publishes score + board hash on THEIR row. Nobody
+// writes anybody else's row. First to the 2048 tile wins; if boards fill up
+// first, highest score among the stuck boards takes it.
+//
+// Invite is OS chrome. This file only tells the player to press Invite.
+// Who is here is gifos.people(); the app owner hosts the shared seed.
 (function (root) {
   'use strict';
 
@@ -72,6 +81,8 @@
     return out;
   }
 
+  // Authority for (round, seed): the owner prefers its own seed on the highest
+  // round; otherwise the lexicographically smallest id on that round.
   function adopted(list) {
     var players = playersHere(list);
     if (!players.length) return null;
@@ -166,6 +177,8 @@
     players.forEach(function (p) {
       var mine = p.id === me.id;
       var max = p.max || 0;
+      // No '2048' tag: reaching it freezes the board, so the chip beside it
+      // already reads 2048 and the row is already lit by .win.
       var tag = !p.won && p.over ? 'out' : '';
       html += '<li class="' + (mine ? 'me' : '') + (p.won ? ' win' : '') + '">' +
         '<span class="name">' + (mine ? 'You' : esc(p.name || 'Player')) + '</span>' +
@@ -176,6 +189,9 @@
     });
     scores.innerHTML = html;
 
+    // The list above is the ONLY place a score is printed. This line says what
+    // the list cannot — what to do next, who is out, why a round ended — and
+    // never repeats a number sitting an inch to its left.
     var mineRow = players.filter(function (p) { return p.id === me.id; })[0];
     var others = players.filter(function (p) { return p.id !== me.id; });
     if (v) {
@@ -188,6 +204,7 @@
         var mineWin = v.winner.id === me.id;
         var nm = mineWin ? '' : v.winner.name;
         var who = mineWin ? 'You' : (nm || 'They');
+        // 'You' and the 'They' fallback take a plural verb; a name does not.
         var wins = (mineWin || !nm) ? ' win' : ' wins';
         status.textContent = v.kind === '2048'
           ? who + ' reached 2048 first.'
@@ -202,14 +219,16 @@
       if (!others.length) {
         status.innerHTML = 'Press <b>Invite</b> to send the link. Same tiles — first to 2048.';
       } else if (g && g.over && !g.won) {
+        // The overlay across the board already says you're out.
         status.textContent = 'Highest score wins if nobody reaches 2048.';
-        overlay("You are out", false);
+        overlay('You’re out', false);
       } else if (g && g.won) {
         status.textContent = 'You reached 2048.';
       } else if (others.length === 1) {
         var lead = ((mineRow ? mineRow.score : g ? g.score : 0) || 0) - (others[0].score || 0);
-        status.textContent = lead > 0 ? "You are " + fmt(lead) + " ahead."
-          : lead < 0 ? "You are " + fmt(-lead) + " behind."
+        // A gap is the one thing two printed scores do not tell you.
+        status.textContent = lead > 0 ? 'You’re ' + fmt(lead) + ' ahead.'
+          : lead < 0 ? 'You’re ' + fmt(-lead) + ' behind.'
           : 'Dead even.';
       } else {
         status.textContent = others.length + ' playing. First to 2048.';
@@ -292,12 +311,13 @@
     applySeed(mySeed, round);
   }
 
-  function onActuate() {
+  function onActuate(game) {
     if (!on) return;
     publish();
     render();
-    var game = root.G2048.game;
-    if (game && game.won) root.G2048.frozen = true;
+    if (game && game.won) {
+      root.G2048.frozen = true;
+    }
   }
 
   function onRestart() {

@@ -7,21 +7,13 @@
   "minBuild": 5861,
   "description": "Join the numbers and get to the 2048 tile. Every game you play is kept, so New Game never erases the board you were on. Play alone, or race a friend from the same starting tiles.",
   "entry": "index.html",
-  "accent": [
-    237,
-    194,
-    46
-  ],
+  "accent": [237, 194, 46],
   "capabilities": {
     "db": true,
     "multiplayer": true
   },
   "data": {
-    "save": {
-      "visibility": "private"
-    },
-    "room": {
-      "visibility": "read-write"
-    }
+    "save": { "visibility": "private" },
+    "room": { "visibility": "read-write" }
   }
 }
