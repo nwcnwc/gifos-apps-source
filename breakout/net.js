@@ -332,8 +332,7 @@
       if (!g) return null;
       return {
         level: g.level | 0,
-        score: g.score ? g.score.score | 0 : 0,
-        host: !!owner
+        score: g.score ? g.score.score | 0 : 0
       };
     },
     people: function () {

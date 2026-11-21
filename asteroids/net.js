@@ -350,8 +350,8 @@
   function tick() {
     if (!api || !me.id || !PEOPLE) return;
     var G = root.AsteroidsGame;
-    // Waiting/boot: no player or world writes (kit K3).
-    if (!G || !G.FSM || G.FSM.state === "waiting" || G.FSM.state === "boot") {
+    // Only the live run writes — title/waiting/start must stay silent (kit K3).
+    if (!G || !G.FSM || G.FSM.state !== "run") {
       pushGhosts();
       return;
     }
@@ -476,7 +476,14 @@
       for (id in others) if (names[id]) out.push(id);
       return out;
     },
-    amHost: function () { return !!api && PEOPLE && owner && countOthers() > 0; }
+    amHost: function () {
+      var n = 0, i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== "gone") n++;
+      }
+      return !!api && PEOPLE && owner && n > 1;
+    }
   };
   if (!PEOPLE) {
     var _n = document.createElement('p');
