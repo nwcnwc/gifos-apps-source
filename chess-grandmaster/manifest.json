@@ -3,8 +3,8 @@
   "appId": "chess-grandmaster",
   "name": "Chess Grandmaster",
   "shortName": "Chess",
-  "version": "1.0.1",
-  "minBuild": 947,
+  "version": "1.1.0",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [201, 162, 75],
   "capabilities": {
@@ -15,6 +15,7 @@
   "data": {
     "chess-gm": { "visibility": "private" },
     "cgm-mp": { "visibility": "read-write" },
-    "cgm-pres": { "visibility": "read-write" }
-  }
+    "cgm-cmt": { "visibility": "read-write" }
+  },
+  "room": { "seats": ["White", "Black"], "turns": "order", "moves": ["cgm-mp"] }
 }

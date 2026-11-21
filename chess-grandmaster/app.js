@@ -245,12 +245,13 @@
   // Reusing the nodes also means a tap handler cannot be a fresh closure over
   // (x, y): the handler reads the square's CURRENT coordinates, which is what
   // lets the board flip for Black without replacing a single node.
-  function boardCells(el, onTap) {
+  function boardCells(el, onTap, tag) {
     if (el._cells && el._cells.length === 64 && el.firstChild) return el._cells;
     el.innerHTML = '';
     const cells = [];
     for (let i = 0; i < 64; i++) {
-      const sq = document.createElement('div');
+      const sq = document.createElement(tag || 'div');
+      if (tag === 'button') sq.type = 'button';
       // the piece is a TEXT NODE, not textContent: setting textContent would
       // wipe the marker and coordinate spans that live in the same square
       sq._glyph = document.createTextNode('');
@@ -458,79 +459,101 @@
   $('revBack').onclick = function () { $('review').hidden = true; openHistory(); };
 
   // ============================================================================
-  // Play a friend (multiplayer). The board state lives in a shared gifos.db
-  // collection (host-authoritative, synced to every peer); a separate presence
-  // collection carries per-player heartbeats so we can tell who's actually here
-  // — GifOS has no presence API. Model: two seats (White/Black) + a waiting
-  // queue; winner stays, loser goes to the back of the line. Stockfish is NOT a
-  // player and gives no hints, but either player can flip a shared "commentary"
-  // toggle: after each move the mover's engine reacts to the position ("Nice
-  // move!", "Ouch.") — flavour only, never the best move, shown to both.
-  const PRES_TTL = 9000, HB_MS = 3000, END_HOLD = 4000;
-  let presDb = null, mpDb = null;
-  try { if (window.gifos) { presDb = gifos.db('cgm-pres'); mpDb = gifos.db('cgm-mp'); } } catch (e) {}
-  const mp = { on: false, id: null, name: 'You', M: null, present: [], sel: [], legal: [], hbTimer: 0, subscribed: false, commenting: false };
-  let _pres = [], _match = null;
+  // Play a friend. gifos.room seats two people (White, Black), lines the rest
+  // up, keeps who is here, and passes the turn. The board is one record the
+  // mover writes with gifos.room.move ('cgm-mp'). The line replaces the old
+  // queue: when a game ends and people are waiting, the loser steps out of the
+  // seat (and back to the end of the line), the next in line sits down, and a
+  // seated player presses Next game. Stockfish is NOT a player and gives no
+  // hints, but either player can flip a shared "commentary" toggle ('cgm-cmt',
+  // plain shared data, not a move): after each move the mover's engine reacts
+  // to the position ("Nice move!", "Ouch.") — flavour only, never the move.
+  const EN = { needsNewer: 'Chess Grandmaster needs a newer GifOS to play together. Reload the page to update.' };
+  const T = function (k) {
+    const v = window.gifos && gifos.i18n && gifos.i18n.t ? gifos.i18n.t(k) : k;
+    return v === k && EN.hasOwnProperty(k) ? EN[k] : v;
+  };
+  const ROOM = !!(window.gifos && gifos.room && gifos.room.subscribe);
+  let mpDb = null, cmtDb = null;
+  try { if (window.gifos) { mpDb = gifos.db('cgm-mp'); cmtDb = gifos.db('cgm-cmt'); } } catch (e) {}
+  // rs = the room's word, remote = the last board the data said, game = what we show (remote, or our own move until the echo)
+  const mp = { on: false, rs: null, joined: false, picked: false, note: '', remote: null, game: null, cmt: null, sel: [], legalSel: [], commenting: false, yielded: '' };
 
-  function freshMpGame() { return { state: C.fresh(), moves: [], lastMove: null, winner: null, result: '', endedAt: 0, no: 1, startedAt: nowMs() }; }
-  function freshMatch() { return { id: 'm', seats: { w: null, b: null }, names: {}, queue: [], game: freshMpGame(), commentary: false, comment: null }; }
-
-  $('friendBtn').onclick = mpEnter;
-  function mpEnter() {
-    if (!presDb || !mpDb) { statusLine.textContent = 'Multiplayer needs storage.'; return; }
-    (window.gifos ? gifos.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (me) {
-      mp.id = me.id; mp.name = me.name || 'You'; mp.on = true;
-      $('setup').hidden = true; $('game').hidden = true; $('history').hidden = true; $('review').hidden = true; $('friend').hidden = false;
-      if (!mp.subscribed) { mp.subscribed = true; presDb.subscribe(function (i) { _pres = i || []; mpRefresh(); }); mpDb.subscribe(function (i) { _match = (i || []).find(function (x) { return x && x.id === 'm'; }) || null; mpRefresh(); }); }
-      mpBeat(); if (mp.hbTimer) clearInterval(mp.hbTimer); mp.hbTimer = setInterval(mpBeat, HB_MS);
-      mpRender();
-    });
+  function freshMpGame() { return { state: C.fresh(), moves: [], lastMove: null, winner: null, result: '', endedAt: 0, no: 1, startedAt: 0 }; }
+  const clone = function (o) { return JSON.parse(JSON.stringify(o)); };
+  function curGame() { return mp.game || freshMpGame(); }
+  function seatRow(c) { const r = mp.rs; return r && r.seats ? r.seats[c === 'w' ? 0 : 1] : null; }
+  function heldBoth() { const a = seatRow('w'), b = seatRow('b'); return !!(a && a.id && b && b.id); }
+  function mySeat2() { const r = mp.rs; return !r || !r.me ? null : (r.me.seat === 'White' ? 'w' : r.me.seat === 'Black' ? 'b' : null); }
+  // my move: the room says it is my turn, both seats are held, and the other player is not away
+  function canMove() {
+    const r = mp.rs, c = mySeat2(), g = curGame();
+    if (!ROOM || !r || !c || g.winner || !r.myTurn || !heldBoth() || g.state.turn !== c) return false;
+    const o = seatRow(c === 'w' ? 'b' : 'w');
+    return !!o && o.here !== 'away';
   }
-  function mpBeat() { if (!mp.on) return; presDb.put({ id: mp.id, name: mp.name, at: nowMs() }).catch(function () {}); mpRefresh(); }
+  function say(e) { mp.note = e && e.message ? e.message : ''; mpRender(); }
+  function mpPut(g, fresh) {
+    const rec = { id: 'm', game: g };
+    mp.game = g; mpRender();
+    const p = fresh ? gifos.room.newRound('cgm-mp', rec, { first: 'White' }) : gifos.room.move('cgm-mp', rec);
+    return p.catch(function (e) { mp.game = mp.remote; say(e); });
+  }
+
+  $('startBtn').addEventListener('click', function () { mp.picked = true; });
+  $('historyBtn').addEventListener('click', function () { mp.picked = true; });
+  $('friendBtn').onclick = function () { mp.picked = true; mpEnter(); };
+  function mpEnter() {
+    if (!ROOM) { $('roomNote').textContent = T('needsNewer'); $('roomNote').hidden = false; return; }
+    mp.on = true;
+    $('setup').hidden = true; $('game').hidden = true; $('history').hidden = true; $('review').hidden = true; $('friend').hidden = false;
+    mpJoin();
+    mpRender();
+  }
+  // opening the game is asking to play, once; the room seats, lines up, or asks the host
+  function mpJoin() {
+    const r = mp.rs;
+    if (ROOM && r && !mp.joined && r.me && r.me.role === 'watcher') { mp.joined = true; gifos.room.join().catch(function () {}); }
+  }
   function mpLeave() {
-    mp.on = false; if (mp.hbTimer) clearInterval(mp.hbTimer); mp.hbTimer = 0;
-    if (presDb) presDb.delete(mp.id).catch(function () {});
+    mp.on = false; mp.picked = true;
+    if (ROOM) { mp.joined = false; gifos.room.leave().catch(function () {}); }
     $('friend').hidden = true; $('setup').hidden = false;
   }
   $('fLeave').onclick = mpLeave;
+  $('fNext').onclick = function () { const g = curGame(); const n = freshMpGame(); n.no = (g.no || 1) + 1; if (ROOM && mySeat2()) mpPut(n, true); };
 
-  function mpIsManager() { if (!mp.present.length) return true; let m = mp.present[0].id; for (const p of mp.present) if (p.id < m) m = p.id; return mp.id === m; }
-  function mySeat2() { const M = mp.M; return !M ? null : (M.seats.w === mp.id ? 'w' : M.seats.b === mp.id ? 'b' : null); }
-  function mpWrite(M) { _match = M; mpDb.put(M).catch(function () {}); }
-
-  function mpRefresh() {
-    if (!mp.on) return;
-    const now = nowMs();
-    mp.present = (_pres || []).filter(function (p) { return p && p.at && now - p.at < PRES_TTL; }).map(function (p) { return { id: p.id, name: p.name }; });
-    if (!mp.present.some(function (p) { return p.id === mp.id; })) mp.present.push({ id: mp.id, name: mp.name });
-    mp.M = _match;
-    if (!mp.M) { if (mpIsManager()) mpWrite(freshMatch()); mpRender(); return; }
-    if (mpIsManager()) { const next = mpReconcile(mp.M); if (next) { mpWrite(next); return; } }
-    mpRender();
+  // after a finished game the loser gives the seat to the next in line (a draw keeps both seats)
+  function mpYield() {
+    const r = mp.rs, c = mySeat2(), g = curGame();
+    if (!ROOM || !r || !c || (g.winner !== 'w' && g.winner !== 'b') || g.winner === c || !(r.line && r.line.length)) return;
+    const key = r.round + ':' + g.moves.length;
+    if (mp.yielded === key) return;
+    mp.yielded = key;
+    gifos.room.leave().then(function () { return gifos.room.join(); }).catch(function () {});
   }
 
-  // Manager-only: keep seats/queue consistent with who's actually present, and
-  // run the winner-stays rotation once a finished game has been shown a moment.
-  function mpReconcile(M) {
-    const m = JSON.parse(JSON.stringify(M)); let ch = false;
-    const ids = new Set(mp.present.map(function (p) { return p.id; }));
-    mp.present.forEach(function (p) { if (m.names[p.id] !== p.name) { m.names[p.id] = p.name; ch = true; } });
-    ['w', 'b'].forEach(function (s) { if (m.seats[s] && !ids.has(m.seats[s])) { m.seats[s] = null; ch = true; } });
-    const q = m.queue.filter(function (id) { return ids.has(id); }); if (q.length !== m.queue.length) { m.queue = q; ch = true; }
-    // a seated player vanished mid-game → the remaining player wins by default
-    if ((!m.seats.w || !m.seats.b) && m.game.moves.length && !m.game.winner) { m.game.winner = m.seats.w ? 'w' : (m.seats.b ? 'b' : 'draw'); m.game.result = 'Opponent left'; m.game.endedAt = nowMs(); ch = true; }
-    mp.present.forEach(function (p) { if (m.seats.w !== p.id && m.seats.b !== p.id && m.queue.indexOf(p.id) < 0) { m.queue.push(p.id); ch = true; } });
-    // winner-stays rotation, after a short hold so the result is visible
-    if (m.game.winner && m.game.endedAt && nowMs() - m.game.endedAt > END_HOLD) {
-      if (m.game.winner === 'w' || m.game.winner === 'b') {
-        const loser = m.game.winner === 'w' ? 'b' : 'w'; const loserId = m.seats[loser];
-        if (loserId) m.queue.push(loserId);
-        m.seats[loser] = null;
-      }
-      m.game = freshMpGame(); m.game.no = (M.game.no || 1) + 1; m.comment = null; ch = true;
-    }
-    ['w', 'b'].forEach(function (s) { if (!m.seats[s] && m.queue.length) { m.seats[s] = m.queue.shift(); ch = true; } });
-    return ch ? m : null;
+  if (ROOM) {
+    if (mpDb) mpDb.subscribe(function (items) {
+      let b = null;
+      (items || []).forEach(function (x) { if (x && x.id === 'm') b = x; });
+      mp.remote = b && b.game ? b.game : null; mp.game = mp.remote; mp.note = '';
+      mpYield(); mpRender();
+    });
+    if (cmtDb) cmtDb.subscribe(function (items) {
+      let c = null;
+      (items || []).forEach(function (x) { if (x && x.id === 'c') c = x; });
+      mp.cmt = c; mpRender();
+    });
+    gifos.room.subscribe(function (s) {
+      mp.rs = s; mp.note = '';   // a refusal's note goes with the next room state
+      // with other people here the shared game is what you see; alone you start on the menu
+      if (!mp.on && !mp.picked && s.live && !$('setup').hidden) { mpEnter(); return; }
+      if (mp.on) mpJoin();
+      mpYield(); mpRender();
+    });
+  } else {
+    $('roomNote').textContent = T('needsNewer'); $('roomNote').hidden = false;
   }
 
   // ---- moves ----
@@ -539,25 +562,29 @@
     const box = $('promoChoices'); box.innerHTML = '';
     ['q', 'r', 'b', 'n'].forEach(function (pr) {
       const mv = opts.find(function (o) { return o.promo === pr; }); if (!mv) return;
-      const b = document.createElement('button'); b.textContent = GLYPH[pr]; b.className = mySeat2() === 'w' ? 'pw' : 'pb';
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = GLYPH[pr]; b.className = mySeat2() === 'w' ? 'pw' : 'pb';
       b.onclick = function () { $('promo').hidden = true; mpPlay(mv); }; box.appendChild(b);
     });
     $('promo').hidden = false;
   }
   function mpPlay(mv) {
-    const M = mp.M, g = M.game; const ns = C.make(g.state, mv);
+    if (!canMove()) return;
+    const g = clone(curGame()); const ns = C.make(g.state, mv);
     g.state = ns; g.moves.push(C.moveToUci(mv)); g.lastMove = { from: mv.from, to: mv.to };
     const st = C.status(ns);
     if (st === 'checkmate') { g.winner = ns.turn === 'w' ? 'b' : 'w'; g.result = 'Checkmate'; g.endedAt = nowMs(); }
     else if (st === 'stalemate') { g.winner = 'draw'; g.result = 'Stalemate'; g.endedAt = nowMs(); }
     else if (ns.half >= 100) { g.winner = 'draw'; g.result = 'Fifty-move draw'; g.endedAt = nowMs(); }
-    mp.sel = []; mp.legalSel = []; mpWrite(M);
-    if (M.commentary) mpComment(g);
+    mp.sel = []; mp.legalSel = [];
+    mpPut(g);
+    if (mp.cmt && mp.cmt.on) mpComment(g);
   }
   function mpOnSquare(x, y) {
-    const M = mp.M; if (!M) return; const g = M.game; const seat = mySeat2();
-    if (!seat || g.winner || g.state.turn !== seat) return;
+    mp.note = '';
+    const g = curGame(); const seat = mySeat2();
+    if (!canMove()) return;
     const legal = C.legal(g.state);
+    if (mp.sel.length && mp.sel[0] === x && mp.sel[1] === y) { mp.sel = []; mp.legalSel = []; mpRender(); return; }
     if (mp.sel.length) {
       const opts = legal.filter(function (m) { return m.from[0] === mp.sel[0] && m.from[1] === mp.sel[1] && m.to[0] === x && m.to[1] === y; });
       if (opts.length) { mpChooseAndPlay(opts); return; }
@@ -568,19 +595,23 @@
     else { mp.sel = []; mp.legalSel = []; }
     mpRender();
   }
+  // resigning is a move: only on your own turn (the room passes the turn)
   $('fResign').onclick = function () {
-    const M = mp.M, seat = mySeat2(); if (!M || !seat || M.game.winner) return;
-    M.game.winner = seat === 'w' ? 'b' : 'w'; M.game.result = 'Resigned'; M.game.endedAt = nowMs(); mpWrite(M);
+    const seat = mySeat2(); if (!seat || !canMove() || !curGame().moves.length) return;
+    const g = clone(curGame());
+    g.winner = seat === 'w' ? 'b' : 'w'; g.result = 'Resigned'; g.endedAt = nowMs(); mpPut(g);
   };
-  $('fComment').onchange = function () { const M = mp.M; if (!M || !mySeat2()) { this.checked = M ? M.commentary : false; return; } M.commentary = this.checked; mpWrite(M); };
+  $('fComment').onchange = function () {
+    if (!ROOM || !cmtDb || !mySeat2()) { this.checked = !!(mp.cmt && mp.cmt.on); return; }
+    cmtDb.put({ id: 'c', on: this.checked, text: '', at: 0, ts: 0 }).catch(function () {});
+  };
 
   // Stockfish reacts to the move just played (flavour only — never the move).
   function mpComment(g) {
-    if (!(window.GM.engine && window.GM.engineReady) || mp.commenting) return;
+    if (!(window.GM.engine && window.GM.engineReady) || mp.commenting || !cmtDb) return;
     mp.commenting = true; const at = g.moves.length;
     window.GM.engine.search(C.toFEN(g.state), { movetime: 350 }, null).then(function (r) {
-      mp.commenting = false; const M = mp.M; if (!M || M.game.moves.length !== at) return;
-      const stm = g.state.turn; // side to move now = the mover's opponent
+      mp.commenting = false; if (curGame().moves.length !== at) return;
       let e = r.mate != null ? (r.mate > 0 ? 100 : -100) : (r.score || 0) / 100;
       const moverE = -e; // flip to the mover's perspective
       let text;
@@ -590,52 +621,50 @@
       else if (moverE > -1) text = 'Solid. 🙂';
       else if (moverE > -3) text = 'Risky… 🤔';
       else text = 'Ouch. 😬';
-      M.comment = { text: text, at: at, ts: nowMs() }; mpWrite(M);
+      cmtDb.put({ id: 'c', on: true, text: text, at: at, ts: nowMs() }).catch(function () {});
     }).catch(function () { mp.commenting = false; });
   }
 
   // ---- render ----
   function mpRender() {
-    if (!mp.on) return; const M = mp.M;
-    // A RENDER COUNTER, on purpose. The claim this board has to keep is "it
-    // repaints on every presence beat WITHOUT replacing a node", and without a
-    // witness that renders are still happening, "zero DOM churn" is also what a
-    // dead app looks like. e2e-chess-mp reads this next to a MutationObserver on
-    // #fBoard: renders must advance, mutations must not.
+    if (!mp.on) return;
+    // A RENDER COUNTER, on purpose: renders must advance while the board's DOM
+    // nodes do not churn (e2e-chess-mp reads this next to a MutationObserver).
     window.__cgmRenders = (window.__cgmRenders || 0) + 1;
-    const seats = $('fSeats'), status = $('fStatus');
-    // setHtml, not innerHTML: it remembers what it last wrote, and a raw write
-    // behind its back would make the NEXT identical write a no-op over an empty
-    // element.
-    if (!M) { setHtml(seats, ''); status.textContent = 'Setting up the table…'; return; }
-    const g = M.game, name = function (id) { return id ? esc(M.names[id] || 'Player') : '<span class="open">open</span>'; };
-    const mine = mySeat2();
-    // …and the same rule for the panels around the board: write the markup only
-    // when it differs, so a beat that changed nothing changes nothing.
+    const r = mp.rs, seats = $('fSeats'), status = $('fStatus');
+    const g = curGame(), mine = mySeat2();
+    const nm = function (c) { const x = seatRow(c); return x && x.id ? esc(x.name || 'Player') + (x.here === 'away' ? ' …' : '') : '<span class="open">open</span>'; };
+    // write markup only when it differs, so a state that changed nothing changes nothing
     setHtml(seats,
-      '<div class="seat' + (mine === 'w' ? ' me' : '') + (g.state.turn === 'w' && !g.winner ? ' turn' : '') + '">⚪ ' + name(M.seats.w) + '</div>' +
-      '<div class="seat' + (mine === 'b' ? ' me' : '') + (g.state.turn === 'b' && !g.winner ? ' turn' : '') + '">⚫ ' + name(M.seats.b) + '</div>');
-    const waiting = M.queue.filter(function (id) { return id !== M.seats.w && id !== M.seats.b; });
-    setHtml($('fQueue'), waiting.length ? 'In line: ' + waiting.map(function (id) { return esc(M.names[id] || 'Player'); }).join(', ') : '');
-    $('fComment').checked = !!M.commentary;
+      '<div class="seat' + (mine === 'w' ? ' me' : '') + (g.state.turn === 'w' && !g.winner ? ' turn' : '') + '">⚪ ' + nm('w') + '</div>' +
+      '<div class="seat' + (mine === 'b' ? ' me' : '') + (g.state.turn === 'b' && !g.winner ? ' turn' : '') + '">⚫ ' + nm('b') + '</div>');
+    const line = r && r.line ? r.line : [];
+    setHtml($('fQueue'), line.length ? 'In line: ' + line.map(function (x) { return esc(x.name || 'Player'); }).join(', ') : '');
+    // with others here the room (top-bar back, OS leave) is how you go; alone you may return to the menu
+    $('fLeave').hidden = !!(r && r.live);
+    const cmt = mp.cmt;
+    $('fComment').checked = !!(cmt && cmt.on);
     document.querySelector('.ftoggle').style.opacity = mine ? '1' : '.5';
-    const cbox = $('fCommentBox');
-    cbox.textContent = (M.commentary && M.comment && M.comment.at === g.moves.length && nowMs() - (M.comment.ts || 0) < 12000) ? M.comment.text : '';
+    $('fCommentBox').textContent = (cmt && cmt.on && cmt.at === g.moves.length && nowMs() - (cmt.ts || 0) < 12000) ? cmt.text : '';
 
-    // status
-    const bothSeated = M.seats.w && M.seats.b;
-    if (!bothSeated) status.innerHTML = 'Waiting for another player… press <b>Invite</b> (top bar) to bring a friend. Choose <b>keep the room alive</b> so the game survives if someone leaves.';
-    else if (g.winner) { const wname = g.winner === 'draw' ? '' : name(g.winner === 'w' ? M.seats.w : M.seats.b); status.innerHTML = g.winner === 'draw' ? (esc(g.result) + ' — next game starting…') : (g.result + ' — ' + wname + ' wins. Next game starting…'); }
-    else if (!mine) { const pos = waiting.indexOf(mp.id); status.textContent = 'Spectating' + (pos >= 0 ? ' — you\'re #' + (pos + 1) + ' in line.' : '.'); }
+    if (!ROOM) status.textContent = T('needsNewer');
+    else if (mp.note) status.textContent = mp.note;
+    else if (r && r.me && r.me.role === 'asking') status.textContent = 'Waiting for the host to let you in…';
+    else if (!heldBoth()) status.innerHTML = 'Waiting for another player… press <b>Invite</b> (top bar) to bring a friend.';
+    else if (g.winner) { const w = g.winner === 'draw' ? '' : nm(g.winner); status.innerHTML = g.winner === 'draw' ? esc(g.result) + ' — a draw.' : esc(g.result) + ' — ' + w + ' wins.'; }
+    else if (!mine) { const pos = line.findIndex(function (x) { return r.me && x.id === r.me.id; }); status.textContent = 'Spectating' + (pos >= 0 ? ' — you\'re #' + (pos + 1) + ' in line.' : '.'); }
     else if (g.state.turn === mine) status.textContent = C.inCheck(g.state, mine === 'w') ? 'Your move — you\'re in check.' : 'Your move (' + (mine === 'w' ? 'White' : 'Black') + ').';
-    else status.textContent = 'Waiting for ' + name(g.state.turn === 'w' ? M.seats.w : M.seats.b) + '…';
+    else status.innerHTML = 'Waiting for ' + nm(g.state.turn) + '…';
 
     // board
+    const can = canMove();
     const orient = mine === 'b' ? 'b' : 'w', s = g.state, sel = mp.sel, legalSel = mp.legalSel || [];
     const chk = (C.status(s) === 'check' || C.status(s) === 'checkmate') ? (function () { const i = s.board.indexOf(s.turn === 'w' ? 'K' : 'k'); return i < 0 ? null : [i % 8, (i / 8) | 0]; })() : null;
-    const cells = boardCells($('fBoard'), mpOnSquare);
-    for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
-      const x = orient === 'w' ? c : 7 - c, y = orient === 'w' ? r : 7 - r;
+    const cells = boardCells($('fBoard'), mpOnSquare, 'button');
+    const movable = {};
+    if (can) C.legal(s).forEach(function (m) { movable[m.from[1] * 8 + m.from[0]] = true; });
+    for (let rr = 0; rr < 8; rr++) for (let c = 0; c < 8; c++) {
+      const x = orient === 'w' ? c : 7 - c, y = orient === 'w' ? rr : 7 - rr;
       const p = s.board[y * 8 + x];
       let cls = 'sq ' + (((x + y) % 2) ? 'd' : 'l');
       if (p !== '.') cls += (p >= 'A' && p <= 'Z') ? ' pw' : ' pb';
@@ -643,13 +672,18 @@
       if (sel.length && sel[0] === x && sel[1] === y) cls += ' sel';
       if (chk && chk[0] === x && chk[1] === y) cls += ' chk';
       const legal = legalSel.some(function (m) { return m.to[0] === x && m.to[1] === y; });
-      paintSq(cells[r * 8 + c], x, y, cls, p === '.' ? '' : GLYPH[p.toLowerCase()],
+      const cell = cells[rr * 8 + c];
+      paintSq(cell, x, y, cls, p === '.' ? '' : GLYPH[p.toLowerCase()],
         legal ? (p !== '.' ? 'ring' : 'dotm') : '',
-        c === 0 ? String(8 - y) : '', r === 7 ? 'abcdefgh'[x] : '');
+        c === 0 ? String(8 - y) : '', rr === 7 ? 'abcdefgh'[x] : '');
+      // only a square you can act on now is a live button: your own piece, or a target of the selected one
+      // before a pick: your pieces that can move; after a pick: that piece (tap again to drop it) and its targets
+      const own = p !== '.' && ((mine === 'w') === (p >= 'A' && p <= 'Z'));
+      const pickable = sel.length ? (sel[0] === x && sel[1] === y) : (own && movable[y * 8 + x]);
+      const dis = !(can && (pickable || legal));
+      if (cell.disabled !== dis) cell.disabled = dis;
     }
-    // The move list is rebuilt only when a move actually lands. Rebuilt every
-    // beat it also forced the scroll to the bottom twice a second, so a
-    // spectator could never look back at move 3.
+    // The move list is rebuilt only when a move actually lands (so a spectator can look back at move 3).
     const ml = $('fMoves');
     if (ml._n !== g.moves.length) {
       ml._n = g.moves.length; ml.innerHTML = '';
@@ -657,12 +691,19 @@
       ml.scrollTop = ml.scrollHeight;
     }
     $('fResign').style.display = (mine && !g.winner && g.moves.length) ? '' : 'none';
+    $('fResign').disabled = !can;
+    $('fNext').style.display = (mine && g.winner && heldBoth()) ? '' : 'none';
   }
+
+  // Read-only, for the room kit: the shared game only.
+  window['__chess-grandmaster'] = {
+    state: function () { const g = mp.remote; return g ? { moves: g.moves.join(' '), winner: g.winner || '' } : { moves: '', winner: '' }; }
+  };
 
   if (window.gifos && gifos.onBack) gifos.onBack(function () {
     if (!$('review').hidden) { $('review').hidden = true; openHistory(); }
     else if (!$('history').hidden) { $('history').hidden = true; $('setup').hidden = false; }
-    else if (!$('friend').hidden) { mpLeave(); }
+    else if (!$('friend').hidden) { if (!(mp.rs && mp.rs.live)) mpLeave(); }
     else if (!$('game').hidden) { $('game').hidden = true; $('setup').hidden = false; }
   });
 })();

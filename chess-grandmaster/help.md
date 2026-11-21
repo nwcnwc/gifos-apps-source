@@ -37,7 +37,7 @@ Friend games are the live board only — they do not land in that history list.
 
 ## A live friend
 
-**Play a friend**, then **Invite** in the bar above this app. Two people take White and Black; everyone else waits in line. **Winner stays**, loser goes to the back. **Resign** is on when you are seated.
+**Play a friend**, then **Invite** in the bar above this app. Two people take White and Black; everyone else waits in line. **Winner stays**, the loser goes to the back of the line; press **Next game**. **Resign** is on during your own turn. When other people are here, the game opens straight on the shared board.
 
 The engine is **not** a third player and gives no hints at this table. Either seat can tick **Commentary**: after a move the engine mutters a reaction for both of you. It never shows the best move.
 
