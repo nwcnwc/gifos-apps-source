@@ -209,7 +209,7 @@
       }
     }
     if (n) showBanner(n === 1 ? '1 in' : (n + ' in'), 900);
-    if (mode === 'mp') Mp.publish(G, true);
+    if (mode === 'mp') Mp.publish(G);
     if (G.over()) maybeWinner();
   }
 
@@ -239,7 +239,7 @@
           if (!shotOpen && !pulling && G.still()) adoptIfNewer();
           if (G.moving()) G.step();
           if (shotOpen && G.still()) onSettled();
-          Mp.publish(G, false);
+          Mp.publish(G);
         } else {
           adoptRemote();
         }
@@ -271,7 +271,7 @@
     if (G.flick(dragX, dragY, pos.x, pos.y, dt)) {
       shotOpen = true;
       tone(90, 0.08, 'sine', 0.08);
-      if (mode === 'mp') Mp.publish(G, true);
+      if (mode === 'mp') Mp.publish(G);
     }
     setPower(0);
     return power;
@@ -330,7 +330,6 @@
     adoptedSeq = -1;
     shotOpen = false;
     hideMenu();
-    if (api) Mp.enter(G);
   }
   function startHot() {
     mode = 'hot';
@@ -349,7 +348,6 @@
     hideMenu();
     mpStarted = true;
     Mp.enter(G);
-    Mp.publish(G, true);
   }
 
   Mp.onList = function (players, hasFriend) {
@@ -396,7 +394,7 @@
       G.reset();
       adoptedSeq = -1;
       shotOpen = false;
-      Mp.publish(G, true);
+      Mp.publish(G);
       return;
     }
     G.reset();
@@ -424,10 +422,27 @@
   }
 
   if (api && api.onBack) {
-    api.onBack(function () { showMenu(); });
+    // with others in the room the OS back is how you go; alone it returns to the menu
+    api.onBack(function () {
+      if (mode === 'mp' && Mp.inRoom()) return false;
+      showMenu();
+      return true;
+    });
   }
 
-  if (api && api.db) Mp.enter(G);
+  if (!Mp.room()) menuStatus.textContent = Mp.needsNewer();
+  else if (api && api.db) Mp.enter(G);
+
+  window['__finger-pool'] = {
+    // the shared game only: each seated player's score and whose turn it is
+    state: function () {
+      return {
+        round: Mp.round(),
+        turn: (Mp.turn() || {}).id || null,
+        players: Mp.live().map(function (p) { return { id: p.id, shots: p.shots || 0, score: p.score || 0, done: !!p.done }; })
+      };
+    }
+  };
 
   G.reset();
   bindPointer();
