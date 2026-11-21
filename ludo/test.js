@@ -1,12 +1,12 @@
-// LUDO HAS TO SEAT GUESTS AND FINISH A RACE.
+// LUDO HAS TO FINISH A RACE, AND LET THE ROOM SEAT THE PEOPLE.
 //
-// v1 claimed Invite was the lobby, but a guest never published a seat, so
-// the second and third people both sat Green. Empty colours were not skipped.
-// This suite PLAYS a full lap with forced dice, captures, three-six skip,
-// and pins seatPeople so two live ids never share a colour. It then boots the
-// app on a small DOM built from its own index.html: a solo game and its save,
-// Continue, Back, and three people on one room (presence, seating, a guest's
-// roll through the host). No check reads a label, the help or the listing.
+// Seats and who is here come from gifos.room, never from the app. This suite
+// PLAYS a full lap with forced dice, captures, three-six skip, and pins that
+// empty colours are skipped. It then boots the app on a small DOM built from
+// its own index.html: a solo game and its save, Continue, Back, and three
+// people on a fake gifos.room (the room seats them, the roller writes the
+// whole game, no presence rows, no heartbeat). No check reads a label, the
+// help or the listing.
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -28,7 +28,7 @@ function load() {
 }
 
 const L = load();
-check('rules.js attaches LUDO', !!(L && L.fresh && L.roll && L.apply && L.seatPeople));
+check('rules.js attaches LUDO', !!(L && L.fresh && L.roll && L.apply && L.playingFromSeats));
 check('the loop is 52 squares', L.LOOP.length === 52, L.LOOP.length);
 
 // ---- play a token all the way home ------------------------------------------
@@ -123,29 +123,8 @@ check('the loop is 52 squares', L.LOOP.length === 52, L.LOOP.length);
   check('the fourth token home wins the race', s.winner === 0, { winner: s.winner, tokens: s.tokens[0] });
 }
 
-// ---- seating: the bug that shipped ------------------------------------------
+// ---- empty colours are skipped -----------------------------------------------
 {
-  const a = L.seatPeople([null, null, null, null], ['host']);
-  check('the first person sits Red', a[0] === 'host' && !a[1] && !a[2] && !a[3], a);
-
-  const b = L.seatPeople(a, ['host', 'g1']);
-  check('the first guest sits Green, not Red', b[0] === 'host' && b[1] === 'g1' && !b[2], b);
-
-  const c = L.seatPeople(b, ['host', 'g2', 'g1']);
-  check('a second guest sits Yellow — does NOT steal Green',
-    c[0] === 'host' && c[1] === 'g1' && c[2] === 'g2' && !c[3], c);
-
-  const d = L.seatPeople(c, ['g1', 'g2']);
-  check('a missing host frees Red; the others keep their colours',
-    d[0] === null && d[1] === 'g1' && d[2] === 'g2', d);
-
-  const e = L.seatPeople(d, ['g1', 'g2', 'g3']);
-  check('a late joiner takes the free Red seat', e[0] === 'g3' && e[1] === 'g1' && e[2] === 'g2', e);
-
-  const same = L.seatPeople(['a', 'b', null, null], ['b', 'a', 'c']);
-  check('seatPeople is deterministic for the same live set',
-    same[0] === 'a' && same[1] === 'b' && same[2] === 'c', same);
-
   const play = L.playingFromSeats(['a', 'b', null, null]);
   check('empty seats are not playing', play[0] && play[1] && !play[2] && !play[3], play);
 
@@ -359,18 +338,35 @@ function miniDom(html) {
 // ---- the app, booted on its own page ----------------------------------------
 const read = (f) => fs.readFileSync(path.join(APP, f), 'utf8');
 const clock = { t: 1700000000000 };
+// A fake gifos.room: seats fill in join order, the 'game' collection is one shared row, no presence rows.
 function makeRoom() {
-  const rows = new Map(), subs = [];
-  const room = {
-    rows, puts: 0,
-    // A runaway (a put answering every delivery with another put) is cut off
-    // at 600 deliveries, so it reads as a red check rather than a hang.
-    adapter: () => ({
-      put: (r) => { room.puts++; rows.set(r.id, JSON.parse(JSON.stringify(r))); if (room.puts < 600) Promise.resolve().then(() => subs.forEach((f) => f([...rows.values()].map((x) => JSON.parse(JSON.stringify(x)))))); return Promise.resolve(); },
-      delete: (id) => { rows.delete(id); return Promise.resolve(); },
-      subscribe: (f) => { subs.push(f); Promise.resolve().then(() => f([...rows.values()])); },
-    }),
+  const SEATS = ['Red', 'Green', 'Yellow', 'Blue'];
+  const room = { rows: new Map(), seats: SEATS.map((s) => ({ seat: s, id: null, name: '', here: 'open' })), round: 1, moves: 0, puts: 0, copies: [], dbSubs: [] };
+  const push = () => {
+    for (const c of room.copies) c.sub && c.sub(room.view(c.id, c.name));
+    for (const f of room.dbSubs) f([...room.rows.values()].map((x) => JSON.parse(JSON.stringify(x))));
   };
+  room.view = (id, name) => {
+    const mine = room.seats.find((x) => x.id === id);
+    return { on: true, kind: 'open', live: room.copies.length > 1, me: { id, name, seat: mine ? mine.seat : null, role: mine ? 'player' : 'watcher' },
+      seats: room.seats.map((x) => ({ ...x })), turn: null, myTurn: !!mine, round: room.round, ready: room.seats.filter((x) => x.id).length >= 2, line: [], asks: [], people: [] };
+  };
+  room.attach = (id, name) => {
+    const c = { id, name, sub: null };
+    room.copies.push(c);
+    return {
+      subscribe: (f) => { c.sub = f; Promise.resolve().then(() => f(room.view(id, name))); },
+      join: () => { const s = room.seats.find((x) => !x.id); if (s) { s.id = id; s.name = name; s.here = 'here'; } push(); return Promise.resolve({ ok: true }); },
+      leave: () => { const s = room.seats.find((x) => x.id === id); if (s) { s.id = null; s.name = ''; s.here = 'open'; } push(); return Promise.resolve({ ok: true }); },
+      move: (col, rec) => { if (!room.seats.some((x) => x.id === id)) return Promise.reject(new Error('You are watching.')); room.moves++; room.rows.set(rec.id, JSON.parse(JSON.stringify(rec))); push(); return Promise.resolve({ ok: true }); },
+      newRound: (col, rec) => { room.round++; room.rows.set(rec.id, JSON.parse(JSON.stringify(rec))); push(); return Promise.resolve({ ok: true }); },
+    };
+  };
+  room.adapter = () => ({
+    put: () => { room.puts++; return Promise.reject(new Error('moves go through gifos.room.move')); },
+    delete: () => Promise.resolve(),
+    subscribe: (f) => { room.dbSubs.push(f); Promise.resolve().then(() => f([...room.rows.values()])); },
+  });
   return room;
 }
 function bootApp(opts) {
@@ -385,6 +381,7 @@ function bootApp(opts) {
     gifos: {
       db: (name) => name === 'save' ? { get: () => Promise.resolve(opts.saved || null), put: (r) => { puts.push(JSON.parse(JSON.stringify(r))); return Promise.resolve(); } }
         : (opts.room ? opts.room.adapter() : null),
+      room: opts.room ? opts.room.attach(opts.id || 'solo-x', opts.name || 'Player') : undefined,
       onBack: (f) => { back = f; }, me: () => Promise.resolve({ id: opts.id || 'solo-x', name: opts.name || 'Player' }),
     },
   };
@@ -428,36 +425,26 @@ const appRuns = (async () => {
       shared.length === 1 && [1, 2, 3, 4].every((k) => place(k) !== '|||') && new Set([1, 2, 3, 4].map(place)).size === 4, [1, 2, 3, 4].map(place));
   }
   {
-    // Three people on one room. Ids order the host: the lowest live id.
+    // Three people on one fake room: the room seats them; the roller writes the whole game.
     const room = makeRoom();
     clock.t = 1700000000000;
     const H = bootApp({ room, id: 'a-host', name: 'Host Person' });
     const G1 = bootApp({ room, id: 'b-guest', name: 'Guest One' });
     const G2 = bootApp({ room, id: 'c-guest', name: 'Guest Two' });
     await settle();
-    H.$('friendBtn').click(); await settle();
-    clock.t += 100; G1.$('friendBtn').click(); await settle();
-    clock.t += 100; G2.$('friendBtn').click(); await settle();
-    check('every guest publishes its own presence row on the room', ['a-host', 'b-guest', 'c-guest'].every((id) => room.rows.has(id) && room.rows.get(id).at > 0));
-    const at0 = room.rows.get('c-guest').at;
-    clock.t += 3000; G2.beats[0](); await settle();
-    check('…and a heartbeat keeps it fresh', room.rows.get('c-guest').at > at0);
-    for (const A of [H, G1, G2]) { clock.t += 10; A.beats[0](); } await settle();
-    const seats = room.rows.get('game') && room.rows.get('game').seats;
-    check('the host seats everyone in a different colour: Red, Green, Yellow in join order', !!seats && seats[0] === 'a-host' && seats[1] === 'b-guest' && seats[2] === 'c-guest' && !seats[3], seats);
-    check('each page knows its own seat', H.app.seats[0] === 'a-host' && G1.app.seats[1] === 'b-guest' && G2.app.seats[2] === 'c-guest');
-    // The guest whose turn it is rolls; the host applies it to the shared board.
-    const board = room.rows.get('game');
-    const turn = board.game.turn;
-    const actor = [H, G1, G2][turn];
-    const others = [H, G1, G2].filter((x) => x !== actor);
-    check('only the seat whose turn it is may roll', !actor.$('rollBtn').disabled && others.every((x) => x.$('rollBtn').disabled), turn);
-    const seq0 = board.seq;
+    // with other people here the app opens straight on the shared board
+    check('with other people here the app opens on the shared board, no tap', [H, G1, G2].every((x) => x.app.mode === 'mp' && !x.$('play').hidden));
+    check('the room seats everyone in a different colour: Red, Green, Yellow in join order', room.seats[0].id && room.seats[1].id && room.seats[2].id && !room.seats[3].id && new Set(room.seats.map((s) => s.id).filter(Boolean)).size === 3, room.seats);
+    check('no presence row, no heartbeat, no direct write on the room', room.rows.size === 0 && room.puts === 0 && H.beats.length === 0 && G1.beats.length === 0);
+    const ids = { 'a-host': H, 'b-guest': G1, 'c-guest': G2 };
+    const by = (seat) => ids[room.seats.find((s) => s.seat === seat).id];
+    const actor = by('Red'), others = [H, G1, G2].filter((x) => x !== actor);
+    check('only the seat whose turn it is may roll', !actor.$('rollBtn').disabled && others.every((x) => x.$('rollBtn').disabled));
+    const m0 = room.moves;
     actor.$('rollBtn').click(); await settle();
-    for (const A of [H, G1, G2]) { clock.t += 10; A.beats[0](); } await settle();
     const after = room.rows.get('game');
-    check('a roll goes through the host to the shared board once (the board moved on: rolled, or the turn passed; sequence +1)',
-      (after.game.rolled || after.game.turn !== turn) && after.seq === seq0 + 1 && room.puts < 600, { seq: after.seq, rolled: after.game.rolled, turn: after.game.turn, puts: room.puts });
+    check('a roll is one room move carrying the whole game', room.moves === m0 + 1 && !!after && /rolled/.test(after.game.log) && after.game.playing.join() === 'true,true,true,false', after);
+    check('every copy shows the same game after it', [H, G1, G2].every((x) => x.app.game.log === after.game.log && x.app.game.turn === after.game.turn));
   }
   // TEXT-CHECK: the GifOS rule is that an app never draws its own Invite (the
   // OS app bar owns it). The only thing that marks such a control is its name.

@@ -26,7 +26,7 @@ On a phone it is the same tap. There is no drag.
 ## This device or a friend
 
 - **Play on this device** — 2, 3, or 4 colours. Pass the phone. Red starts. **Continue** resumes a game saved in this file.
-- **Play with friends**, then **Invite** in the bar above the app. Seats fill as people open the link: Red, Green, Yellow, Blue. You only roll and move on your colour. Empty colours are skipped. Extras watch. There is no lobby.
+- **Play with friends**, then **Invite** in the bar above the app. The room seats people as they open the link: Red, Green, Yellow, Blue (two are needed). You only roll and move on your colour. Empty colours are skipped. Extras watch and are next in line. When other people are here, the game opens straight on the shared board.
 
 ## What is saved
 

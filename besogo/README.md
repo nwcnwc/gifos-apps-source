@@ -23,11 +23,9 @@ build.mjs               packs the GIF into site/apps/besogo/besogo.gif
 
 - **Two here** — pass the device. Black goes first. Tap an empty point.
 - **Play a friend** — send the invite (top bar; that button is OS chrome).
-  Black and white seats, turns. Each person writes only their own row. The
-  host of the board (first seated / lowest id) is the only writer of the
-  board row: a player publishes an intended place or pass, the host applies
-  it if it is legal. Undo of the stone you just put down if the other person
-  has not answered yet; further than that, both have to tap Undo.
+  Black and white seats and turns come from `gifos.room`; the mover checks the
+  move and writes the whole next board with `gifos.room.move`. Undo: the owner
+  of the last stone asks (plain `undo` data), the other player, on turn, agrees.
 
 9×9, 13×13, or 19×19. Two passes in a row end the game. A game in progress
 auto-saves in the icon.

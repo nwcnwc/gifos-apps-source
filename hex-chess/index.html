@@ -32,6 +32,7 @@
     </div>
     <p class="lvlnote" id="hotseatNote" hidden>Pass the device. White goes first. Tap a piece, then tap a hex.</p>
     <button class="primary" id="startBtn" type="button">Start game</button>
+    <p class="lvlnote" id="oldNote" hidden></p>
     <button class="ghost wide" id="friendBtn" type="button">👥 Play a friend</button>
   </section>
 
@@ -57,9 +58,10 @@
     <div class="seats" id="fSeats"></div>
     <div class="fqueue" id="fQueue"></div>
     <div class="statusline" id="fStatus"></div>
-    <div class="boardwrap"><canvas id="fBoard" width="640" height="720" aria-label="Shared hex chess board"></canvas></div>
+    <div class="boardwrap"><canvas id="fBoard" width="640" height="720" aria-label="Shared hex chess board"></canvas><div class="hits" id="fHits"></div></div>
     <div class="controls">
       <button id="fResign" class="ghost" type="button" hidden>🏳 Resign</button>
+      <button id="fNew" class="ghost" type="button" hidden>＋ New game</button>
     </div>
   </section>
 </main>

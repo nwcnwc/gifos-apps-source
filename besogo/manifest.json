@@ -3,8 +3,8 @@
   "appId": "besogo",
   "name": "BesoGo",
   "shortName": "BesoGo",
-  "version": "1.0",
-  "minBuild": 947,
+  "version": "1.1",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [196, 140, 70],
   "capabilities": {
@@ -13,6 +13,10 @@
   },
   "data": {
     "save": { "visibility": "private" },
-    "room": { "visibility": "read-write" }
+    "board": { "visibility": "read-write" },
+    "undo": { "visibility": "read-write" }
+  },
+  "room": {
+    "seats": ["black", "white"], "turns": "order", "moves": ["board"], "solo": true
   }
 }

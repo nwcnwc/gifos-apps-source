@@ -1,5 +1,5 @@
 // Backgammon — a table of checkers and dice. Computer uses the same legal
-// moves. A friend sits the other colour. Invite is OS chrome.
+// moves. A friend sits the other colour via gifos.room (seats and turns are the OS's). Invite is OS chrome.
 (function () {
   'use strict';
   var B = window.Backgammon;
@@ -487,7 +487,7 @@
   }
 
   $('board').addEventListener('click', function (e) { playHit(hit(this, e, shouldFlip())); });
-  $('startBtn').onclick = function () { newLocal(); };
+  $('startBtn').onclick = function () { picked = true; newLocal(); };
   $('newBtn').onclick = function () {
     $('game').hidden = true; $('setup').hidden = false; setChip('ready', 'Ready');
   };
@@ -512,250 +512,153 @@
     if (!$('friend').hidden) mpRender(true);
   });
 
-  // ---- multiplayer ----
-  var PRES_TTL = 9000, HB_MS = 3000, END_HOLD = 4000;
+  // ---- multiplayer: gifos.room ----
+  // The room (manifest "room") owns who plays, who watches, whose turn it is, seat hold on reload and hand-off.
+  // This app draws the table and writes the whole next position with gifos.room.move. Roll, each checker move and
+  // undo keep the turn (keep:true); Confirm hands it to the other player.
+  var EN = { needsNewer: 'Backgammon needs a newer GifOS to play together. Reload the page to update.' };
+  var T = function (k) {
+    var v = window.gifos && gifos.i18n && gifos.i18n.t ? gifos.i18n.t(k) : k;
+    return v === k && EN.hasOwnProperty(k) ? EN[k] : v;
+  };
+  var ROOM = !!(window.gifos && gifos.room && gifos.room.subscribe);
   var mpDb = null;
-  try { if (window.gifos) mpDb = gifos.db('room'); } catch (e) {}
-  var mp = { on: false, id: null, name: 'You', row: null, board: null, people: [], hb: 0, sub: false, sel: null, dieSteps: 0 };
-  var _items = [];
+  try { if (window.gifos) mpDb = gifos.db('board'); } catch (e) {}
+  var rs = null, joined = false, picked = false, note = '';
+  var mp = { on: false, board: null, data: null, sub: false, sel: null, dieSteps: 0 };
   var _mpSeqPaint = -1;
 
-  function mySeat(b) {
-    if (!b || !b.seats) return null;
-    if (b.seats.white === mp.id) return 'white';
-    if (b.seats.black === mp.id) return 'black';
-    return null;
-  }
-  function isHost(people) {
-    if (!people.length) return true;
-    var m = people[0].id, i;
-    for (i = 0; i < people.length; i++) if (people[i].id < m) m = people[i].id;
-    return mp.id === m;
-  }
-  function gameOf(b) {
-    return B.restore(b && b.snap);
-  }
-  function packBoard(hostId, seats, names, game, extra) {
+  function packBoard(game, extra) {
     extra = extra || {};
     return {
-      id: 'board', host: hostId, seats: seats, names: names || {},
-      snap: B.snapshot(game), seq: extra.seq || 0,
+      id: 'board', snap: B.snapshot(game), n: extra.n || 0,
       turn: B.colorName(game.turnPlayer.currentPieceType),
       winner: game.isOver ? B.colorName(game.winner) : null,
-      result: extra.result || '', last: extra.last || null,
-      startedAt: extra.startedAt || nowMs(), endedAt: extra.endedAt || 0
+      result: extra.result || '', last: extra.last || null
     };
   }
-  function freshBoard(hostId) {
-    return packBoard(hostId, { white: null, black: null }, {}, B.fresh(), { seq: 0 });
+  function freshBoard() { return packBoard(B.fresh(), { n: 0 }); }
+  function curBoard() { return mp.board || freshBoard(); }
+  function gameOf(b) { return B.restore(b && b.snap); }
+  function seatOf(s, name) {
+    var x = s && s.seats && s.seats.filter(function (q) { return q.seat === name; })[0];
+    return x || { seat: name, id: null, name: '', here: 'open' };
   }
-  function putMe(extra) {
-    var row = { id: mp.id, name: mp.name, at: nowMs(), intent: null };
-    if (mp.row && mp.row.intent) row.intent = mp.row.intent;
-    if (extra && extra.intent !== undefined) row.intent = extra.intent;
-    mp.row = row;
-    mpDb.put(row).catch(function () {});
+  function alone() { return !!rs && !rs.live; }
+  function mySeat() { return rs && rs.me ? rs.me.seat : null; }
+  // alone, the one person plays whichever colour is on turn
+  function mpMyTurn() {
+    var b = curBoard();
+    if (!ROOM || !rs || b.winner) return false;
+    if (alone()) return !!mySeat() && seatOf(rs, b.turn).here !== 'away';
+    return !!rs.myTurn;
   }
-  function putBoard(b) { mp.board = b; mpDb.put(b).catch(function () {}); }
+  function mpFlip() { return (alone() ? curBoard().turn : mySeat()) === 'black'; }
+  function say(e) {
+    note = e && e.message ? e.message : '';
+    mp.board = mp.data;   // the room refused: the data is the truth
+    mpRender(true);
+  }
+  // Write the next position. keep:true while the same player still has dice to play.
+  function mpWrite(game, extra, keep) {
+    var b = curBoard();
+    var nb = packBoard(game, Object.assign({ n: (b.n || 0) + 1 }, extra));
+    mp.board = nb; mpRender(true);
+    gifos.room.move('board', nb, keep ? { keep: true } : undefined).catch(say);
+  }
 
-  $('friendBtn').onclick = mpEnter;
+  $('friendBtn').onclick = function () { picked = true; mpEnter(); };
   function mpEnter() {
-    if (!mpDb) { setStatus($('statusLine'), 'Play a friend needs storage.', 'warn'); return; }
-    (window.gifos ? gifos.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (me) {
-      mp.id = me.id; mp.name = me.name || 'You'; mp.on = true; mp.row = null; mp.sel = null; mp.dieSteps = 0;
-      _mpSeqPaint = -1;
-      $('setup').hidden = true; $('game').hidden = true; $('friend').hidden = false;
-      setChip('ready', 'A friend');
-      if (!mp.sub) {
-        mp.sub = true;
-        mpDb.subscribe(function (items) { _items = items || []; mpRefresh(); });
-      }
-      putMe();
-      if (mp.hb) clearInterval(mp.hb);
-      mp.hb = setInterval(function () { if (mp.on) putMe(); }, HB_MS);
-      mpRender(true);
-    });
+    if (mp.on) return;
+    mp.on = true; mp.sel = null; mp.dieSteps = 0;
+    $('setup').hidden = true; $('game').hidden = true; $('friend').hidden = false;
+    setChip('ready', 'A friend');
+    if (!mpDb) { mpRender(true); return; }
+    if (!mp.sub) {
+      mp.sub = true;
+      mpDb.subscribe(function (items) {
+        note = '';
+        var b = null, i;
+        for (i = 0; i < (items || []).length; i++) if (items[i] && items[i].id === 'board') b = items[i];
+        mp.data = mp.board = b;
+        mpRender();
+      });
+    }
+    if (ROOM && rs && !joined && rs.me && rs.me.role === 'watcher') { joined = true; gifos.room.join().catch(function () {}); }
+    mpRender(true);
   }
   function mpLeave() {
-    mp.on = false;
-    if (mp.hb) clearInterval(mp.hb); mp.hb = 0;
-    if (mpDb && mp.id) mpDb.delete(mp.id).catch(function () {});
+    mp.on = false; picked = true;
+    if (ROOM) { joined = false; gifos.room.leave().catch(function () {}); }
     $('friend').hidden = true; $('setup').hidden = false; setChip('ready', 'Ready');
   }
   $('fLeave').onclick = mpLeave;
 
-  function mpRefresh() {
-    if (!mp.on) return;
-    var t = nowMs();
-    var people = [], board = null, i, it;
-    for (i = 0; i < _items.length; i++) {
-      it = _items[i];
-      if (!it || !it.id) continue;
-      if (it.id === 'board') { board = it; continue; }
-      if (it.at && t - it.at < PRES_TTL) people.push(it);
-    }
-    if (!people.some(function (p) { return p.id === mp.id; })) {
-      people.push(mp.row || { id: mp.id, name: mp.name, at: t });
-    }
-    mp.people = people;
-    mp.board = board;
-    if (mp.row) {
-      for (i = 0; i < people.length; i++) if (people[i].id === mp.id) mp.row = people[i];
-    }
-    if (!board) {
-      if (isHost(people)) putBoard(freshBoard(mp.id));
-      mpRender(true);
-      return;
-    }
-    if (isHost(people)) {
-      var next = mpReconcile(board, people);
-      if (next) { putBoard(next); return; }
-    }
-    if (mp.row && mp.row.intent && board.seq !== mp.row.intent.seq) {
-      putMe({ intent: null });
-    }
-    mpRender(false);
+  if (ROOM) {
+    gifos.room.subscribe(function (s) {
+      note = '';   // a refusal's note goes with the next room state
+      rs = s;
+      // with other people here, room play is what you see; alone you start on the menu
+      if (!mp.on && !picked && s.live) { mpEnter(); return; }
+      if (mp.on && !joined && s.me && s.me.role === 'watcher') { joined = true; gifos.room.join().catch(function () {}); }
+      mpRender();
+    });
   }
 
-  function mpReconcile(Brow, people) {
-    var b = JSON.parse(JSON.stringify(Brow));
-    var ch = false;
-    var ids = {};
-    var game = gameOf(b);
-    people.forEach(function (p) {
-      ids[p.id] = p;
-      if (b.names[p.id] !== p.name) { b.names[p.id] = p.name; ch = true; }
-    });
-    ['white', 'black'].forEach(function (s) {
-      if (b.seats[s] && !ids[b.seats[s]]) { b.seats[s] = null; ch = true; }
-    });
-    if ((!b.seats.white || !b.seats.black) && (game.turnNumber > 1 || (game.turnDice && (game.turnDice.movesPlayed || []).length)) && !game.isOver) {
-      game.isOver = true;
-      game.winner = b.seats.white ? B.WHITE : (b.seats.black ? B.BLACK : B.WHITE);
-      b.winner = B.colorName(game.winner);
-      b.result = 'Opponent left';
-      b.endedAt = nowMs();
-      b.snap = B.snapshot(game);
-      ch = true;
-    }
-    var seated = {};
-    seated[b.seats.white] = 1; seated[b.seats.black] = 1;
-    var queue = people.map(function (p) { return p.id; }).filter(function (id) { return !seated[id]; });
-    queue.sort();
-    if (!b.seats.white && queue.length) { b.seats.white = queue.shift(); ch = true; }
-    if (!b.seats.black && queue.length) { b.seats.black = queue.shift(); ch = true; }
-    if (b.winner && b.endedAt && nowMs() - b.endedAt > END_HOLD) {
-      game = B.fresh();
-      b.snap = B.snapshot(game);
-      b.turn = 'white'; b.winner = null; b.result = ''; b.last = null;
-      b.seq = (b.seq || 0) + 1; b.endedAt = 0; b.startedAt = nowMs();
-      ch = true;
-    }
-    people.forEach(function (p) {
-      var intent = p.intent;
-      if (!intent || intent.seq !== b.seq) return;
-      var seat = b.seats.white === p.id ? 'white' : (b.seats.black === p.id ? 'black' : null);
-      if (!seat || game.isOver) return;
-      var turnName = B.colorName(game.turnPlayer.currentPieceType);
-      if (intent.kind === 'roll') {
-        if (turnName !== seat || game.turnDice) return;
-        B.roll(game);
-        b.last = { kind: 'roll' };
-        b.seq = (b.seq || 0) + 1;
-        b.snap = B.snapshot(game);
-        b.turn = B.colorName(game.turnPlayer.currentPieceType);
-        ch = true;
-      } else if (intent.kind === 'move') {
-        if (turnName !== seat || !game.turnDice) return;
-        if (typeof intent.pieceId !== 'number' || typeof intent.steps !== 'number') return;
-        if (!B.tryMove(game, intent.pieceId, intent.steps)) return;
-        b.last = { kind: 'move', pieceId: intent.pieceId, steps: intent.steps };
-        b.seq = (b.seq || 0) + 1;
-        b.snap = B.snapshot(game);
-        ch = true;
-      } else if (intent.kind === 'confirm') {
-        if (turnName !== seat || !B.canConfirm(game)) return;
-        B.confirm(game);
-        if (game.isOver) {
-          b.winner = B.colorName(game.winner);
-          b.result = 'All fifteen off';
-          b.endedAt = nowMs();
-        }
-        b.last = { kind: 'confirm' };
-        b.seq = (b.seq || 0) + 1;
-        b.snap = B.snapshot(game);
-        b.turn = B.colorName(game.turnPlayer.currentPieceType);
-        ch = true;
-      } else if (intent.kind === 'undo') {
-        if (turnName !== seat || !B.canUndo(game)) return;
-        B.undo(game);
-        b.last = { kind: 'undo' };
-        b.seq = (b.seq || 0) + 1;
-        b.snap = B.snapshot(game);
-        ch = true;
-      } else if (intent.kind === 'resign') {
-        game.isOver = true;
-        game.winner = seat === 'white' ? B.BLACK : B.WHITE;
-        b.winner = B.colorName(game.winner);
-        b.result = 'Resigned';
-        b.endedAt = nowMs();
-        b.seq = (b.seq || 0) + 1;
-        b.snap = B.snapshot(game);
-        ch = true;
-      }
-    });
-    if (b.host !== mp.id) { b.host = mp.id; ch = true; }
-    return ch ? b : null;
-  }
-
-  function mpIntent(intent) {
-    var b = mp.board;
-    if (!b) return;
-    intent.seq = b.seq;
-    putMe({ intent: intent });
-  }
-  function mpMyTurn() {
-    var b = mp.board, seat = mySeat(b);
-    if (!b || !seat || b.winner) return false;
-    var g = gameOf(b);
-    return B.colorName(g.turnPlayer.currentPieceType) === seat;
-  }
-  function mpFlip() { return mySeat(mp.board) === 'black'; }
   $('fRoll').onclick = function () {
     if (!mpMyTurn()) return;
-    var g = gameOf(mp.board);
+    var g = gameOf(curBoard());
     if (!B.canRoll(g)) return;
-    mpIntent({ kind: 'roll' });
+    B.roll(g);
+    mpWrite(g, { last: { kind: 'roll' } }, true);
   };
   $('fUndo').onclick = function () {
     if (!mpMyTurn()) return;
-    mpIntent({ kind: 'undo' });
+    var g = gameOf(curBoard());
+    if (!B.canUndo(g)) return;
+    B.undo(g);
+    mpWrite(g, { last: { kind: 'undo' } }, true);
   };
   $('fConfirm').onclick = function () {
     if (!mpMyTurn()) return;
-    mpIntent({ kind: 'confirm' });
+    var g = gameOf(curBoard());
+    if (!B.canConfirm(g)) return;
+    B.confirm(g);
+    mpWrite(g, { last: { kind: 'confirm' }, result: g.isOver ? 'All fifteen off' : '' }, false);
   };
+  // Resign: on your turn, the game goes to the other colour.
   $('fResign').onclick = function () {
-    var b = mp.board, seat = mySeat(b);
-    if (!b || !seat || b.winner) return;
-    mpIntent({ kind: 'resign' });
+    var b = curBoard();
+    if (!mpMyTurn() || b.winner) return;
+    var g = gameOf(b);
+    g.isOver = true;
+    g.winner = b.turn === 'white' ? B.BLACK : B.WHITE;
+    mpWrite(g, { result: 'Resigned' }, false);
   };
+  $('fNew').onclick = function () {
+    if (!ROOM || !mySeat()) return;
+    gifos.room.newRound('board', freshBoard(), { first: 'white' }).catch(say);
+  };
+  function mpMove(g, piece, steps) {
+    if (!B.tryMove(g, piece.id, steps)) return false;
+    mpWrite(g, { last: { kind: 'move', pieceId: piece.id, steps: steps } }, true);
+    return true;
+  }
   $('fBoard').addEventListener('click', function (e) {
-    var b = mp.board, h, g, piece, dests, i, match;
+    var b = curBoard(), h, g, piece, dests, i, match;
     if (!mpMyTurn()) return;
     g = gameOf(b);
     h = hit(this, e, mpFlip());
-    if (B.canRoll(g)) { mpIntent({ kind: 'roll' }); return; }
+    if (B.canRoll(g)) { $('fRoll').onclick(); return; }
     piece = selPiece(g, mp.sel);
     if (piece) {
       dests = filterDests(B.destsFor(g, piece), mp.dieSteps);
       for (i = 0; i < dests.length; i++) {
         if (B.destMatches(dests[i].dest, h, piece.type)) { match = dests[i]; break; }
       }
-      if (match && B.tryMove(B.restore(b.snap), piece.id, match.steps)) {
+      if (match) {
         mp.sel = null; mp.dieSteps = 0;
-        mpIntent({ kind: 'move', pieceId: piece.id, steps: match.steps });
-        return;
+        if (mpMove(g, piece, match.steps)) return;
       }
     }
     piece = pieceFromHit(g, h);
@@ -770,34 +673,42 @@
 
   function mpRender(force) {
     if (!mp.on) return;
-    var b = mp.board, status = $('fStatus');
-    if (!b) { $('fSeats').innerHTML = ''; status.textContent = 'Setting up the board…'; return; }
+    var b = curBoard(), status = $('fStatus');
     var g = gameOf(b);
-    var seat = mySeat(b);
-    var nameOf = function (id) { return id ? esc(b.names[id] || 'Player') : '<span class="open">open</span>'; };
+    var seat = mySeat();
+    if (!ROOM) {
+      $('fSeats').innerHTML = ''; $('fQueue').textContent = '';
+      setScore($('fScore'), g);
+      setStatus(status, T('needsNewer'), 'warn');
+      paint($('fBoard'), g, { flip: false, dests: [], froms: [], selId: null });
+      $('fDice').hidden = true;
+      $('fRoll').disabled = $('fUndo').disabled = $('fConfirm').disabled = true;
+      $('fResign').hidden = true; $('fNew').hidden = true;
+      return;
+    }
+    var nameOf = function (name) {
+      var x = seatOf(rs, name);
+      return x.id ? esc(x.name || 'Player') + (x.here === 'away' ? ' …' : '') : '<span class="open">open</span>';
+    };
     $('fSeats').innerHTML =
-      '<div class="seat' + (seat === 'white' ? ' me' : '') + (b.turn === 'white' && !b.winner ? ' turn' : '') + '">White · ' + nameOf(b.seats.white) + '</div>' +
-      '<div class="seat' + (seat === 'black' ? ' me' : '') + (b.turn === 'black' && !b.winner ? ' turn' : '') + '">Black · ' + nameOf(b.seats.black) + '</div>';
-    var waiting = mp.people.filter(function (p) { return p.id !== b.seats.white && p.id !== b.seats.black; });
-    $('fQueue').textContent = waiting.length ? ('Watching: ' + waiting.map(function (p) { return p.name || 'Player'; }).join(', ')) : '';
+      '<div class="seat' + (seat === 'white' ? ' me' : '') + (b.turn === 'white' && !b.winner ? ' turn' : '') + '">White · ' + nameOf('white') + '</div>' +
+      '<div class="seat' + (seat === 'black' ? ' me' : '') + (b.turn === 'black' && !b.winner ? ' turn' : '') + '">Black · ' + nameOf('black') + '</div>';
+    var role = rs.me ? rs.me.role : 'watcher';
+    var wait = (rs.line || []).map(function (p) { return p.name || 'Player'; });
+    $('fQueue').textContent = note || (role === 'waiting' ? 'You are in line for a seat.' : role === 'asking' ? 'Waiting for the host to seat you.' :
+      (wait.length ? 'In line: ' + wait.join(', ') : ''));
     setScore($('fScore'), g);
-    var both = b.seats.white && b.seats.black;
-    var mine = mpMyTurn();
+    var mine = mpMyTurn(), tx = seatOf(rs, b.turn);
     $('fRoll').disabled = !(mine && B.canRoll(g));
     $('fUndo').disabled = !(mine && B.canUndo(g));
     $('fConfirm').disabled = !(mine && B.canConfirm(g));
     $('fRoll').classList.toggle('go', mine && B.canRoll(g));
     $('fConfirm').classList.toggle('go', mine && B.canConfirm(g));
-    if ((b.seq || 0) !== _mpSeqPaint) { mp.sel = mine ? autoSel(g) : null; mp.dieSteps = 0; }
-    if (!both) {
-      status.className = 'turnpill';
-      status.innerHTML = 'Waiting for another player… press <b>Invite</b> (top bar) to bring a friend.';
-    } else if (b.winner) {
-      var wname = nameOf(b.winner === 'white' ? b.seats.white : b.seats.black);
+    if ((b.n || 0) !== _mpSeqPaint) { mp.sel = mine ? autoSel(g) : null; mp.dieSteps = 0; }
+    if (b.winner) {
+      var wx = seatOf(rs, b.winner);
       status.className = 'turnpill good';
-      status.innerHTML = (esc(b.result || 'All fifteen off') + ' — ') + wname + ' wins. Next game starting…';
-    } else if (!seat) {
-      setStatus(status, 'Spectating.', '');
+      status.innerHTML = (esc(b.result || 'All fifteen off') + ' — ') + (wx.id && wx.name ? esc(wx.name) : b.winner) + ' wins.';
     } else if (mine) {
       if (B.canRoll(g)) setStatus(status, 'Your turn. Roll.', turnCls(g));
       else if (B.canConfirm(g) && !(g.turnDice.movesPlayed || []).length) setStatus(status, 'No move with this roll. Confirm.', turnCls(g));
@@ -805,8 +716,15 @@
       else if (B.onBar(g)) setStatus(status, 'You are on the bar. Tap a point to enter.', turnCls(g));
       else if (mp.sel) setStatus(status, 'Tap where it goes — or tap another checker.', turnCls(g));
       else setStatus(status, 'Your turn. Tap a checker, then where it goes.', turnCls(g));
+    } else if (!seat) {
+      setStatus(status, role === 'waiting' ? 'Waiting for a seat…' : 'Spectating.', '');
+    } else if (tx.here === 'away') {
+      setStatus(status, (tx.name || b.turn) + ' is reconnecting…', b.turn);
+    } else if (!tx.id) {
+      status.className = 'turnpill';
+      status.innerHTML = 'Waiting for another player… press <b>Invite</b> (top bar) to bring a friend.';
     } else {
-      setStatus(status, 'Waiting for ' + b.turn + '…', b.turn);
+      setStatus(status, 'Waiting for ' + (tx.name || b.turn) + '…', b.turn);
     }
     var hints = paintHints(g, mine ? mp.sel : null, mp.dieSteps);
     paint($('fBoard'), g, {
@@ -815,9 +733,20 @@
     renderDice($('fDice'), g, mp.dieSteps, mine ? function (n) {
       mp.dieSteps = mp.dieSteps === n ? 0 : n; mpRender(true);
     } : null);
-    _mpSeqPaint = b.seq || 0;
-    $('fResign').hidden = !(seat && g.turnNumber > 1 && !b.winner);
+    _mpSeqPaint = b.n || 0;
+    // with others here the room (top-bar back, OS leave) is how you go; alone you may return to the menu
+    $('fLeave').hidden = !!rs.live;
+    $('fResign').hidden = !(mine && g.turnNumber > 1 && !b.winner);
+    $('fNew').hidden = !(seat && (b.winner || (!rs.live && g.turnNumber > 1)));
   }
+
+  // Read-only, for the room kit: the game only.
+  window.__backgammon = {
+    state: function () {
+      var b = mp.board;
+      return { n: b ? b.n : 0, turn: b ? b.turn : null, winner: b ? b.winner : null, snap: b ? JSON.stringify(b.snap) : '' };
+    }
+  };
 
   if (window.gifos && gifos.onBack) gifos.onBack(function () {
     if (!$('friend').hidden) mpLeave();
@@ -825,6 +754,7 @@
   });
 
   setChip('ready', 'Ready');
+  if (!ROOM) { $('oldNote').textContent = T('needsNewer'); $('oldNote').hidden = false; }
   if (db) {
     db.get('game').then(function (row) {
       if (!row || !row.snap || row.over) return;

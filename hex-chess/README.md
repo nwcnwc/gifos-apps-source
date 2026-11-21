@@ -10,7 +10,7 @@ colour. Close it, come back — the game is still there.
 index.html     setup / local game / play a friend
 style.css      dark #0a0a0f, gold accents
 board.js       91-hex Gliński rules, check / mate / stalemate, AI
-app.js         tap-piece tap-hex, seats, multiplayer
+app.js         tap-piece tap-hex, seats and turns from gifos.room
 icon.mjs       hex-grid icon (a knight leaping) + 1200×720 cover
 build.mjs      packs the GIF into site/apps/hex-chess/hex-chess.gif
 ```
@@ -87,9 +87,8 @@ the deliverer).
   never blocks the UI (`setTimeout`).
 - **Two here** — pass the device. White goes first. Tap a piece, then a hex.
 - **Play a friend** — send the invite (top bar; that button is OS chrome).
-  Each person writes only their own row. The host of the board (lowest live
-  id) is the only writer of the board row: a player publishes an intended
-  move, the host applies it if it is legal.
+  The OS owns seats, turns and hand-off (`gifos.room`, manifest `room`); the
+  mover checks the move and writes the whole next board with `gifos.room.move`.
 
 ## capabilities
 

@@ -10,7 +10,7 @@ index.html     setup / local game / play a friend
 style.css      dark #0a0a0f, green board, river, animal faces
 board.js       7×9, ranks, traps, dens, water, jumps, SVG glyphs
 ai.js          minimax + alpha-beta, depth 2–3, yields so the UI is not frozen
-app.js         game loop, seats, host-authority multiplayer
+app.js         game loop, seats and turns from gifos.room
 icon.mjs       procedural board icon (lion hops the river) + 1200×720 cover
 build.mjs      packs the GIF into site/apps/jungle/jungle.gif
 ```
@@ -71,11 +71,10 @@ cheat.
 
 ## Multiplayer
 
-Play a friend uses one `room` collection. Each person writes **only** their
-own row (`id = me`), publishing an intended `{kind:'move', fr, fc, tr, tc,
-seq}`. The host (lowest live id) is the only writer of the `board` row: it
-replays the move list, applies the intent if `play()` accepts it, and bumps
-`seq`. Invite is OS chrome — this app does not draw a share button.
+Play a friend uses `gifos.room` (manifest `room`: seats blue/red, turns in order,
+moves in the `board` collection). The OS owns who plays, who watches, whose turn
+it is and seat hand-off; the mover replays the move list, checks the move with
+`play()` and writes the whole next board with `gifos.room.move`. Invite is OS chrome — this app does not draw a share button.
 
 A local game auto-saves in the private `save` collection. The file is the
 save.
