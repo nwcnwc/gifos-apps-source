@@ -16,6 +16,17 @@ body {
   align-items: center;
   justify-content: center;
 }
+#note {
+  position: fixed;
+  top: 4px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font: 12px monospace;
+  color: #ffe08a;
+  z-index: 2;
+}
+#note[hidden] { display: none; }
 #game {
   display: block;
   margin: 0;

@@ -1,4 +1,4 @@
-/* Eagle Defense — shell: input, resize, host/guest loop. Invite is OS chrome. */
+/* Eagle Defense — shell: input, resize, owner/guest loop (gifos.room seats). Invite is OS chrome. */
 (function (root) {
   'use strict';
 
@@ -12,11 +12,15 @@
   var dirStack = [];
   var slot = 0;
   var host = true;
+  var ownerAt = 0;
+  var EN = { needsNewer: 'Eagle Defense needs a newer GifOS to play together. Reload the page to update.' };
   var lastWorldAt = 0;
   var guestFireN = 0;
   var touchOn = false;
   var startBtn = null, pauseBtn = null;
   var g = BC.create();
+  var noteEl = document.getElementById('note');
+  var savedHi = g.hi || 0;   /* the starting hi-score is not news */
 
   /* The board is 256x240. Fill the screen with it: an integer-only scale threw
      away half a phone (390x844 floors to 1x — a postage stamp in the corner
@@ -175,6 +179,7 @@
 
   var lastPub = 0;
   function publishMine(force) {
+    if (slot < 0 || g.phase !== 'play') return;   /* my row says how I am steering in a fight; nothing on the title */
     var pose = BC.poseOf(g, slot);
     var inp = localInput();
     if (fireEdge) { guestFireN = Net.bumpFire(); force = true; }
@@ -187,27 +192,27 @@
 
   function inputsFromNet() {
     var arr = [{ dir: null, fire: false }, { dir: null, fire: false }];
-    arr[slot] = localInput();
+    if (slot >= 0) arr[slot] = localInput();
+    /* the other seated person plays the other tank; rows of people with no seat never get here */
     var others = Net.others();
     for (var i = 0; i < others.length; i++) {
       var o = others[i];
-      var os = (o.id === Net.me().id) ? slot : (slot === 0 ? 1 : 0);
-      /* host is always slot 0; the other living player is slot 1 */
-      os = 1;
-      arr[os] = {
+      arr[o.slot] = {
         dir: (o.keys && o.keys.dir) || null,
         fire: false,
         fireN: o.fireN,
         pose: { x: o.x, y: o.y, dir: o.dir }
       };
     }
-    if (slot === 1) arr[0] = arr[0]; /* host keys come from world, not here — host is us only if slot 0 */
     return arr;
   }
 
   var last = (root.performance && performance.now()) || Date.now();
   function frame(now) {
     var dt = Math.min(48, now - last); last = now;
+    host = Net.isOwner();
+    slot = Net.mySlot();
+    if (now - ownerAt > 2000) { ownerAt = now; Net.refreshOwner(); }
     var room = Net.count() > 1;
     g.roomNote = room ? 'A FRIEND IS IN THE ROOM' : (host ? 'SEND THE INVITE FOR 2P' : 'WAITING FOR THE HOST');
     if (g.menu && g.menu[1]) g.menu[1].label = room ? '2 PLAYERS' : '2 PLAYERS  (INVITE)';
@@ -220,15 +225,15 @@
           /* still start 1p-shaped until a guest arrives — 2p flag on, second tank waits */
           two = true;
         }
-        if (host) beginGame(two);
+        if (host && slot >= 0) beginGame(two);
         startEdge = false; fireEdge = false;
       }
     } else if (g.phase === 'over' || g.phase === 'win') {
-      if ((startEdge || fireEdge) && (g.overT || 0) > 1600 && host) {
+      if ((startEdge || fireEdge) && (g.overT || 0) > 1600 && host && slot >= 0) {
         g.phase = 'title'; g.choice = 0;
         startEdge = false; fireEdge = false;
       }
-    } else if (pauseEdge && g.phase === 'play' && host) {
+    } else if (pauseEdge && g.phase === 'play' && host && slot >= 0) {
       g.paused = !g.paused;
       Sfx.play('pause');
     }
@@ -282,19 +287,27 @@
   Promise.resolve()
     .then(function () { return Net.init(); })
     .then(function (info) {
-      host = !!(info && info.owner) || (info && info.owner !== false && Net.isOwner());
-      if (info && info.me) slot = host ? 0 : 1;
-      if (!root.gifos) { host = true; slot = 0; }
+      host = Net.isOwner();
+      slot = Net.mySlot();
+      if (info && info.old) { noteEl.textContent = EN.needsNewer; noteEl.hidden = false; }
       return Net.loadPrefs();
     })
     .then(function (prefs) {
-      if (prefs && prefs.hi) g.hi = prefs.hi;
+      if (prefs && prefs.hi) { g.hi = prefs.hi; savedHi = prefs.hi; }
       root.requestAnimationFrame(frame);
     })
     .catch(function () { host = true; slot = 0; root.requestAnimationFrame(frame); });
 
-  /* persist hi-score occasionally */
+  /* persist the hi-score when it changes (a private pref, not shared) */
   setInterval(function () {
-    if (g.hi) Net.savePrefs({ hi: g.hi });
+    if (g.hi && g.hi !== savedHi) { savedHi = g.hi; Net.savePrefs({ hi: g.hi }); }
   }, 8000);
+
+  /* Low-rate shared state only (who is seated, the phase) so copies can be compared. */
+  root['__battle-city'] = {
+    state: function () {
+      var w = Net.world();
+      return { seats: Net.seats(), phase: w ? w.ph : 'title' };
+    }
+  };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
