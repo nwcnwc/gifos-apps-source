@@ -49,7 +49,7 @@ On **New game**, pick **Computer** and **Blue** or **Red**. The computer thinks 
 
 ## A live friend
 
-Press **Play a friend**, then **Invite** in the bar **above** the app — that link is the room. First two people sit Blue and Red; anyone else watches. You only move your own colour. **Resign** gives the game to the other seat. After a win the next game starts on its own.
+Press **Play a friend**, then **Invite** in the bar **above** the app — that link is the room. The room seats the first two people as Blue and Red; anyone else watches and is next in line. **Resign** works on your turn. You only move your own colour. **Resign** gives the game to the other seat. After a win, **New game** starts the next one. When other people are here, the game opens straight on the shared board.
 
 Invite is OS chrome. This game does not draw its own share button.
 
