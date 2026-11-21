@@ -115,3 +115,6 @@ body.cover .controls{display:none}
   main{padding:8px 10px 12px}
   .brand{font-size:14px}
 }
+.colbtns{position:absolute;inset:0;display:flex}
+.colbtn{flex:1;min-width:0;padding:0;border:0;background:transparent;cursor:pointer}
+.colbtn:disabled{cursor:default}

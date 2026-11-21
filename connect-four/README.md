@@ -24,9 +24,10 @@ build.mjs           packs the GIF into site/apps/connect-four/connect-four.gif
   upstream. It thinks on this device; there is no server.
 - **Two here** — pass the device. Red goes first. Tap a column to drop.
 - **Play a friend** — send the invite (top bar; that button is OS chrome).
-  Red and blue seats, turns. Each person writes only their own row. The
-  host of the board (lowest live id) is the only writer of the board row: a
-  player publishes an intended drop, the host applies it if it is legal.
+  Red and blue seats, turns, who is here and who waits all come from
+  `gifos.room` (manifest `room`); the mover writes the whole next board with
+  `gifos.room.move`. On a GifOS older than build 5861 the app says it needs
+  a newer GifOS and writes nothing.
 
 A game in progress auto-saves in the icon. A disc falls with gravity and a
 bounce. The winning four is a gold line. Whose turn is the two coloured

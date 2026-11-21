@@ -21,15 +21,14 @@ From **New game**, pick **Computer** or **Two here**, then **Start game**.
 
 ## A live friend
 
-Press **Play a friend**, then **Invite** in the bar above the app, and send the link.
+Press **Play a friend**, then **Invite** in the bar above the app, and send the link. If other people are already in the room with you, the game opens on the shared board by itself.
 
-The first two people sit red and blue. Anyone else **watches**. You only drop on your own turn. Extra people in the room do not play until a seat opens.
+GifOS seats the first two people red and blue; anyone else watches and takes a seat when one opens. You only drop on your own turn, and a player who is away is waited for.
 
-- **Resign** appears after the first disc. The other colour wins.
-- If your opponent leaves mid-game, you win.
-- After a result, the next game starts on its own in a few seconds.
+- **Resign** appears on your turn after the first disc. The other colour wins.
+- After a result, **New game** (either player) starts the next one. Red goes first.
 
-**Leave** puts you back on the setup screen.
+**Leave** gives up your seat and puts you back on the setup screen.
 
 ## What is saved
 
