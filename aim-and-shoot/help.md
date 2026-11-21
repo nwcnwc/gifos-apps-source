@@ -26,11 +26,11 @@ The number in the corner is the **generation**. Higher means the bots have had m
 
 ## A friend
 
-Press **Invite** in the bar above the app and send the link. Whoever opens it lands in **your** arena — same bots, same wave, same walls — with no start screen to press: the link is the door.
+Press **Invite** in the bar above the app and send the link. Whoever opens it lands in the same arena — same bots, same wave, same walls — with no start screen to press: the link is the door. Who is here comes from the room; the person who shared the app runs the fight, and GifOS hands that on when they leave. An older GifOS shows one plain line — solo still works, nothing is shared.
 
 You are blue, they are green with their name over them. Your bullets pass straight through each other, so nobody can shoot the person they came to play with. When one of you drops, the wave carries on and you get back up a few seconds later; only the whole team going down at once ends the run, and even then the room stays open at generation 1.
 
-The person who sent the link runs the fight. If they are still on the title art, everyone else sees *waiting for them to start* — and their screen says who is waiting.
+If the host is still on the title art, everyone else sees *waiting for them to start*.
 
 ## What is saved
 

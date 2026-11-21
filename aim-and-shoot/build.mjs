@@ -52,7 +52,7 @@ for (const [name, pin] of Object.entries(PINS)) {
   if (hex !== pin) throw new Error('vendor/' + name + ' sha256 ' + hex + ' ≠ pin ' + pin);
 }
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947');
+if (manifest.minBuild < 5861) throw new Error('minBuild 5861');
 if (manifest.appId !== 'aim-and-shoot') throw new Error('appId');
 if (!manifest.capabilities.db || !manifest.capabilities.multiplayer) throw new Error('db+multiplayer');
 if (manifest.capabilities.network) throw new Error('no network');

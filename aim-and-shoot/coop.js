@@ -23,10 +23,15 @@
 (function (root) {
   'use strict';
 
+  var NEEDS_NEWER = "Aim and Shoot needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.";
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var roomRead = false;
+
   var PUBLISH_HZ = 12;      /* input rows and world snapshots */
-  var STALE_MS = 7000;      /* a row that stopped changing is a player gone */
   var DOWN_MS = 3000;       /* how long a downed human stays down */
-  var BEACON_MS = 1200;     /* how often a host that is NOT playing says it is there */
   var QUIET_MS = 6000;      /* a snapshot this old is a photograph, not an arena */
   var MAX_SHOWN_BULLETS = 48;
   var BULLET_SPEED = 1.2;   /* Bullet.js, per ms */
@@ -36,6 +41,7 @@
   var owner = true;         /* am I the app owner, i.e. the simulator? */
   var joined = false;       /* did we get an identity at all? */
   var inputs = {};          /* id -> latest published input row (host side) */
+  var lastPlayerList = [];  /* last players subscribe payload (re-filter on people()) */
   var mates = {};           /* id -> Player instance the host drives */
   var down = {};            /* id -> when they went down */
   var ghosts = {};          /* key -> interpolated render body (guest side) */
@@ -45,7 +51,7 @@
   var beacon = null;        /* the host saying what it is doing (guest side) */
   var beaconAt = 0;
   var lastBeacon = 0;       /* host side: when we last said it */
-  var lastIn = 0, lastOut = 0;
+  var lastIn = 0, lastOut = 0, lastInSig = '';
   var lastFire = false;
   var solo = true;          /* nobody else here: behave exactly like upstream */
   var onRoster = null;
@@ -59,17 +65,35 @@
 
   /* ---- identity ---------------------------------------------------------- */
 
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      roomKey = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      var handed = !owner && !!info.owner && roomRead;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Player'; }
+      ingestInput(); // re-filter against the new people() list
+      if (handed) sayHostIsHere();
+    }, function () {});
+  }
+
   function init() {
     api = root.gifos;
-    if (!api || !api.db || !api.me) return Promise.resolve(false);
-    var infoP = api.info ? api.info().catch(function () { return { owner: true }; })
-                         : Promise.resolve({ owner: true });
-    return Promise.all([infoP, api.me().catch(function () { return null; })]).then(function (pair) {
-      owner = !!(pair[0] && pair[0].owner);
-      me.id = (pair[1] && pair[1].id) || 'local';
-      me.name = (pair[1] && pair[1].name) || 'Player';
-      if (me.id === 'local') return false;
+    if (!api || !api.db) return Promise.resolve(false);
+    if (!PEOPLE) return Promise.resolve(false);
+    return readRoom().then(function () {
+      if (!me.id || me.id === 'local') return false;
       joined = true;
+      roomRead = true;
       db('players').subscribe(function (list) { ingestInput(list || []); });
       db('world').subscribe(function (list) {
         for (var i = 0; i < (list || []).length; i++) {
@@ -79,28 +103,40 @@
           else if (row.id === 'host') { beacon = row; beaconAt = now(); }
         }
       });
+      setInterval(readRoom, PEOPLE_MS);
       return true;
     }).catch(function () { return false; });
   }
 
   /* ---- the room ---------------------------------------------------------- */
 
+  function peopleIds() {
+    var m = {}, i;
+    for (i = 0; i < roomPeople.length; i++) {
+      if (roomPeople[i] && roomPeople[i].id && roomPeople[i].here !== 'gone') m[roomPeople[i].id] = roomPeople[i].name;
+    }
+    return m;
+  }
+
   function ingestInput(list) {
-    var t = now(), seen = {}, i, p, cur;
+    if (list) lastPlayerList = list;
+    else list = lastPlayerList;
+    var names = peopleIds(), seen = {}, i, p, cur;
     for (i = 0; i < list.length; i++) {
       p = list[i];
-      if (!p || !p.id || p.id === me.id || p.id === 'world') continue;
+      if (!p || !p.id || p.id === me.id || p.id === 'world' || p.id === 'host') continue;
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) continue;
       seen[p.id] = 1;
       cur = inputs[p.id];
       inputs[p.id] = {
-        id: p.id, name: p.name || 'Player',
+        id: p.id, name: names[p.id] || 'Player',
         mv: p.mv || {}, mx: p.mx || 0, my: p.my || 0,
         lx: p.lx, ly: p.ly, fire: !!p.fire,
-        stamp: p.t, seen: (!cur || cur.stamp !== p.t) ? t : cur.seen
+        stamp: p.t
       };
     }
     for (i in inputs) {
-      if (!seen[i] || t - inputs[i].seen > STALE_MS) { delete inputs[i]; dropMate(i); }
+      if (!seen[i]) { delete inputs[i]; dropMate(i); }
     }
     solo = !anyone();
     sayHostIsHere();
@@ -140,16 +176,8 @@
     return !A.isStarting && !A.isGameover;
   }
 
-  function sayHostIsHere() {
-    if (!joined || !owner || solo || playingNow()) return;
-    var t = now();
-    if (t - lastBeacon < BEACON_MS) return;
-    lastBeacon = t;
-    db('world').put({
-      id: 'host', t: t, name: me.name,
-      state: (root.AAS && root.AAS.isGameover) ? 'over' : 'title'
-    }).catch(function () {});
-  }
+  // No idle host beacon: who is here is gifos.people(); writing 'host' on a timer was a heartbeat.
+  function sayHostIsHere() {}
 
   /* The line a waiting guest is shown, or null when there is a live arena.
      A guest that cannot see the fight must say which of the two silences this
@@ -158,7 +186,8 @@
     if (!guest()) return null;
     var t = now();
     if (world && t - worldAt < QUIET_MS) return null;
-    if (beacon && t - beaconAt < STALE_MS) {
+    // Prefer a recent host beacon if one exists (no age window against another device's clock).
+    if (beacon && beaconAt && (t - beaconAt) < QUIET_MS) {
       var who = beacon.name || 'the host';
       return beacon.state === 'over'
         ? 'Waiting for ' + who + ' to start the next run\u2026'
@@ -311,15 +340,20 @@
     if (!joined || owner) return;
     var t = now(), p = root.AAS.player;
     if (!p) return;
-    if (!force && t - lastIn < 1000 / PUBLISH_HZ) return;
-    lastIn = t;
-    db('players').put({
-      id: me.id, name: me.name, t: t,
+    var row = {
+      id: me.id, t: t,
       mv: { l: !!p.isMoving.left, u: !!p.isMoving.up, r: !!p.isMoving.right, d: !!p.isMoving.down },
       mx: r1((root.AAS.pad && root.AAS.pad.mx) || 0), my: r1((root.AAS.pad && root.AAS.pad.my) || 0),
       lx: r1(p.looking.x), ly: r1(p.looking.y),
       fire: !!p.isShooting
-    }).catch(function () {});
+    };
+    // No idle keep-alive: write only when hands change (or a forced edge like trigger).
+    var sig = JSON.stringify({ mv: row.mv, mx: row.mx, my: row.my, lx: row.lx, ly: row.ly, fire: row.fire });
+    if (!force && sig === lastInSig) return;
+    if (!force && t - lastIn < 1000 / PUBLISH_HZ) return;
+    lastIn = t;
+    lastInSig = sig;
+    db('players').put(row).catch(function () {});
   }
 
   function ghostFor(key, row) {
@@ -397,6 +431,16 @@
     return guest() && world != null && now() - worldAt > QUIET_MS;
   }
 
+  root['__aim-and-shoot'] = {
+    state: function () {
+      return world && world.id === 'world' ? { gen: world.gen | 0, wipe: world.wipe || 0 } : null;
+    },
+    people: function () {
+      return joined ? roster().filter(function (p) { return !p.down; }).map(function (p) { return p.id; }) : [];
+    },
+    amHost: function () { return joined && owner && !solo; }
+  };
+
   root.AASCoop = {
     init: init,
     guest: guest,
@@ -418,4 +462,11 @@
       return onDown(p === root.AAS.player ? me.id : p.netId);
     }
   };
+  if (!PEOPLE) {
+    var _n = document.createElement("p");
+    _n.id = "aas-needs-newer";
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener("DOMContentLoaded", function () { document.body.appendChild(_n); });
+  }
 })(window);

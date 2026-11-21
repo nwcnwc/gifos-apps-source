@@ -4,7 +4,10 @@ An unofficial port of **[Aim and Shoot](https://github.com/victorqribeiro/aimAnd
 by Victor Ribeiro (MIT). A neuroevolution canvas shooter: you aim, the bots
 learn. Phone stick + right-side aim + FIRE under the thumb. Best generation
 in the file. An invite is ONE arena: the app owner simulates and publishes
-`world`, guests publish input and draw what comes back (coop.js).
+`world`, guests publish input and draw what comes back (coop.js). Who is here
+comes from the room (`gifos.people()`, minBuild **5861**); GifOS hands the
+owner role (and so the simulator) to the next person when the owner leaves.
+An older GifOS shows one plain line and keeps solo play; nothing is shared.
 
 ![screenshot](screenshot.png)
 
