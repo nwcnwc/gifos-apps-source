@@ -46,7 +46,7 @@
     applying = false;
   }
 
-  function persist() {
+  function persistLocal() {
     if (applying) return;
     var json = songJson();
     var p = pack(json);
@@ -55,6 +55,11 @@
     if (songsDb) {
       songsDb.put({ id: 'current', json: json, at: Date.now() }).catch(function () {});
     }
+  }
+
+  function persist() {
+    persistLocal();
+    if (applying) return;
     if (root.BeepNet && root.BeepNet.noteLocalChange) root.BeepNet.noteLocalChange();
   }
 
@@ -172,7 +177,7 @@
       if (document.visibilityState === 'hidden') { persist(); flushPrefs(); }
     });
     setInterval(flushPrefs, 8000);
-    setInterval(persist, 2500);
+    setInterval(persistLocal, 2500);
   }
 
   function boot() {
