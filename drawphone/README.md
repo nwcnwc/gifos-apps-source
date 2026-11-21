@@ -24,12 +24,12 @@ vendor/COPYING-drawphone.txt   upstream MIT notice (also packed inside the GIF)
 
 ## In a meeting (1.1)
 
-- **The players are the meeting.** Everyone with the app open is at the table:
-  each page writes a heartbeat row and counts the rows it sees moving. No typed
-  names, no Join, no pass-this-device roster.
-- **One writer per row.** Each person writes only `p:<id>` (heartbeat, a pending
-  request, this turn's guesses) and `ink:<id>` (the live pad or a Telephone
-  drawing). The host (lowest live id) is the only writer of `board`; it applies
+- **The players are the meeting.** Everyone with the app open is seated by
+  gifos.room (up to 16 play; more wait in line). No typed names, no Join, no
+  pass-this-device roster, no heartbeat rows.
+- **One writer per row.** Each person writes only `p:<id>` (a pending
+  request, this turn's guesses; id = the room id; only when they act) and `ink:<id>` (the live pad or a Telephone
+  drawing). The host (the app's owner) is the only writer of `board`; it applies
   requests, judges guesses, keeps the clock and the scores, so every page shows
   the same numbers. A new host picks the board up where it was.
 - **Anyone starts a round** (a request on their own row, keyed to the board
@@ -59,7 +59,7 @@ The invite button is **OS chrome**. This app never draws one.
 | `db` | The shared table, and a private save slot. |
 | `multiplayer` | The room. |
 
-No `wasm`. No `network`. `minBuild` is **947**.
+No `wasm`. No `network`. `minBuild` is **5861** (gifos.room).
 
 ## Building
 
