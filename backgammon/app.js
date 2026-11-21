@@ -558,7 +558,6 @@
     note = e && e.message ? e.message : '';
     mp.board = mp.data;   // the room refused: the data is the truth
     mpRender(true);
-    setTimeout(function () { note = ''; mpRender(); }, 2500);
   }
   // Write the next position. keep:true while the same player still has dice to play.
   function mpWrite(game, extra, keep) {
@@ -578,6 +577,7 @@
     if (!mp.sub) {
       mp.sub = true;
       mpDb.subscribe(function (items) {
+        note = '';
         var b = null, i;
         for (i = 0; i < (items || []).length; i++) if (items[i] && items[i].id === 'board') b = items[i];
         mp.data = mp.board = b;
@@ -596,6 +596,7 @@
 
   if (ROOM) {
     gifos.room.subscribe(function (s) {
+      note = '';   // a refusal's note goes with the next room state
       rs = s;
       // with other people here, room play is what you see; alone you start on the menu
       if (!mp.on && !picked && s.live) { mpEnter(); return; }
