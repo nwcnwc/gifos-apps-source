@@ -26,9 +26,9 @@ There is **no doubling cube**. This is the general table the original shipped �
 
 ## Play a friend
 
-Press **Play a friend**, then **Invite**. The first two people take white and black (white still first). Anyone else who opens the link **watches**.
+Press **Play a friend**, then **Invite**. The room seats the first two people as white and black (white first). Anyone else who opens the link watches and is next in line. When other people are here, the game opens straight on the shared table.
 
-Roll, tap, confirm — same as solo. **Resign** appears after the opening. When the game ends, the next one starts on its own after a short pause. If someone leaves mid-game, the one who stayed wins.
+Roll, tap, confirm — same as solo. **Resign** appears on your turn after the opening. When the game ends, press **New game** for the next one. If someone leaves, the room holds the seat for a while, then the next person in line takes it and the game goes on.
 
 ## What is saved
 

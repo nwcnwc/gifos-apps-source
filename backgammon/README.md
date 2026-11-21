@@ -28,10 +28,9 @@ build.mjs                packs the GIF into site/apps/backgammon/backgammon.gif
   device; there is no server.
 - **Two here** — pass the device. White goes first. Roll, tap a checker, tap where it goes, confirm.
 - **Play a friend** — send the invite (top bar; that button is OS chrome).
-  White and black seats, turns. Each person writes only their own row. The
-  host of the board (lowest live id) is the only writer of the board row: a
-  player publishes an intended roll, move, confirm or undo, the host applies
-  it if it is legal.
+  White and black seats and turns come from `gifos.room`. The mover writes the
+  whole next position with `gifos.room.move`; roll, each checker move and undo
+  keep the turn (`keep:true`), Confirm hands it over.
 
 A game in progress auto-saves in the icon. Hit a blot, it goes to the bar.
 Bear all fifteen and you win. Doubles are four moves.
