@@ -143,7 +143,8 @@
     state: function () {
       var crowd = playersHere(lastList);
       var lead = pickLeader(crowd);
-      return lead ? { game: lead.game, level: lead.level | 0, seq: lead.seq | 0 } : null;
+      // game+level only: seq races during a tap and is for adopt order, not the shared board id.
+      return lead ? { game: lead.game, level: lead.level | 0 } : null;
     },
     people: function () {
       return live ? playersHere(lastList).map(function (p) { return p.id; }) : [];
