@@ -240,6 +240,7 @@ function table(opts) {
   if (opts.saved) { db('save'); dbs.save.rows.last = opts.saved; }
   const netTouches = [];
   const backs = [];
+  const roomSubs = [], joins = [];
   let x = 12345;
   const rnd = () => { x = (x * 16807) % 2147483647; return (x - 1) / 2147483646; };
   const M = Object.create(Math);
@@ -258,8 +259,9 @@ function table(opts) {
     gifos: {
       db,
       me: () => Promise.resolve({ id: opts.meId || 'host-1', name: 'Hosty' }),
-      info: () => Promise.resolve({ owner: opts.owner !== false }),
+      info: () => Promise.resolve({ owner: opts.ownerRef ? opts.ownerRef.v : opts.owner !== false }),
       onBack: (f) => backs.push(f),
+      room: opts.noRoom ? undefined : { subscribe: (f) => { roomSubs.push(f); }, join: () => { joins.push(1); return Promise.resolve({ ok: true }); } },
     },
   };
   // The port has no server: any reach for the network is recorded.
@@ -290,7 +292,8 @@ function table(opts) {
     }
   };
   const click = (id) => { if (els[id].onclick) els[id].onclick.call(els[id]); };
-  return { sb, els, dbs, acts, backs, netTouches, runTimers, click, table: () => lastT, setNow: (v) => { now = v; }, now: () => now };
+  const pushState = (st) => roomSubs.forEach((f) => f(st));
+  return { sb, els, dbs, acts, backs, netTouches, pushState, joins, runTimers, click, table: () => lastT, setNow: (v) => { now = v; }, now: () => now };
 }
 
 async function appChecks() {
@@ -312,7 +315,7 @@ async function appChecks() {
     check('playing cards use .pcard', h.els.board.children.length === 5 && h.els.hole.children.length === 2 &&
       cardEls.every((c) => c.className.split(' ').indexOf('pcard') !== -1) &&
       /(^|\})\s*\.pcard\s*\{/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')));
-    const meIdx = () => h.sb.PK.seatById(h.table(), 'host-1');
+    const meIdx = () => h.sb.PK.seatById(h.table(), 'local');
     let clicked = [], guard = 0, raised = false, sliderAt = null;
     const saves = h.dbs.save.puts;
     const savesBefore = saves.length;
@@ -358,40 +361,82 @@ async function appChecks() {
     check('their server stays behind (no network reached in a whole hand)', h.netTouches.length === 0, h.netTouches);
   }
 
-  // -- friends: the host's empty table, the guest who walks in ---------------
+  // -- friends: the owner deals, the room seats ---------------------------------
+  const state = (me, ppl, live, role) => ({
+    on: true, live, me: { id: me, name: me, seat: role === 'player' ? '1' : null, role: role || 'player' },
+    seats: [0, 1, 2, 3, 4, 5].map((k) => ppl[k] ? { seat: String(k + 1), id: ppl[k], name: ppl[k], here: 'here' } : { seat: String(k + 1), id: null, name: '', here: 'open' }),
+    turn: null, myTurn: true, round: 1, ready: ppl.length >= 2, line: [], asks: [], people: [], last: null,
+  });
   {
-    const hostT = table({ owner: true });
+    const ownerRef = { v: true };
+    const hostT = table({ ownerRef });
     await settleAll();
-    check('the host stays on the home screen', hostT.els.home.hidden === false);
-    hostT.click('friendBtn');
-    hostT.dbs.room.subs[0]([{ id: 'host-1', kind: 'seat', name: 'Hosty', at: hostT.now(), joined: 1 }]);
-    const emptyStatus = hostT.els.lobbyStatus.textContent;
-    check('an empty table offers the invite and no Deal',
-      hostT.els.lobby.hidden === false && hostT.els.lobbyEmpty.hidden === false && hostT.els.dealLobby.hidden === true);
-    hostT.dbs.room.subs[0]([
-      { id: 'host-1', kind: 'seat', name: 'Hosty', at: hostT.now(), joined: 1 },
-      { id: 'guest-2', kind: 'seat', name: 'Gus', at: hostT.now(), joined: 2 },
-    ]);
-    check('two seated: the host can deal', hostT.els.dealLobby.hidden === false && hostT.els.lobbyEmpty.hidden === true);
+    check('the owner alone stays on the home screen', hostT.els.home.hidden === false);
+    hostT.pushState(state('host-1', ['host-1'], false)); await settleAll();
+    check('alone the menu stays and nothing is written', hostT.els.home.hidden === false && !(hostT.dbs.room && hostT.dbs.room.puts.length));
+    hostT.pushState(state('host-1', ['host-1', 'guest-2'], true)); await settleAll();
+    check('others in the room: the shared game opens at once, Leave is hidden',
+      hostT.els.lobby.hidden === false && hostT.els.home.hidden === true && hostT.els.lobbyLeave.hidden === true);
+    check('two seated: the owner can deal', hostT.els.dealLobby.hidden === false && hostT.els.lobbyEmpty.hidden === true);
+    check('seating is the room\'s: no seat or presence row was written', !hostT.dbs.room.puts.length, hostT.dbs.room.puts);
     hostT.click('dealLobby');
     const pub = hostT.dbs.room.puts.map((p) => p.row).filter((r) => r.kind === 'table').pop();
-    check('the host deals and publishes the table', pub && pub.t && pub.t.phase === 'preflop' && hostT.els.play.hidden === false);
+    check('the owner deals and publishes the table', pub && pub.t && pub.t.phase === 'preflop' && pub.t.seats.filter((x) => x.id).length === 2 && hostT.els.play.hidden === false);
+    check('the dealt table has no deck in it', pub && !('deck' in pub.t));
 
     const g = table({ owner: false, meId: 'guest-2' });
     await settleAll();
-    const seatRow = (g.dbs.room ? g.dbs.room.puts : []).map((p) => p.row).find((r) => r.kind === 'seat');
-    check('guests who open the invite sit without tapping Play with friends',
-      g.els.lobby.hidden === false && g.els.home.hidden === true && seatRow && seatRow.id === 'guest-2');
-    g.dbs.room.subs[0]([
-      { id: 'host-1', kind: 'seat', name: 'Hosty', at: g.now(), joined: 1 },
-      { id: 'guest-2', kind: 'seat', name: 'Gus', at: g.now(), joined: 2 },
-    ]);
-    check('empty table copy is distinct from waiting-on-host',
-      g.els.lobbyEmpty.hidden === true && g.els.dealLobby.hidden === true &&
-      g.els.lobbyStatus.textContent !== '' && g.els.lobbyStatus.textContent !== emptyStatus,
-      { guest: g.els.lobbyStatus.textContent, empty: emptyStatus });
-    check('Back from the lobby goes home', g.backs[0] && g.backs[0]() === true && g.els.home.hidden === false);
-    check('Back at home lets the OS close', g.backs[0]() === false);
+    g.pushState(state('guest-2', ['host-1'], true, 'watcher')); await settleAll();
+    check('a guest who opens the invite lands on the table and asks to sit once', g.els.lobby.hidden === false && g.els.home.hidden === true && g.joins.length === 1);
+    g.pushState(state('guest-2', ['host-1', 'guest-2'], true)); await settleAll();
+    check('the guest is not offered Deal', g.els.dealLobby.hidden === true && g.els.lobbyStatus.textContent !== '');
+    g.dbs.room.subs[0]([{ id: 'table', kind: 'table', t: pub.t, seen: pub.seen }]);
+    check('the guest sees the hand', g.els.play.hidden === false);
+    const hostIdx = pub.t.seats.findIndex((x) => x.id === 'guest-2');
+    let cur = pub;
+    if (cur.t.toAct !== hostIdx) {
+      hostT.click(!hostT.els.callBtn.hidden ? 'callBtn' : 'checkBtn'); await settleAll();
+      cur = hostT.dbs.room.puts.map((p) => p.row).filter((r) => r.kind === 'table').pop();
+      g.dbs.room.subs[0]([{ id: 'table', kind: 'table', t: cur.t, seen: cur.seen }]);
+    }
+    check('the guest\'s own hole cards are shown, the other seat\'s are not', (() => {
+      const vis = g.els.hole.children;
+      return vis.length === 2 && vis.every((c) => c.className.indexOf('back') === -1);
+    })());
+    if (cur.t.toAct === hostIdx && !g.els.foldBtn.hidden) {
+      g.click('foldBtn'); await settleAll();
+      const row = g.dbs.room.puts.map((p) => p.row).find((r) => r.kind === 'act');
+      check('the guest acts through its own row (room id, the hand number, a sequence)', row && row.id === 'guest-2' && row.act === 'fold' && row.hand === cur.t.handNo && row.seq === 1, row);
+      hostT.dbs.room.subs[0]([{ id: 'table', kind: 'table', t: cur.t, seen: cur.seen }, row]);
+      await settleAll();
+      const after = hostT.dbs.room.puts.map((p) => p.row).filter((r) => r.kind === 'table').pop();
+      check('the owner applies it once and records it in the public table', after.t.phase === 'showdown' && after.seen['guest-2'] === 1, after && after.seen);
+      const nActs = hostT.acts.length;
+      hostT.dbs.room.subs[0]([{ id: 'table', kind: 'table', t: after.t, seen: after.seen }, row]); await settleAll();
+      check('…and a re-delivered row is not applied again', hostT.acts.length === nActs);
+    } else {
+      check('(fixture) the guest is to act', false, { toAct: cur.t.toAct, hostIdx });
+    }
+    // the app is handed on mid-hand: the new owner carries the table over and does not replay a counted action
+    const gAct = { id: 'guest-2', kind: 'act', act: 'fold', amt: 0, hand: cur.t.handNo, seq: 1 };
+    const heirOf = async (seen) => {
+      const h2 = table({ ownerRef: { v: true }, meId: 'host-1' });
+      await settleAll();
+      h2.pushState(state('host-1', ['host-1', 'guest-2'], true)); await settleAll();
+      h2.dbs.room.subs[0]([{ id: 'table', kind: 'table', t: cur.t, seen }, gAct]); await settleAll();
+      return h2;
+    };
+    const fresh = await heirOf({});
+    const counted = await heirOf({ 'guest-2': 1 });
+    check('a new owner takes the table over mid-hand (deck rebuilt) and applies an uncounted action', fresh.els.play.hidden === false && fresh.acts.length === 1 && fresh.acts[0].kind === 'fold', fresh.acts);
+    check('…but a counted action (seen in the public table) is not replayed', counted.acts.length === 0, counted.acts);
+  }
+  {
+    const old = table({ noRoom: true });
+    await settleAll();
+    check('an old page says it needs a newer GifOS, and writing nothing, solo still deals',
+      /newer GifOS/i.test(old.els.roomNote.textContent) && old.els.roomNote.hidden === false && old.els.friendBtn.disabled === true &&
+      (old.click('soloBtn'), old.table() && old.table().phase === 'preflop') && !(old.dbs.room && old.dbs.room.puts.length));
   }
 }
 
@@ -416,7 +461,7 @@ async function appChecks() {
   check('no CDN / webfont / remote at load',
     refs.length > 0 && refs.every((u) => !/^(https?:)?\/\//i.test(u)) &&
     !cssRules.some((r) => r.sels.some((x) => /^@import/.test(x))) && !/@import|url\(\s*['"]?(https?:)?\/\//i.test(css), refs);
-  check('minBuild stays 947', man.minBuild === 947);
+  check('minBuild is the room build and the manifest declares the room', man.minBuild >= 5861 && man.room && man.room.turns === 'free' && man.room.seats === 6 && man.room.min === 2);
   check('multiplayer + db declared; no network',
     man.capabilities.db === true && man.capabilities.multiplayer === true && !man.capabilities.network);
 }

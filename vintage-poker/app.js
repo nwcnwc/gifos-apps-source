@@ -1,25 +1,29 @@
-// Vintage Poker — host is the dealer. Their game server stays behind.
-// Each player writes ONLY their own row. Invite is OS chrome.
+// Vintage Poker — gifos.room seats the people; the app owner's browser is the dealer.
+// Their game server stays behind. Each player writes ONLY their own act row, and only when they act.
 (function () {
   'use strict';
   var PK = window.PK;
   var $ = function (id) { return document.getElementById(id); };
-  var nowMs = function () { return Date.now ? Date.now() : 0; };
   var esc = function (s) {
     return String(s == null ? '' : s).replace(/[&<>]/g, function (ch) {
       return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[ch];
     });
   };
 
-  var PRES_TTL = 9000, HB_MS = 3000;
+  var EN = { needsNewer: 'Vintage Poker needs a newer GifOS to play together. Reload the page to update.' };
+  var T = function (k) {
+    var v = window.gifos && gifos.i18n && gifos.i18n.t ? gifos.i18n.t(k) : k;
+    return v === k && EN.hasOwnProperty(k) ? EN[k] : v;
+  };
+  var ROOM = !!(window.gifos && gifos.room && gifos.room.subscribe);
+  var rs = null, joined = false;
   var view = 'home';
   var chips = PK.START;
   var saveDb = null, roomDb = null;
-  var owner = true;
+  var owner = false;   // the app's owner deals; GifOS hands the app on when they leave
   var me = { id: 'local', name: 'You' };
   var local = null;
   var botTimer = 0;
-  var lastActSeq = 0;
 
   try {
     if (window.gifos) {
@@ -132,6 +136,8 @@
     var mine = mySeat >= 0 && t && PK.canAct(t, mySeat);
     var L = mine ? PK.legal(t, mySeat) : null;
     var hostDeal = idle && (!mp.on || owner);
+    var seatedHere = seated().filter(function (p) { return p.here === 'here'; }).length;
+    if (mp.on && idle && seatedHere < 2) hostDeal = false;
     $('dealBtn').hidden = !hostDeal;
     $('foldBtn').hidden = !mine;
     $('checkBtn').hidden = !(mine && L.check);
@@ -168,8 +174,10 @@
     $('raiseAmt').textContent = String(n);
   }
 
+  var shownT = null;   // the table as this copy last drew it (its hand number stamps my act row)
   function renderTable(t, viewerId) {
     if (!t) return;
+    shownT = t;
     $('pot').textContent = t.phase === 'showdown' ? 'Showdown' : ('Pot ' + t.pot + (t.phase && t.phase !== 'idle' ? ' · ' + t.phase : ''));
     paintBoard($('board'), t.board);
     paintSeats(t);
@@ -241,7 +249,7 @@
       PK.rebuy(local, me.id, PK.START);
       afterLocal();
     }
-    if (mp.on) putMe({ chips: chips });
+    if (mp.on) putAct({});
   };
   $('foldBtn').onclick = function () { doAct('fold'); };
   $('checkBtn').onclick = function () { doAct('check'); };
@@ -257,32 +265,33 @@
       afterLocal();
       return;
     }
-    if (!mp.on || !mp.id) return;
-    lastActSeq++;
+    if (!mp.on || !myId() || !shownT) return;
     if (owner && table) {
-      var hs = PK.seatById(table, mp.id);
+      var hs = PK.seatById(table, myId());
       if (hs >= 0 && PK.canAct(table, hs)) {
         PK.applyAction(table, hs, kind, amount);
         putTable(table);
-        renderTable(table, mp.id);
+        renderTable(table, myId());
         saveBank(table);
       }
+      return;
     }
-    putMe({ act: kind, amt: amount || 0, seq: lastActSeq });
+    putAct({ act: kind, amt: amount || 0, hand: shownT.handNo });
   }
 
   // ---- multiplayer ----
-  var mp = { on: false, id: null, name: 'You', row: null };
+  var mp = { on: false };
   var _items = [];
   var table = null;
-  var applied = {};
-  var hb = 0;
+  var seenAct = {};   // the owner's own tally for this hand; the public table carries it across a hand-off
 
-  function livePeople(items, t) {
-    t = t || nowMs();
-    return (items || []).filter(function (it) {
-      return it && it.kind === 'seat' && it.id && it.at && (t - it.at) < PRES_TTL;
-    });
+  function myId() { return rs && rs.me && rs.me.id ? rs.me.id : null; }
+  function myName() { return (rs && rs.me && rs.me.name) || 'Player'; }
+  // the people at the table: the seats the room holds
+  function seated() {
+    var out = [];
+    ((rs && rs.seats) || []).forEach(function (x) { if (x.id) out.push({ id: x.id, name: x.name || 'Player', here: x.here }); });
+    return out;
   }
   function isHost() { return owner; }
   function tableRec(items) {
@@ -293,29 +302,33 @@
     }
     return null;
   }
+  function rowOf(id) {
+    var i, it;
+    for (i = 0; i < _items.length; i++) { it = _items[i]; if (it && it.kind === 'act' && it.id === id) return it; }
+    return null;
+  }
 
-  function putMe(extra) {
-    if (!roomDb || !mp.id) return;
-    var row = {
-      id: mp.id, kind: 'seat', name: mp.name, at: nowMs(),
-      joined: mp.joined || nowMs(), chips: chips
-    };
-    if (mp.row) {
-      ['act', 'amt', 'seq', 'seat'].forEach(function (k) {
-        if (mp.row[k] !== undefined) row[k] = mp.row[k];
-      });
-    }
+  // My own row, written only when I act (an action or a top-up), keyed by my room id.
+  function putAct(extra) {
+    var id = myId();
+    if (!roomDb || !id) return;
+    var old = rowOf(id);
+    var row = { id: id, kind: 'act', chips: chips, seq: (old && old.seq ? old.seq : 0) + 1 };
+    if (old && old.hand != null) row.hand = old.hand;
     if (extra) Object.keys(extra).forEach(function (k) { row[k] = extra[k]; });
-    mp.row = row;
+    // a local view of my own row so the next write counts on from it
+    var k2 = -1, q;
+    for (q = 0; q < _items.length; q++) if (_items[q] && _items[q].id === id && _items[q].kind === 'act') k2 = q;
+    if (k2 >= 0) _items[k2] = row; else _items.push(row);
     roomDb.put(row).catch(function () {});
   }
 
   function putTable(t) {
-    if (!roomDb || !mp.id) return;
+    var id = myId();
+    if (!roomDb || !id || !owner) return;
+    // the hole cards are in the shared table: they were before this change (no private channel to one person)
     var pub = PK.publicTable(t, null, true);
-    roomDb.put({
-      id: 'table', kind: 'table', at: nowMs(), host: mp.id, t: pub
-    }).catch(function () {});
+    roomDb.put({ id: 'table', kind: 'table', t: pub, seen: seenAct }).catch(function () {});
   }
 
   function hydrate(pub) {
@@ -337,9 +350,10 @@
   }
 
   function hostDeal() {
-    var people = livePeople(_items);
+    var people = seated().filter(function (p) { return p.here === 'here'; });
+    if (!owner) return;
     if (people.length < 2) {
-      $('lobbyStatus').textContent = 'This table is empty. Press Invite in the GifOS menu and send friends the link.';
+      $('lobbyStatus').textContent = 'Waiting for another player. Press Invite in the GifOS menu and send friends the link.';
       $('lobbyEmpty').hidden = false;
       return;
     }
@@ -347,32 +361,62 @@
     var stacks = {};
     table.seats.forEach(function (s) { if (s.id) stacks[s.id] = s.stack; });
     table.seats = PK.newTable().seats;
-    people.sort(function (a, b) { return (a.joined || 0) - (b.joined || 0); });
     people.forEach(function (p) {
-      var buy = stacks[p.id] != null ? stacks[p.id] : (p.chips || PK.START);
-      if (buy < PK.BB) buy = PK.START;
+      var row = rowOf(p.id);
+      var buy = stacks[p.id] != null ? stacks[p.id] : (row && row.chips ? row.chips : PK.START);
+      if (buy < PK.BB) buy = (row && row.chips >= PK.BB) ? row.chips : PK.START;
       PK.sit(table, p.id, p.name, buy, false);
     });
+    seenAct = {};
     if (!PK.startHand(table)) return;
     putTable(table);
     show('play');
-    renderTable(table, mp.id);
+    renderTable(table, myId());
   }
 
-  function hostIngest(people) {
-    if (!table || table.phase === 'idle' || table.phase === 'showdown') return;
-    var i, p, key, si;
-    for (i = 0; i < people.length; i++) {
-      p = people[i];
-      if (!p.act || !p.seq) continue;
-      key = p.id + ':' + p.seq;
-      if (applied[key]) continue;
-      si = PK.seatById(table, p.id);
-      if (si < 0 || !PK.canAct(table, si)) continue;
-      applied[key] = 1;
-      PK.applyAction(table, si, p.act, p.amt);
-      putTable(table);
+  // The owner takes the table over when the app was handed on mid-hand: the public table holds every hand,
+  // so the deck is whatever is left.
+  function adoptTable(rec) {
+    var t = hydrate(rec.t), out = {}, i, s;
+    (t.board || []).forEach(function (c) { if (c && c.r) out[c.r + c.s] = 1; });
+    t.seats.forEach(function (x) { (x.hand || []).forEach(function (c) { if (c && c.r) out[c.r + c.s] = 1; }); });
+    t.deck = PK.shuffle(PK.makeDeck().filter(function (c) { return !out[c.r + c.s]; }));
+    for (i = 0; i < t.seats.length; i++) {
+      s = t.seats[i];
+      s.contrib = s.contrib || 0;
+      s.acted = !!s.acted;
     }
+    seenAct = JSON.parse(JSON.stringify(rec.seen || {}));
+    return t;
+  }
+
+  // Owner only: apply each seated player's act row once, and fold the hands of people who left.
+  function hostIngest() {
+    if (!owner || !mp.on) return;
+    var rec = tableRec(_items);
+    if (rec && rec.t && rec.t.phase !== 'idle' && rec.t.phase !== 'showdown' && (!table || table.handNo !== rec.t.handNo)) table = adoptTable(rec);
+    if (!table || table.phase === 'idle' || table.phase === 'showdown') return;
+    var here = {}, changed = false, i, p, si;
+    seated().forEach(function (x) { here[x.id] = 1; });
+    for (i = 0; i < _items.length; i++) {
+      p = _items[i];
+      if (!p || p.kind !== 'act' || p.id === myId() || !here[p.id] || !p.act) continue;
+      if (p.hand !== table.handNo || !(p.seq > (seenAct[p.id] || 0))) continue;
+      si = PK.seatById(table, p.id);
+      seenAct[p.id] = p.seq;
+      if (si < 0 || !PK.canAct(table, si)) { changed = true; continue; }
+      PK.applyAction(table, si, p.act, p.amt);
+      changed = true;
+    }
+    // somebody the room no longer seats is out of the hand: their turn is a fold, otherwise they just stop counting
+    for (si = 0; si < table.seats.length; si++) {
+      var st = table.seats[si];
+      if (!st.id || st.isBot || here[st.id] || table.phase === 'showdown' || st.folded) continue;
+      if (PK.canAct(table, si)) PK.applyAction(table, si, 'fold');
+      else { st.folded = true; st.lastAction = 'left'; }
+      changed = true;
+    }
+    if (changed) putTable(table);
   }
 
   function renderLobby(people) {
@@ -386,7 +430,7 @@
     } else {
       people.forEach(function (p) {
         var li = document.createElement('li');
-        li.textContent = (p.name || 'Player') + (p.id === mp.id ? ' (you)' : '');
+        li.textContent = (p.name || 'Player') + (p.id === myId() ? ' (you)' : '') + (p.here === 'away' ? ' …' : '');
         ul.appendChild(li);
       });
     }
@@ -394,12 +438,12 @@
     var n = people.length;
     $('dealLobby').hidden = !(host && n >= 2);
     $('lobbyEmpty').hidden = n >= 2;
-    if (!roomDb) {
-      $('lobbyStatus').textContent = 'Open this inside GifOS, then press Invite in the bar and send friends the link.';
+    if (!ROOM) {
+      $('lobbyStatus').textContent = T('needsNewer');
       $('dealLobby').hidden = true;
       $('lobbyEmpty').hidden = true;
     } else if (n < 2) {
-      $('lobbyStatus').textContent = 'This table is empty. Press Invite in the GifOS menu and send friends the link.';
+      $('lobbyStatus').textContent = 'Waiting for another player. Press Invite in the GifOS menu and send friends the link.';
     } else {
       $('lobbyStatus').textContent = host
         ? (n + ' seated. Deal when you are ready.')
@@ -410,7 +454,7 @@
   function visForMe(pub) {
     var vis = JSON.parse(JSON.stringify(pub || {}));
     (vis.seats || []).forEach(function (s) {
-      if (s && s.id !== mp.id && vis.phase !== 'showdown' && s.hand && s.hand.length) {
+      if (s && s.id !== myId() && vis.phase !== 'showdown' && s.hand && s.hand.length) {
         s.hand = [{}, {}];
       }
     });
@@ -419,21 +463,19 @@
 
   function onRoom(list) {
     _items = list || [];
-    var people = livePeople(_items);
+    if (!mp.on) return;
     var rec = tableRec(_items);
-    if (view === 'lobby') renderLobby(people);
-    if (owner) {
-      if (table && rec && rec.host === mp.id) hostIngest(people);
-    }
+    if (view === 'lobby') renderLobby(seated());
+    hostIngest();
     if (rec && rec.t) {
       var vis = visForMe(rec.t);
       if (view !== 'play' && vis.phase && vis.phase !== 'idle') show('play');
       if (view === 'play') {
         var fake = hydrate(vis);
-        renderTable(fake, mp.id);
+        renderTable(fake, myId());
         if (vis.phase === 'showdown' || vis.phase === 'idle') {
-          var mine = (vis.seats || []).filter(function (s) { return s.id === mp.id; })[0];
-          if (mine && typeof mine.stack === 'number') {
+          var mine = (vis.seats || []).filter(function (s) { return s.id === myId(); })[0];
+          if (mine && typeof mine.stack === 'number' && mine.stack !== chips) {
             chips = mine.stack;
             persistChips();
             showChips();
@@ -443,20 +485,36 @@
     }
   }
 
+  // The room's word: who sits, who is here, and whether this copy is the owner (the dealer).
+  function onState(st) {
+    rs = st;
+    if (mp.on && !joined && st.me && st.me.role === 'watcher') { joined = true; gifos.room.join().catch(function () {}); }
+    // others are in the room: open straight on the shared game
+    if (st.live && !mp.on) mpEnter();
+    if (gifos.info) gifos.info().then(function (inf) {
+      var o = !!(inf && inf.owner);
+      if (o !== owner) { owner = o; if (!o) table = null; onRoom(_items); }
+    }).catch(function () {});
+    chrome();
+    if (mp.on) { if (view === 'lobby') renderLobby(seated()); hostIngest(); }
+  }
+  // with others here the room (top-bar back, OS leave) is how you go; alone you may go back
+  function chrome() {
+    var others = !!(rs && rs.live);
+    $('lobbyLeave').hidden = others && mp.on;
+    $('playLeave').hidden = others && mp.on;
+  }
+
   function mpEnter() {
+    if (!ROOM) return;
     mp.on = true;
-    mp.joined = nowMs();
     local = null;
+    stopBots();
     show('lobby');
-    if (!roomDb) {
-      renderLobby([]);
-      return;
-    }
-    putMe();
-    if (!hb) {
-      hb = setInterval(function () { if (mp.on) putMe(); }, HB_MS);
-    }
-    roomDb.subscribe(onRoom);
+    renderLobby(seated());
+    chrome();
+    if (rs && rs.me && rs.me.role === 'watcher' && !joined) { joined = true; gifos.room.join().catch(function () {}); }
+    onRoom(_items);
   }
   $('friendBtn').onclick = mpEnter;
   $('dealLobby').onclick = function () { if (owner) hostDeal(); };
@@ -467,12 +525,13 @@
     local = null;
     table = null;
     show('home');
+    chrome();
   }
   $('lobbyLeave').onclick = leave;
   $('playLeave').onclick = function () {
     if (local) { leave(); return; }
     show('lobby');
-    renderLobby(livePeople(_items));
+    renderLobby(seated());
   };
 
   if (window.gifos && gifos.onBack) {
@@ -483,31 +542,40 @@
     });
   }
 
+  window['__vintage-poker'] = {
+    // the shared table only: no hole cards, no deck
+    state: function () {
+      var rec = tableRec(_items), t = rec && rec.t;
+      if (!t) return { phase: 'idle', handNo: 0, seats: [] };
+      return {
+        phase: t.phase, handNo: t.handNo, board: (t.board || []).slice(), pot: t.pot, toAct: t.toAct, dealer: t.dealer,
+        seats: (t.seats || []).filter(function (x) { return x && x.id; }).map(function (x) {
+          return { id: x.id, stack: x.stack, bet: x.bet, folded: !!x.folded, allIn: !!x.allIn };
+        })
+      };
+    }
+  };
+
   function boot() {
     var p = Promise.resolve();
-    if (window.gifos && gifos.me) {
-      p = gifos.me().then(function (id) {
-        me.id = id && id.id ? id.id : 'local';
-        me.name = (id && id.name) || 'You';
-        mp.id = me.id; mp.name = me.name;
-      }).catch(function () {});
-    } else {
-      mp.id = me.id; mp.name = me.name;
+    if (window.gifos && gifos.info) {
+      p = gifos.info().then(function (inf) { owner = !!(inf && inf.owner); }).catch(function () {});
     }
     p.then(function () {
-      if (window.gifos && gifos.info) {
-        return gifos.info().then(function (inf) { owner = !!(inf && inf.owner); }).catch(function () {});
-      }
-    }).then(function () {
       if (!saveDb) { showChips(); return; }
       return saveDb.get('last').then(function (rec) {
         if (rec && rec.chips > 0) chips = rec.chips | 0;
         showChips();
       }).catch(function () { showChips(); });
     }).then(function () {
-      // Guests arrived through Invite — they sit. The home screen would
-      // leave them standing in the hall while the host waits on an empty table.
-      if (roomDb && !owner) mpEnter();
+      if (!ROOM) {
+        $('friendBtn').disabled = true;
+        $('roomNote').hidden = false;
+        $('roomNote').textContent = T('needsNewer');
+        return;
+      }
+      if (roomDb) roomDb.subscribe(onRoom);
+      gifos.room.subscribe(onState);
     });
   }
   boot();

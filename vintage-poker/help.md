@@ -18,7 +18,7 @@ Two bots sit across from you. You start with **1000** chips. **Deal** starts a h
 
 ## Play with friends
 
-Press **Play with friends**. Friends who open the invite sit automatically. Two people have to be seated before the host can deal. An empty table tells you so; a waiting table is waiting on the host, not on a lobby code. The host (the person who owns this copy) is the dealer. You act on **your** hole cards; everyone sees the board.
+Press **Play with friends**. Friends who open the invite sit automatically (the room seats them). Two people have to be seated before the host can deal. An empty table tells you so; a waiting table is waiting on the host, not on a lobby code. The host (the person who owns this copy) is the dealer; if they leave, GifOS hands the app to the next person. You act on **your** hole cards; everyone sees the board.
 
 Up to six seats. Close the tab and your seat goes empty.
 
