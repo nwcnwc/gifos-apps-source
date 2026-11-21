@@ -1,34 +1,37 @@
 /*
- * Battleboat — two-fleet transport.
+ * Battleboat — two-fleet transport over gifos.room.
  *
- * Upstream has no networking. The only channel a GifOS app has is the
- * replicated collection. Two rules:
+ * gifos.room seats the two fleets (Red, Blue), keeps who is here and passes
+ * the turn ("order": one shot, then the other seat). Rules:
  *
- *   1. NOBODY WRITES ANYBODY ELSE'S ROW. Each player owns exactly one
- *      record in `players` and only ever reads the others. Shots you fire
- *      and the revealed cells of YOUR fleet ride on that row. Ship
- *      positions stay in a private collection — they never leave this
+ *   1. SHOTS ARE THE MOVES. A shot is public by nature: the shooter appends
+ *      {seat, x, y} to the one `shots` record with gifos.room.move.
+ *   2. NOBODY WRITES ANYBODY ELSE'S ROW. Each seated player owns one record
+ *      in `players` (their own room id) and only ever reads the other's.
+ *      It carries the fogged board (hits, misses, sunk: never ship cells),
+ *      what is still afloat and the result, tagged with the room's round.
+ *      Ship positions stay in a private collection — they never leave this
  *      device.
- *   2. Invite is OS chrome: this file never draws an invite button.
+ *   3. Invite is OS chrome: this file never draws an invite button.
  */
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 2000;
-  var PUBLISH_MS = 200;
-
   var api = null;
+  var rs = null;
+  var ROOM = false;
+  var want = false;      // the player opened the shared game: ask for a seat, once
+  var joined = false;
   var me = { id: null, name: 'Player' };
-  var others = {};
+  var rows = {};
+  var shotsRec = null;
+  var lastWritten = '';
   var lastSnap = emptySnap();
-  var lastPub = 0;
-  var hbTimer = 0;
   var onChange = null;
+  var note = '';
   var ready = false;
 
   function db(n) { return api.db(n); }
-  function now() { return Date.now(); }
 
   function emptySnap() {
     return {
@@ -42,40 +45,50 @@
     };
   }
 
-  function ingest(list) {
-    var t = now(), seen = {}, i, p;
+  function seatList() { return (rs && rs.seats) || []; }
+  function mySeatIdx() {
+    var i, s = seatList();
+    if (!rs || !rs.me || !rs.me.seat) return -1;
+    for (i = 0; i < s.length; i++) if (s[i].seat === rs.me.seat) return i;
+    return -1;
+  }
+  function otherSeat() {
+    var i = mySeatIdx(), j = i === 0 ? 1 : 0, s = seatList();
+    if (i < 0) {
+      // a watcher sees whoever holds the first other seat
+      for (j = 0; j < s.length; j++) if (s[j].id) return j;
+      return -1;
+    }
+    return s[j] && s[j].id ? j : -1;
+  }
+  function shotsOf(idx) {
+    var out = [], list = (shotsRec && shotsRec.list) || [], i;
     for (i = 0; i < list.length; i++) {
-      p = list[i];
-      if (!p || !p.id || p.id === me.id) continue;
-      seen[p.id] = 1;
-      var cur = others[p.id];
-      var moved = !cur || cur.at !== p.at;
-      others[p.id] = {
-        id: p.id,
-        name: p.name || 'Player',
-        round: p.round || 1,
-        phase: p.phase || 'place',
-        shots: Array.isArray(p.shots) ? p.shots : [],
-        board: p.board || root.BB.emptyBoard(),
-        sunk: p.sunk || 0,
-        lost: Array.isArray(p.lost) ? p.lost : [],
-        result: p.result || '',
-        at: p.at,
-        seen: moved ? t : cur.seen
-      };
+      if (list[i] && list[i].s === idx && typeof list[i].x === 'number' && typeof list[i].y === 'number') out.push({ x: list[i].x, y: list[i].y });
     }
-    for (var id in others) {
-      if (!seen[id] || t - others[id].seen > STALE_MS) delete others[id];
-    }
-    if (onChange) onChange(view());
+    return out;
+  }
+  function rowOf(id) {
+    var r = rows[id];
+    return r && rs && r.round === rs.round ? r : null;
   }
 
   function opponent() {
-    var best = null, id;
-    for (id in others) {
-      if (!best || others[id].id < best.id) best = others[id];
-    }
-    return best;
+    var j = otherSeat();
+    if (j < 0) return null;
+    var x = seatList()[j], r = rowOf(x.id);
+    return {
+      id: x.id,
+      name: x.name || 'Player',
+      here: x.here,
+      round: rs.round,
+      phase: r ? r.phase : 'place',
+      shots: shotsOf(j),
+      board: r && r.board ? r.board : root.BB.emptyBoard(),
+      sunk: r ? r.sunk | 0 : 0,
+      lost: r && Array.isArray(r.lost) ? r.lost : [],
+      result: r ? r.result || '' : ''
+    };
   }
 
   function view() {
@@ -85,73 +98,123 @@
         name: me.name,
         round: lastSnap.round,
         phase: lastSnap.phase,
-        shots: lastSnap.shots,
+        shots: shotsOf(mySeatIdx()),
         board: lastSnap.board,
         sunk: lastSnap.sunk,
         lost: lastSnap.lost,
         result: lastSnap.result
       },
       other: opponent(),
-      others: (function () { var n = 0, id; for (id in others) n++; return n; })()
+      round: rs ? rs.round : 1,
+      live: !!(rs && rs.live),
+      seated: mySeatIdx() >= 0,
+      myTurn: !!(rs && rs.myTurn),
+      role: rs && rs.me ? rs.me.role : 'watcher',
+      note: note
     };
   }
+  function fire() { if (onChange) onChange(view()); }
 
-  function putSelf(force) {
-    if (!api || !me.id) return;
-    var t = now();
-    if (!force && t - lastPub < PUBLISH_MS) return;
-    lastPub = t;
-    db('players').put({
+  function putSelf() {
+    if (!api || !ROOM || !me.id || mySeatIdx() < 0 || !rs) return;
+    var rec = {
       id: me.id,
-      name: me.name,
-      at: t,
-      round: lastSnap.round || 1,
+      round: rs.round,
       phase: lastSnap.phase || 'place',
-      shots: lastSnap.shots || [],
       board: lastSnap.board || root.BB.emptyBoard(),
       sunk: lastSnap.sunk || 0,
       lost: lastSnap.lost || [],
       result: lastSnap.result || ''
-    }).catch(function () {});
+    };
+    var key = JSON.stringify(rec);
+    if (key === lastWritten) return;
+    lastWritten = key;
+    db('players').put(rec).catch(function () {});
+  }
+
+  function wantSeat() {
+    if (want && !joined && rs && rs.me && rs.me.role === 'watcher') { joined = true; api.room.join().catch(function () {}); }
   }
 
   function init(opts) {
     opts = opts || {};
     onChange = opts.onChange || null;
     api = root.gifos;
-    if (!api || !api.db) return Promise.resolve({ ok: false });
-    return api.me().then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Player';
-      ready = true;
-      db('players').subscribe(function (list) { ingest(list || []); });
-      putSelf(true);
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(function () { putSelf(true); }, HB_MS);
-      return { ok: true, me: me };
-    }).catch(function () { return { ok: false }; });
+    ROOM = !!(api && api.db && api.room && api.room.subscribe);
+    if (!ROOM) return Promise.resolve({ ok: false });
+    db('players').subscribe(function (list) {
+      var next = {}, i;
+      for (i = 0; i < (list || []).length; i++) if (list[i] && list[i].id) next[list[i].id] = list[i];
+      rows = next;
+      fire();
+    });
+    db('shots').subscribe(function (list) {
+      var rec = null, i;
+      for (i = 0; i < (list || []).length; i++) if (list[i] && list[i].id === 'shots') rec = list[i];
+      shotsRec = rec; note = '';
+      fire();
+    });
+    return new Promise(function (resolve) {
+      var first = true;
+      api.room.subscribe(function (s) {
+        rs = s; note = '';   // a refusal's note goes with the next room state
+        me.id = s.me.id;
+        me.name = s.me.name || 'Player';
+        ready = true;
+        wantSeat();
+        fire();
+        if (first) { first = false; resolve({ ok: true, me: me }); }
+      });
+    });
   }
 
-  function publish(snap, force) {
+  // asking to play: the room seats, lines up, or asks the host
+  function join() { want = true; wantSeat(); }
+
+  function publish(snap) {
     lastSnap = snap || lastSnap;
-    putSelf(!!force);
-    if (onChange) onChange(view());
+    putSelf();
+    fire();
+  }
+
+  // one shot: the whole next record; the room passes the turn
+  function shoot(x, y) {
+    var i = mySeatIdx();
+    if (!ROOM || i < 0) return Promise.resolve(false);
+    var list = ((shotsRec && shotsRec.list) || []).concat([{ s: i, x: x, y: y }]);
+    var rec = { id: 'shots', list: list };
+    shotsRec = rec;
+    return api.room.move('shots', rec).catch(function (e) { note = (e && e.message) || ''; fire(); });
+  }
+
+  // the next game: the shots start over, the turn goes to the next starter
+  function newRound() {
+    if (!ROOM || mySeatIdx() < 0) return Promise.resolve(false);
+    return api.room.newRound('shots', { id: 'shots', list: [] }).catch(function (e) { note = (e && e.message) || ''; fire(); });
   }
 
   function leave() {
-    if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
-    if (api && me.id) db('players').delete(me.id).catch(function () {});
-    others = {};
+    want = false; joined = false;
+    if (api && ROOM) api.room.leave().catch(function () {});
     lastSnap = emptySnap();
-    ready = false;
+    lastWritten = '';
   }
 
   root.BBNet = {
     init: init,
+    join: join,
     publish: publish,
+    shoot: shoot,
+    newRound: newRound,
     leave: leave,
+    room: function () { return ROOM; },
     me: function () { return me; },
     view: view,
+    // the shared game only (for the room kit): the round and the public shots
+    shared: function () {
+      var list = (shotsRec && shotsRec.list) || [];
+      return { round: rs ? rs.round : 1, shots: list.map(function (x) { return x.s + ':' + x.x + ',' + x.y; }).join(' ') };
+    },
     emptySnap: emptySnap,
     ready: function () { return ready; }
   };

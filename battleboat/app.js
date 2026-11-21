@@ -28,6 +28,13 @@
   var lastOwn = null;
   var busy = false;
   var replyTimer = 0;
+  var picked = false;   // the player chose a local game: do not pull them into the shared one
+  var EN = { needsNewer: 'Battleboat needs a newer GifOS to play together. Reload the page to update.' };
+  var T = function (k) {
+    var v = window.gifos && gifos.i18n && gifos.i18n.t ? gifos.i18n.t(k) : k;
+    return v === k && EN.hasOwnProperty(k) ? EN[k] : v;
+  };
+  var ROOM = !!(window.gifos && gifos.room && gifos.room.subscribe);
 
   try {
     if (window.gifos) {
@@ -132,6 +139,10 @@
       li.innerHTML = '<span class="len">' + pipRow(spec.len) + '</span>' + (spec.short || spec.name);
       if (ship && ship.placed) li.className = 'placed';
       else if (placeType === spec.id) li.className = 'placing';
+      if (ship && ship.placed && mpOn && placing) {
+        // the shared game starts with a random fleet: tapping the list takes the ships up to place them by hand
+        li.addEventListener('click', placeByHand);
+      }
       if (!ship || !ship.placed) {
         li.addEventListener('click', function () {
           placeType = spec.id;
@@ -198,7 +209,7 @@
     $('rotateBtn').hidden = all;
     $('scatterBtn').hidden = all;
     if (all) {
-      if (mpOn) setStatus('Ships placed. Waiting for the other fleet…');
+      if (mpOn) setStatus('Ships placed. Press Ready, or tap the ship list to place them by hand.');
       else setStatus('Ships placed. Start when you are ready.');
     }
   }
@@ -240,6 +251,8 @@
 
   /* ---- solo ---- */
   function beginCpu() {
+    picked = true;
+    $('leaveBtn').hidden = false;
     mode = 'cpu';
     mpOn = false;
     busy = false;
@@ -367,20 +380,21 @@
     mpLocal.snap.board = mpLocal.grid.encode(true);
     mpLocal.snap.sunk = mpLocal.fleet.sunkCount();
     mpLocal.snap.lost = mpLocal.fleet.lostTypes();
-    window.BBNet.publish(mpLocal.snap, !!force);
+    window.BBNet.publish(mpLocal.snap);
   }
 
   function inGame(p) {
     return p && (p.phase === 'ready' || p.phase === 'play' || p.phase === 'over');
   }
-  function myTurn(me, them) {
-    if (!them) return false;
+  // my shot: the room says it is my turn, both fleets are placed, nobody has won, the other seat is here
+  function mpTurn(view) {
+    var them = view.other;
+    if (!them || !view.myTurn || !mpLocal) return false;
+    var me = mpLocal.snap;
     if (!inGame(me) || !inGame(them)) return false;
     if (me.phase === 'place' || them.phase === 'place') return false;
     if (me.result || them.result) return false;
-    var a = (me.shots || []).length, b = (them.shots || []).length;
-    if (a === b) return me.id < them.id;
-    return a === b - 1;
+    return them.here !== 'away';
   }
 
   function applyIncoming(them) {
@@ -407,6 +421,8 @@
   }
 
   function beginMp() {
+    if (!ROOM) { $('roomNote').textContent = T('needsNewer'); $('roomNote').hidden = false; return; }
+    picked = true;
     mode = 'mp';
     mpOn = true;
     solo = null;
@@ -416,10 +432,13 @@
     placing = true;
     placeType = 'carrier';
     placeDir = BB.VERTICAL;
-    mpLocal = freshLocal(1);
+    var v0 = window.BBNet.view();
+    mpLocal = freshLocal(v0.round);
+    autoPlace(mpLocal.fleet);
     $('setup').hidden = true;
     $('game').hidden = false;
     $('inviteHint').hidden = false;
+    $('leaveBtn').hidden = false;
     $('leaveBtn').textContent = 'Leave';
     $('gameTitle').textContent = 'A friend';
     $('enemyTitle').textContent = 'Their fleet';
@@ -434,33 +453,32 @@
     paintGrid($('humanGrid'), mpLocal.grid, {});
     paintFromBoard($('enemyGrid'), BB.emptyBoard(), []);
     updateStartBtn(mpLocal.fleet);
-
-    window.BBNet.init({ onChange: onMp }).then(function (r) {
-      if (!r || !r.ok) {
-        setStatus('Play a friend needs the room.', 'warn');
-        return;
-      }
-      loadShips(mpLocal.snap.round).then(function (ok) {
-        if (ok) {
-          placing = false;
-          mpLocal.snap.phase = 'ready';
-          $('placeBar').hidden = true;
-          setPhase('hunting');
-          renderRoster(mpLocal.fleet);
-          paintGrid($('humanGrid'), mpLocal.grid, {});
-        }
+    window.BBNet.join();
+    loadShips(mpLocal.snap.round).then(function (ok) {
+      if (ok) {
+        placing = false;
+        mpLocal.snap.phase = 'ready';
+        $('placeBar').hidden = true;
+        setPhase('hunting');
+        renderRoster(mpLocal.fleet);
+        paintGrid($('humanGrid'), mpLocal.grid, {});
         publishMp(true);
-      });
+      }
+      paintMp(window.BBNet.view());
     });
   }
 
   function onMp(view) {
+    // with other people here and no local game picked, the shared game is what you see; alone you start on the menu
+    if (!mpOn && !picked && view.live && !$('setup').hidden) { beginMp(); return; }
     if (!mpOn || !mpLocal) return;
     var them = view.other;
-    if (them && them.round > mpLocal.snap.round) {
-      resetMpRound(them.round);
+    if (view.round > mpLocal.snap.round) {
+      resetMpRound(view.round);
+      gateCells(view);
       return;
     }
+    mpLocal.snap.shots = view.me.shots;
     if (them) applyIncoming(them);
 
     if (mpLocal.snap.phase === 'ready' && them && (them.phase === 'ready' || them.phase === 'play' || them.phase === 'over')) {
@@ -482,7 +500,25 @@
     paintMp(view);
   }
 
+  // Only a cell you can act on now is a live button: your own sea while placing, their sea on your shot.
+  function gateCells(view) {
+    var h = $('humanGrid').children, e = $('enemyGrid').children, i, x, y, ch, shot = {}, k, mine = view.me.shots || [];
+    for (k = 0; k < mine.length; k++) shot[mine[k].x + ',' + mine[k].y] = 1;
+    var them = view.other, turn = mpTurn(view);
+    for (i = 0; i < h.length; i++) h[i].disabled = !(placing && !!placeType);
+    i = 0;
+    for (x = 0; x < SIZE; x++) for (y = 0; y < SIZE; y++) {
+      ch = them ? (them.board || '').charAt(x * SIZE + y) : '';
+      if (e[i]) e[i].disabled = !(turn && (!ch || ch === '0') && !shot[x + ',' + y]);
+      i++;
+    }
+  }
   function paintMp(view) {
+    paintMpInner(view);
+    $('leaveBtn').hidden = !!view.live;   // with others here the room is how you go
+    gateCells(view);
+  }
+  function paintMpInner(view) {
     var them = view.other;
     var meRow = mpLocal.snap;
     paintGrid($('humanGrid'), mpLocal.grid, placing ? { preview: preview, previewOk: true } : { last: lastOwn });
@@ -515,6 +551,23 @@
     }
     $('overBar').hidden = true;
 
+    // somebody else sat down in the other seat mid-game: that fleet is gone, so start the game over
+    if (them && mpLocal.oppId && them.id !== mpLocal.oppId) {
+      setPhase('over');
+      setChip('', 'New opponent');
+      setStatus((them.name || 'Someone') + ' sat down. Play again to start fresh.', 'warn');
+      $('overText').textContent = 'New opponent.';
+      $('overBar').hidden = false;
+      return;
+    }
+    if (them && !mpLocal.oppId && inGame(mpLocal.snap) && inGame(them)) mpLocal.oppId = them.id;
+    if (view.role === 'asking' || view.role === 'waiting') {
+      setChip('', view.role === 'asking' ? 'Asking' : 'In line');
+      setStatus(view.role === 'asking' ? 'Waiting for the host to let you in…' : 'Both seats are taken. You are next in line.');
+      return;
+    }
+    if (view.note) { setStatus(view.note, 'warn'); }
+
     if (!them) {
       setChip('ready', 'Waiting');
       if ((meRow.shots || []).length || meRow.phase === 'play' || meRow.phase === 'over') {
@@ -541,9 +594,12 @@
       return;
     }
     setPhase(meRow.phase === 'over' ? 'over' : 'hunting');
-    if (myTurn({ id: window.BBNet.me().id, phase: meRow.phase, shots: meRow.shots, result: meRow.result }, them)) {
+    if (mpTurn(view)) {
       setChip('ready', 'Your shot');
       setStatus('Your shot. Tap their map.');
+    } else if (them.here === 'away') {
+      setChip('', 'Reconnecting');
+      setStatus((them.name || 'They') + ' is reconnecting…');
     } else {
       setChip('', 'Their shot');
       setStatus('Waiting for ' + (them.name || 'them') + ' to fire…');
@@ -554,17 +610,14 @@
     if (!mpOn || !mpLocal || placing) return;
     var view = window.BBNet.view();
     var them = view.other;
-    if (!them) return;
-    var meId = window.BBNet.me().id;
-    if (!myTurn({ id: meId, phase: mpLocal.snap.phase, shots: mpLocal.snap.shots, result: mpLocal.snap.result }, them)) return;
+    if (!them || !mpTurn(view)) return;
     var ch = (them.board || '').charAt(x * SIZE + y);
     if (ch && ch !== '0') return;
-    var shots = mpLocal.snap.shots, i;
+    var shots = view.me.shots, i;
     for (i = 0; i < shots.length; i++) if (shots[i].x === x && shots[i].y === y) return;
-    mpLocal.snap.shots = shots.concat([{ x: x, y: y }]);
     lastEnemy = { x: x, y: y };
-    if (mpLocal.snap.phase === 'ready') mpLocal.snap.phase = 'play';
-    publishMp(true);
+    if (mpLocal.snap.phase === 'ready') { mpLocal.snap.phase = 'play'; publishMp(true); }
+    window.BBNet.shoot(x, y);
   }
 
   function readyMp() {
@@ -581,8 +634,8 @@
   function resetMpRound(round) {
     mpLocal = freshLocal(round);
     placing = true;
-    placeType = 'carrier';
     placeDir = BB.VERTICAL;
+    autoPlace(mpLocal.fleet);
     lastEnemy = null;
     lastOwn = null;
     $('overBar').hidden = true;
@@ -595,7 +648,6 @@
     paintGrid($('humanGrid'), mpLocal.grid, {});
     paintFromBoard($('enemyGrid'), BB.emptyBoard(), []);
     updateStartBtn(mpLocal.fleet);
-    publishMp(true);
   }
 
   /* ---- shared UI ---- */
@@ -627,18 +679,26 @@
     if (mpOn) { saveShips(); publishMp(false); }
   }
 
+  function autoPlace(fleet) {
+    resetFleet(fleet);
+    fleet.placeRandomly(false);
+    placeType = '';
+  }
+  // the shared game starts with a random fleet already placed: press Ready, or take the ships up and place them by hand
+  function placeByHand() {
+    var fleet = currentFleet();
+    if (!fleet || !placing || !mpOn) return;
+    resetFleet(fleet);
+    placeType = 'carrier';
+    renderRoster(fleet);
+    paintGrid($('humanGrid'), fleet.grid, {});
+    updateStartBtn(fleet);
+    paintMp(window.BBNet.view());
+  }
   function scatter() {
     var fleet = currentFleet();
     if (!fleet || !placing) return;
-    fleet.grid.clear();
-    var i;
-    for (i = 0; i < fleet.roster.length; i++) {
-      fleet.roster[i].placed = false;
-      fleet.roster[i].damage = 0;
-      fleet.roster[i].sunk = false;
-    }
-    fleet.placeRandomly(false);
-    placeType = '';
+    autoPlace(fleet);
     renderRoster(fleet);
     paintGrid($('humanGrid'), fleet.grid, {});
     updateStartBtn(fleet);
@@ -651,6 +711,8 @@
     if (mpOn) {
       try { window.BBNet.leave(); } catch (e) {}
     }
+    picked = true;
+    $('leaveBtn').hidden = false;
     mpOn = false;
     mpLocal = null;
     solo = null;
@@ -668,10 +730,8 @@
 
   function playAgain() {
     if (mpOn) {
-      var next = (mpLocal.snap.round || 1) + 1;
-      var view = window.BBNet.view();
-      if (view.other && view.other.round > next) next = view.other.round;
-      resetMpRound(next);
+      // the room starts the next game for both: the shots start over and the turn goes to the next starter
+      window.BBNet.newRound();
       return;
     }
     beginCpu();
@@ -778,6 +838,11 @@
 
   window.BBApp = { coverShot: coverShot };
 
+  // Read-only, for the room kit: the shared game only (round and public shots).
+  window.__battleboat = { state: function () { return window.BBNet.shared(); } };
+
+  if (ROOM) window.BBNet.init({ onChange: onMp });
+  else { $('roomNote').textContent = T('needsNewer'); $('roomNote').hidden = false; }
   loadStats();
   paintSetupStats();
 })();

@@ -12,7 +12,7 @@ your fleet shrinks — the original page is desktop-only.
 index.html                  setup / computer / play a friend
 style.css                   navy grids, no webfont, no images
 game.js                     10×10, five ships, Bill Mei's AI
-net.js                      two fleets over gifos.db (own row only)
+net.js                      two fleets over gifos.room (shots are the moves; own row only)
 app.js                      placement, solo loop, friend wiring
 icon.mjs                    procedural icon + 1200×720 cover
 build.mjs                   packs the GIF into site/apps/battleboat/battleboat.gif
@@ -38,7 +38,7 @@ A game against the computer keeps a win / hit tally on this device.
 | `db` | Stats (private), hidden ships during a friend game (private), player rows (read-write). |
 | `multiplayer` | The room. |
 
-No `wasm`, no `network`. `minBuild` is **947**.
+No `wasm`, no `network`. `minBuild` is **5861**.
 
 ## Building
 

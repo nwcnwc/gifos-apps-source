@@ -23,13 +23,13 @@ Tap a cell on the **enemy** map. Miss, hit, or sunk. You cannot fire the same ce
 
 Against the computer, it fires back at once (a short pause, then its shot). It hunts by where a remaining ship is most likely to sit, then finishes a hit.
 
-Against a friend, you take turns. The person with the earlier id shoots first when both are ready. Hits and misses show on both screens. A pip bar lists which of their ships are still afloat — not where they are.
+Against a friend, you take turns. The room seats the two fleets (Red and Blue) and passes the shot between you; the next game starts with the other seat. Extra people watch and are next in line. When other people are here, the game opens straight on the shared board. Hits and misses show on both screens. A pip bar lists which of their ships are still afloat — not where they are.
 
 There is no keyboard aiming. Mouse click and finger tap are the same.
 
 ## A friend
 
-Each of you hides a fleet on your own device. **Ship positions stay on this device.** Only shots and the revealed cells of your own fleet are shared. If they leave, press **Invite** again to bring them back, or **Leave**.
+Each of you hides a fleet on your own device. In a friend game a random fleet is already placed: press **Ready**, or tap the ship list to place them by hand. **Ship positions stay on this device.** Only shots and the revealed cells of your own fleet are shared. If they leave, press **Invite** again to bring them back, or **Leave**.
 
 **Play again** starts a new round with new placement.
 

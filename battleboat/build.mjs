@@ -79,7 +79,9 @@ if (manifest.capabilities && manifest.capabilities.network) {
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare db + multiplayer');
 }
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947');
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild < 5861) throw new Error('minBuild must be at least 5861 (the first build with gifos.room)');
+if (!manifest.room || !manifest.room.moves || manifest.room.moves.indexOf('shots') < 0) throw new Error('manifest must declare a room block with shots as its moves collection');
+if (!manifest.data.secret || manifest.data.secret.visibility !== 'private') throw new Error('ship positions must stay in a private collection');
 if (!listing.basedOn || listing.basedOn.blessed !== false) {
   throw new Error('listing.basedOn.blessed must be false — unofficial port');
 }
@@ -110,6 +112,11 @@ if (listing.tagline.length > 120) throw new Error('tagline is over 120 chars');
     throw new Error('do not say Battleship in store copy — the store name is Battleboat');
   }
 }
+if (!files['net.js'].includes('api.room.subscribe') || !files['net.js'].includes('api.room.move')) {
+  throw new Error('net.js must read the room and write shots through api.room.move');
+}
+if (/HB_MS|STALE_MS|setInterval/.test(files['net.js'])) throw new Error('no heartbeat or presence timer: the room says who is here');
+if (/board:\s*[a-zA-Z.]*encode\(false\)|encode\(\)/.test(files['app.js'])) throw new Error('only the fogged board may be published');
 if (!files['app.js'].includes('coverShot')) {
   throw new Error('app.js must expose coverShot for the store cover');
 }
