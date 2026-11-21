@@ -276,7 +276,9 @@
 
   root['__bitsy'] = {
     state: function () {
-      return { round: on ? ((usedRound || round || 0) | 0) : 0 };
+      var ad = adopted(lastList);
+      if (ad) return { round: ad.round | 0 };
+      return on ? { round: (usedRound || round || 0) | 0 } : null;
     },
     people: function () {
       return live(lastList).map(function (p) { return p.id; });

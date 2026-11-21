@@ -328,12 +328,9 @@
 
   root['__breakout'] = {
     state: function () {
-      var g = game;
-      if (!g) return null;
-      return {
-        level: g.level | 0,
-        score: g.score ? g.score.score | 0 : 0
-      };
+      // World row only — local level races before the host snapshot lands.
+      if (!world) return null;
+      return { level: world.lv | 0, score: world.sc | 0 };
     },
     people: function () {
       var names = peopleNames(), out = [], id;

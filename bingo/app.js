@@ -947,7 +947,14 @@
     people: function () {
       return livePeople(_items).map(function (p) { return p.id; });
     },
-    amHost: function () { return mp.on && mp.owner && livePeople(_items).length > 1; }
+    amHost: function () {
+      var n = 0, i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') n++;
+      }
+      return !!mp.owner && n > 1;
+    }
   };
 
 })();
