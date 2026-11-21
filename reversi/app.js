@@ -324,7 +324,6 @@
   function mpSay(e) {
     mp.note = e && e.message ? e.message : '';
     mpRender();
-    setTimeout(function () { mp.note = ''; mpRender(); }, 2500);
   }
 
   $('friendBtn').onclick = mpEnter;
@@ -347,7 +346,9 @@
     mp.board = nb; mpRender();
     gifos.room.move('board', nb, keep ? { keep: true } : undefined).catch(function (e) { mp.board = prev; mpSay(e); });
   }
+  // The refusal note stays until the next room state, board change or tap.
   function mpPlay(r, c) {
+    mp.note = '';
     if (!mpCanPlay()) return false;
     var prev = mp.board, b = curBoard();
     var ns = R.place(R.replay(b.moves || []), r, c);
@@ -459,10 +460,11 @@
     var b = null, i;
     for (i = 0; i < (items || []).length; i++) if (items[i] && items[i].id === 'board') b = items[i];
     mp.board = b;
+    mp.note = '';
     mpRender();
   });
   if (ROOM) gifos.room.subscribe(function (s) {
-    mp.rs = s;
+    mp.rs = s; mp.note = '';
     // Somebody else is here: the room is what they see, without a mode tap. Not over a local game in progress.
     if (!mp.on && !mp.auto && s.live && !$('setup').hidden && !(state.s && !state.over)) { mp.auto = true; mpEnter(); return; }
     mpRender();
