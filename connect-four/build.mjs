@@ -88,14 +88,14 @@ if (manifest.capabilities.wasm) {
 if (manifest.capabilities.network) {
   throw new Error('connect-four has no network path');
 }
-if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947');
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 5861) {
+  throw new Error('minBuild must be 5861');
 }
 if (!manifest.data || !manifest.data.save || manifest.data.save.visibility !== 'private') {
   throw new Error('manifest.data.save must be private');
 }
-if (!manifest.data.room || manifest.data.room.visibility !== 'read-write') {
-  throw new Error('manifest.data.room must be read-write — the shared board has to sync');
+if (!manifest.data.board || manifest.data.board.visibility !== 'read-write') {
+  throw new Error('manifest.data.board must be read-write — the shared board has to sync');
 }
 for (const [n, s] of Object.entries(files)) {
   if (!n.endsWith('.js')) continue;

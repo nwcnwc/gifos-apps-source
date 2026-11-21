@@ -25,9 +25,10 @@ COPYING.txt         upstream MIT notice (also packed inside the GIF)
   X or O; X goes first.
 - **Two here** — pass the device. X goes first.
 - **Play a friend** — send the invite (top bar; that button is OS chrome).
-  Two seats, turns. Each person writes only their own row. The host of the
-  board (first seated / lowest id) is the only writer of the board row: a
-  player publishes an intended move, the host applies it if it is legal.
+  Two seats, turns, who is here and who waits all come from `gifos.room`
+  (manifest `room`); the mover writes the whole next board with
+  `gifos.room.move`. On a GifOS older than build 5861 the app says it needs a
+  newer GifOS and writes nothing.
 
 A game in progress auto-saves in the icon. Wins, draws and losses against the
 computer or a friend stay on this device.

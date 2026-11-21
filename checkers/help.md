@@ -25,7 +25,7 @@ There is no keyboard, no drag, and no zoom.
 
 - **Computer** — you pick white or black. It thinks **on this device**. It is the original player: a legal move at random, a king preferred about half the time, and a jump when the rules demand it. It is not a strong engine.
 - **Two here** — pass the device. White still goes first.
-- **Play a friend**, then **Invite** in the bar above this app. White and black seats fill as people join; extras watch. Tap as usual on your turn. **Resign** gives the game to the other seat. After a short pause a new game starts. If the other player leaves mid-game, you win.
+- **Play a friend**, then **Invite** in the bar above this app. If other people are already in the room with you, the game opens on the shared board by itself. GifOS seats the first two people white and black; extras watch and take a seat when one opens. Tap as usual on your turn; a player who is away is waited for. **Resign** (on your turn) gives the game to the other seat, and **New game** (either player) starts the next one.
 
 The board flips when you sit black, so your men still start at the bottom of the screen.
 

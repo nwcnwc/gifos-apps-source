@@ -103,8 +103,8 @@ if (manifest.capabilities.wasm) {
 if (manifest.capabilities.network) {
   throw new Error('gomoku has no network path');
 }
-if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947');
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 5861) {
+  throw new Error('minBuild must be 5861');
 }
 for (const [n, s] of Object.entries(files)) {
   if (!n.endsWith('.js')) continue;

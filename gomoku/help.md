@@ -25,12 +25,12 @@ The board fills the width. Aim for the **dots where lines cross**. A tap that la
 
 ## A live friend
 
-Press **Play a friend**, then **Invite** in the **bar above the app**. They sit the other colour on the same board. Extra people watch.
+Press **Play a friend**, then **Invite** in the **bar above the app**. If other people are already in the room with you, the game opens on the shared board by itself. GifOS seats the first two people black and white; anyone else watches and takes a seat when one opens.
 
-- You only place on your turn.
-- **Undo** of the stone you just put down if they have not answered yet. Further than that, both of you have to tap Undo.
-- **Resign** ends that game; the next one starts on its own.
-- **Leave** returns to setup.
+- You only place on your turn; a player who is away is waited for.
+- There is no Undo on a shared board.
+- **Resign** (on your turn) ends that game. **New game** (either player) starts the next one.
+- **Leave** gives up your seat and returns to setup.
 
 ## What is saved
 

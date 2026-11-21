@@ -32,6 +32,7 @@
       <p class="lvlnote" id="cpuNote">You place black. The computer places white. It thinks on this device.</p>
     </div>
     <p class="lvlnote" id="hotseatNote" hidden>Pass the device. Black goes first. Tap a square to place. Dots show where you can go.</p>
+    <p class="lvlnote" id="needsNewer" hidden></p>
     <button class="primary" id="startBtn" type="button">Start game</button>
     <button class="ghost wide" id="friendBtn" type="button">Play a friend</button>
   </section>
@@ -54,6 +55,7 @@
     <div class="statusline" id="fStatus"></div>
     <div class="boardwrap"><div class="board" id="fBoard" aria-label="Shared Reversi board"></div></div>
     <div class="controls">
+      <button id="fNew" class="ghost" type="button" hidden>New game</button>
       <button id="fResign" class="ghost" type="button" hidden>Resign</button>
     </div>
   </section>

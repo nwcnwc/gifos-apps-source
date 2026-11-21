@@ -3,8 +3,8 @@
   "appId": "thinktank",
   "name": "Thinktank",
   "shortName": "Thinktank",
-  "version": "1.0",
-  "minBuild": 947,
+  "version": "1.1",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [226, 74, 74],
   "capabilities": {
@@ -13,6 +13,7 @@
   },
   "data": {
     "save": { "visibility": "private" },
-    "room": { "visibility": "read-write" }
-  }
+    "board": { "visibility": "read-write" }
+  },
+  "room": { "seats": ["red", "blue"], "turns": "order", "moves": ["board"], "solo": true }
 }

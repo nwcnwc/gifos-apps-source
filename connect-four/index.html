@@ -24,6 +24,7 @@
     </label>
     <p class="lvlnote" id="cpuNote">You drop red. The computer drops blue. It looks a few moves ahead, here.</p>
     <p class="lvlnote" id="hotseatNote" hidden>Pass the device. Red goes first. Tap a column to drop.</p>
+    <p class="lvlnote" id="needsNewer" hidden></p>
     <button class="primary" id="startBtn" type="button">Start game</button>
     <button class="ghost wide" id="friendBtn" type="button">Play a friend</button>
   </section>
@@ -51,8 +52,10 @@
     <div class="statusline" id="fStatus"></div>
     <div class="boardwrap">
       <canvas id="fBoard" width="560" height="520" aria-label="Shared Connect Four board"></canvas>
+      <div class="colbtns" id="fCols"></div>
     </div>
     <div class="controls">
+      <button id="fNew" class="ghost" type="button" hidden>New game</button>
       <button id="fResign" class="ghost" type="button" hidden>Resign</button>
     </div>
   </section>

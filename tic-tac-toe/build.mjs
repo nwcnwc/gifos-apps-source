@@ -72,8 +72,8 @@ if (manifest.capabilities.network) {
 if (manifest.capabilities.wasm) {
   throw new Error('do not declare wasm — the CPU is plain JavaScript');
 }
-if (manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947 — this app needs nothing newer than the store.');
+if (manifest.minBuild !== 5861) {
+  throw new Error('minBuild must be 5861 — the first build with gifos.room.');
 }
 if (!Number.isInteger(manifest.minBuild)) throw new Error('minBuild must be an integer');
 if (!html.includes('Play a friend')) throw new Error('index.html is missing Play a friend');

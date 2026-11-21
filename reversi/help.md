@@ -25,11 +25,9 @@ Pick **Two here**, then **Start game**. Pass the device. Black goes first.
 
 ## Play a friend
 
-Press **Play a friend**, then **Invite** in the bar above the app — that button is not inside the board. The first two people sit black and white. Anyone else watches. You only place on your colour’s turn.
+Press **Play a friend**, then **Invite** in the bar above the app — that button is not inside the board. If other people are already in the room with you, the game opens on the shared board by itself. GifOS seats the first two people black and white; anyone else watches and takes a seat when one opens. You only place on your colour’s turn, and a player who is away is waited for.
 
-**Resign** gives the board to the other colour. After a result, a new game starts in a few seconds. **Leave** returns to setup.
-
-If the other person leaves mid-game, you win. Extra people in the room spectate until a seat opens.
+**Resign** (on your turn) gives the board to the other colour. After a result, **New game** (either player) starts the next one. **Leave** gives up your seat and returns to setup.
 
 ## Saved
 

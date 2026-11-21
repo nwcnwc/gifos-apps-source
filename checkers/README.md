@@ -29,9 +29,10 @@ build.mjs           packs the GIF into site/apps/checkers/checkers.gif
 - **Two here** — pass the device. White goes first. Tap a piece, then tap
   where it goes.
 - **Play a friend** — send the invite (top bar; that button is OS chrome).
-  White and black seats, turns. Each person writes only their own row. The
-  host of the board (lowest live id) is the only writer of the board row: a
-  player publishes an intended move, the host applies it if it is legal.
+  White and black seats, turns, who is here and who waits all come from
+  `gifos.room` (manifest `room`); the mover writes the whole next board with
+  `gifos.room.move` (a jump that can continue keeps the turn). On a GifOS
+  older than build 5861 the app says it needs a newer GifOS and writes nothing.
 
 A game in progress auto-saves in the icon. You must jump when you can. A jump
 can chain. Reach the far side and the man becomes a king.

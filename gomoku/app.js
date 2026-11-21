@@ -481,45 +481,35 @@
   bindBoard($('board'), isHumanTurn, function (r, c) { return playLocal(r, c); });
 
   // ---- multiplayer ----
-  // One collection. Each person writes ONLY their own row (id = me).
-  // The board row is written by whoever is host (first seated / lowest id).
-  // A player publishes an intended move; the host applies it if it is legal.
-  var PRES_TTL = 9000, HB_MS = 3000, END_HOLD = 4000;
+  // Who sits, whose turn it is, who is here and who waits is gifos.room's (manifest "room"). This app draws the
+  // board and makes moves: the mover writes the whole next board with gifos.room.move.
+  var ROOM = !!(window.gifos && gifos.room && gifos.room.subscribe);
+  var NEEDS_NEWER = 'Gomoku needs a newer GifOS to play together. Reload the page to update.';
   var mpDb = null;
   try { if (window.gifos) mpDb = gifos.db('gomoku-mp'); } catch (e) {}
-  var mp = { on: false, id: null, name: 'You', row: null, board: null, people: [], hb: 0, sub: false, hover: null };
-  var _items = [];
+  var mp = { on: false, rs: null, board: null, hover: null, auto: false, note: '' };
 
-  function mySeat(b) {
-    if (!b || !b.seats) return null;
-    if (b.seats.black === mp.id) return 'black';
-    if (b.seats.white === mp.id) return 'white';
-    return null;
+  function freshBoard() {
+    return { id: 'board', stones: [], winner: null, result: '', last: null, seq: 0 };
   }
-  function isHost(people) {
-    if (!people.length) return true;
-    var m = people[0].id;
-    for (var i = 0; i < people.length; i++) if (people[i].id < m) m = people[i].id;
-    return mp.id === m;
+  function curBoard() { return mp.board || freshBoard(); }
+  function mySeat() { return mp.rs && mp.rs.me ? mp.rs.me.seat : null; }
+  function seatRow(name) {
+    var rows = (mp.rs && mp.rs.seats) || [], i;
+    for (i = 0; i < rows.length; i++) if (rows[i].seat === name) return rows[i];
+    return { seat: name, id: null, name: '', here: 'open' };
   }
-  function freshBoard(hostId) {
-    return {
-      id: 'board', host: hostId, seats: { black: null, white: null }, names: {},
-      stones: [], turn: 'black', winner: null, result: '', last: null, seq: 0,
-      undoAsk: null, startedAt: nowMs()
-    };
+  // The room says whose turn it is. Alone, one person plays every open seat.
+  function mpCanPlay() {
+    var rs = mp.rs;
+    if (!ROOM || !rs || !rs.me || !mySeat() || curBoard().winner) return false;
+    if (!rs.live) return seatRow(rs.turn).here !== 'away';
+    return !!rs.myTurn;
   }
-  function putMe(extra) {
-    var row = { id: mp.id, name: mp.name, at: nowMs(), intent: null };
-    if (mp.row && mp.row.intent) row.intent = mp.row.intent;
-    if (extra) {
-      if (extra.intent !== undefined) row.intent = extra.intent;
-    }
-    mp.row = row;
-    mpDb.put(row).catch(function () {});
+  function mpSay(e) {
+    mp.note = e && e.message ? e.message : '';
+    mpRender();
   }
-  function putBoard(b) { mp.board = b; mpDb.put(b).catch(function () {}); }
-
   function boardToState(b) {
     var s = G.fresh();
     for (var i = 0; i < (b.stones || []).length; i++) {
@@ -533,217 +523,144 @@
 
   $('friendBtn').onclick = mpEnter;
   function mpEnter() {
-    if (!mpDb) { setStatus($('statusLine'), 'Play a friend needs storage.', 'warn'); return; }
-    (window.gifos ? gifos.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (me) {
-      mp.id = me.id; mp.name = me.name || 'You'; mp.on = true; mp.row = null;
-      killAi();
-      $('setup').hidden = true; $('game').hidden = true; $('friend').hidden = false;
-      setChip('ready', 'A friend');
-      if (!mp.sub) {
-        mp.sub = true;
-        mpDb.subscribe(function (items) { _items = items || []; mpRefresh(); });
-      }
-      putMe();
-      if (mp.hb) clearInterval(mp.hb);
-      mp.hb = setInterval(function () { if (mp.on) putMe(); }, HB_MS);
-      mpRender();
-    });
+    mp.on = true;
+    killAi();
+    $('setup').hidden = true; $('game').hidden = true; $('friend').hidden = false;
+    setChip('ready', 'A friend');
+    // Opening the game is asking to play; the room seats, lines up, or asks the host.
+    if (ROOM && mp.rs && mp.rs.me && mp.rs.me.role === 'watcher') gifos.room.join().catch(function () {});
+    mpRender();
   }
   function mpLeave() {
     mp.on = false;
-    if (mp.hb) clearInterval(mp.hb); mp.hb = 0;
-    if (mpDb && mp.id) mpDb.delete(mp.id).catch(function () {});
+    if (ROOM) gifos.room.leave().catch(function () {});
     $('friend').hidden = true; $('setup').hidden = false; setChip('ready', 'Ready');
   }
   $('fLeave').onclick = mpLeave;
 
-  function mpRefresh() {
-    if (!mp.on) return;
-    var t = nowMs();
-    var people = [], board = null, i, it;
-    for (i = 0; i < _items.length; i++) {
-      it = _items[i];
-      if (!it || !it.id) continue;
-      if (it.id === 'board') { board = it; continue; }
-      if (it.at && t - it.at < PRES_TTL) people.push(it);
-    }
-    if (!people.some(function (p) { return p.id === mp.id; })) {
-      people.push(mp.row || { id: mp.id, name: mp.name, at: t });
-    }
-    mp.people = people;
-    mp.board = board;
-    if (mp.row) {
-      for (i = 0; i < people.length; i++) if (people[i].id === mp.id) mp.row = people[i];
-    }
-    if (!board) {
-      if (isHost(people)) putBoard(freshBoard(mp.id));
-      mpRender();
-      return;
-    }
-    if (isHost(people)) {
-      var next = mpReconcile(board, people);
-      if (next) { putBoard(next); return; }
-    }
-    // drop a spent intent from MY row only
-    if (mp.row && mp.row.intent && board.seq !== mp.row.intent.seq) {
-      putMe({ intent: null });
-    }
-    mpRender();
+  function mpSend(prev, nb) {
+    mp.board = nb; mpRender();
+    gifos.room.move('gomoku-mp', nb).catch(function (e) { mp.board = prev; mpSay(e); });
   }
-
-  function mpReconcile(B, people) {
-    var b = JSON.parse(JSON.stringify(B));
-    var ch = false;
-    var ids = {};
-    people.forEach(function (p) {
-      ids[p.id] = p;
-      if (b.names[p.id] !== p.name) { b.names[p.id] = p.name; ch = true; }
-    });
-    ['black', 'white'].forEach(function (s) {
-      if (b.seats[s] && !ids[b.seats[s]]) { b.seats[s] = null; ch = true; }
-    });
-    if ((!b.seats.black || !b.seats.white) && b.stones.length && !b.winner) {
-      b.winner = b.seats.black ? 'black' : (b.seats.white ? 'white' : 'draw');
-      b.result = 'Opponent left';
-      b.endedAt = nowMs();
-      ch = true;
-    }
-    var seated = {};
-    seated[b.seats.black] = 1; seated[b.seats.white] = 1;
-    var queue = people.map(function (p) { return p.id; }).filter(function (id) { return !seated[id]; });
-    queue.sort();
-    if (!b.seats.black && queue.length) { b.seats.black = queue.shift(); ch = true; }
-    if (!b.seats.white && queue.length) { b.seats.white = queue.shift(); ch = true; }
-    if (b.winner && b.endedAt && nowMs() - b.endedAt > END_HOLD) {
-      b.stones = []; b.turn = 'black'; b.winner = null; b.result = ''; b.last = null;
-      b.seq = (b.seq || 0) + 1; b.undoAsk = null; b.endedAt = 0; b.startedAt = nowMs();
-      ch = true;
-    }
-    people.forEach(function (p) {
-      var intent = p.intent;
-      if (!intent || intent.seq !== b.seq) return;
-      var seat = b.seats.black === p.id ? 'black' : (b.seats.white === p.id ? 'white' : null);
-      if (intent.kind === 'place') {
-        if (!seat || b.winner || b.turn !== seat) return;
-        if (typeof intent.r !== 'number' || typeof intent.c !== 'number') return;
-        var s = boardToState(b);
-        var ns = G.place(s, intent.r, intent.c);
-        if (!ns) return;
-        b.stones = b.stones.concat([{ r: intent.r, c: intent.c, color: seat }]);
-        b.last = { r: intent.r, c: intent.c };
-        b.seq = (b.seq || 0) + 1;
-        b.undoAsk = null;
-        if (ns.winner === -1) { b.winner = 'draw'; b.result = 'Draw'; b.endedAt = nowMs(); }
-        else if (ns.winner) { b.winner = G.colorName(ns.winner); b.result = 'Five in a row'; b.endedAt = nowMs(); }
-        else b.turn = G.colorName(ns.turn);
-        ch = true;
-      } else if (intent.kind === 'undo') {
-        if (!seat || !b.stones.length) return;
-        var last = b.stones[b.stones.length - 1];
-        var lastIsMine = last.color === seat;
-        var both = b.undoAsk && b.undoAsk.id && b.undoAsk.id !== p.id && b.undoAsk.seq === b.seq;
-        if (lastIsMine || both) {
-          b.stones = b.stones.slice(0, -1);
-          var rebuilt = boardToState(b);
-          b.last = rebuilt.last ? { r: rebuilt.last.r, c: rebuilt.last.c } : null;
-          b.winner = null; b.result = ''; b.endedAt = 0;
-          b.turn = G.colorName(rebuilt.turn) || 'black';
-          b.seq = (b.seq || 0) + 1;
-          b.undoAsk = null;
-          ch = true;
-        } else if (!b.undoAsk || b.undoAsk.id !== p.id) {
-          b.undoAsk = { id: p.id, seq: b.seq };
-          ch = true;
-        }
-      } else if (intent.kind === 'resign') {
-        if (!seat || b.winner) return;
-        b.winner = seat === 'black' ? 'white' : 'black';
-        b.result = 'Resigned';
-        b.endedAt = nowMs();
-        b.seq = (b.seq || 0) + 1;
-        ch = true;
-      }
-    });
-    if (b.host !== mp.id) { b.host = mp.id; ch = true; }
-    return ch ? b : null;
-  }
-
+  // The refusal note stays until the next room state, board change or tap.
   function mpPlay(r, c) {
-    var b = mp.board, seat = mySeat(b);
-    if (!b || !seat || b.winner || b.turn !== seat) return false;
-    var s = boardToState(b);
-    if (!G.place(s, r, c)) return false;
-    putMe({ intent: { kind: 'place', r: r, c: c, seq: b.seq } });
+    mp.note = '';
+    if (!mpCanPlay()) return false;
+    var prev = mp.board, b = curBoard();
+    var ns = G.place(boardToState(b), r, c);
+    if (!ns) return false;
+    var nb = {
+      id: 'board', stones: (b.stones || []).concat([{ r: r, c: c, color: mp.rs.turn }]), winner: null, result: '',
+      last: { r: r, c: c }, seq: (b.seq || 0) + 1
+    };
+    if (ns.winner === -1) { nb.winner = 'draw'; nb.result = 'Draw'; }
+    else if (ns.winner) { nb.winner = G.colorName(ns.winner); nb.result = 'Five in a row'; }
+    mpSend(prev, nb);
     return true;
   }
-  $('fUndo').onclick = function () {
-    var b = mp.board, seat = mySeat(b);
-    if (!b || !seat || !b.stones.length) return;
-    putMe({ intent: { kind: 'undo', seq: b.seq } });
-  };
   $('fResign').onclick = function () {
-    var b = mp.board, seat = mySeat(b);
-    if (!b || !seat || b.winner) return;
-    putMe({ intent: { kind: 'resign', seq: b.seq } });
+    if (!mpCanPlay() || !(curBoard().stones || []).length) return;
+    var prev = mp.board, b = curBoard();
+    mpSend(prev, {
+      id: 'board', stones: b.stones, winner: mp.rs.turn === 'black' ? 'white' : 'black', result: 'Resigned',
+      last: null, seq: (b.seq || 0) + 1
+    });
+  };
+  // A finished game: anyone seated may start the next one (black goes first).
+  $('fNew').onclick = function () {
+    if (!ROOM || !mySeat() || !curBoard().winner) return;
+    gifos.room.newRound('gomoku-mp', freshBoard(), { first: 'black' }).catch(mpSay);
   };
 
+  function seatHtml(name) {
+    var row = seatRow(name), b = curBoard();
+    var who = row.id ? esc(row.name || 'Player') + (row.here === 'away' ? ' …' : '') : '<span class="open">open</span>';
+    return '<div class="seat' + (mySeat() === name ? ' me' : '') + (mp.rs && mp.rs.turn === name && !b.winner ? ' turn' : '') +
+      (b.winner === name ? ' win' : '') + '"><i class="stone ' + name + '" aria-hidden="true"></i> ' + who + '</div>';
+  }
+  function mpStatus(b) {
+    var rs = mp.rs;
+    if (!ROOM) return [NEEDS_NEWER, 'warn'];
+    if (!rs) return ['Setting up the board…', ''];
+    var role = rs.me.role;
+    if (b.winner === 'draw') return [(b.result || 'Draw') + '.', ''];
+    if (b.winner) {
+      var w = seatRow(b.winner);
+      return [(b.result ? b.result + ' — ' : '') + (w.id && w.name ? w.name : b.winner) + ' wins.', mySeat() === b.winner ? 'good' : ''];
+    }
+    if (role === 'waiting') return ['Waiting for a seat to open…', ''];
+    if (role === 'asking') return ['Asking the host if you can play…', ''];
+    if (!mySeat()) return ['Watching.', ''];
+    if (mpCanPlay()) return [rs.live ? 'Your turn (' + mySeat() + ').' : rs.turn.charAt(0).toUpperCase() + rs.turn.slice(1) + ' to play.', ''];
+    var t = seatRow(rs.turn);
+    if (t.here === 'away') return ['Waiting for ' + (t.name || rs.turn) + ' to come back…', ''];
+    if (!t.id) return ['Waiting for another player… press Invite (top bar) to bring a friend.', ''];
+    return ['Waiting for ' + (t.name || rs.turn) + '…', ''];
+  }
+  function mpPaint(s, can) {
+    var hover = can && mp.hover ? { r: mp.hover.r, c: mp.hover.c, color: G.colorNum(mp.rs.turn) } : null;
+    paint($('fBoard'), s, { hover: hover });
+    if (s.winLine) startPulse();
+  }
+  // The intersections are real buttons over the canvas: reachable by keyboard and screen readers.
+  function layoutCells() {
+    var canvas = $('fBoard'), wrap = $('fCells');
+    var W = canvas.getBoundingClientRect().width;
+    if (!W) return;
+    var g = geom(W), r, c, btn;
+    for (r = 0; r < G.N; r++) for (c = 0; c < G.N; c++) {
+      btn = wrap.children[r * G.N + c];
+      btn.style.left = (g.pad + c * g.step - g.step / 2) + 'px';
+      btn.style.top = (g.pad + r * g.step - g.step / 2) + 'px';
+      btn.style.width = btn.style.height = g.step + 'px';
+    }
+  }
   function mpRender() {
     if (!mp.on) return;
-    var b = mp.board, status = $('fStatus');
-    if (!b) { $('fSeats').innerHTML = ''; status.textContent = 'Setting up the board…'; return; }
+    var b = curBoard(), rs = mp.rs;
     var s = boardToState(b);
-    var seat = mySeat(b);
-    var nameOf = function (id) { return id ? esc(b.names[id] || 'Player') : '<span class="open">open</span>'; };
-    var blackWin = b.winner === 'black', whiteWin = b.winner === 'white';
-    $('fSeats').innerHTML =
-      '<div class="seat' + (seat === 'black' ? ' me' : '') + (b.turn === 'black' && !b.winner ? ' turn' : '') + (blackWin ? ' win' : '') + '"><i class="stone black" aria-hidden="true"></i> ' + nameOf(b.seats.black) + '</div>' +
-      '<div class="seat' + (seat === 'white' ? ' me' : '') + (b.turn === 'white' && !b.winner ? ' turn' : '') + (whiteWin ? ' win' : '') + '"><i class="stone white" aria-hidden="true"></i> ' + nameOf(b.seats.white) + '</div>';
-    var waiting = mp.people.filter(function (p) { return p.id !== b.seats.black && p.id !== b.seats.white; });
-    $('fQueue').textContent = waiting.length ? ('Watching: ' + waiting.map(function (p) { return p.name || 'Player'; }).join(', ')) : '';
-    var both = b.seats.black && b.seats.white;
-    if (!both) {
-      status.innerHTML = 'Waiting for another player… press <b>Invite</b> (top bar) to bring a friend.';
-    } else if (b.winner) {
-      var wname = b.winner === 'draw' ? '' : nameOf(b.winner === 'black' ? b.seats.black : b.seats.white);
-      status.innerHTML = b.winner === 'draw' ? (esc(b.result || 'Draw') + ' — next game starting…') : ((esc(b.result || 'Five in a row') + ' — ') + wname + ' wins. Next game starting…');
-    } else if (!seat) {
-      status.textContent = 'Spectating.';
-    } else if (b.turn === seat) {
-      status.textContent = 'Your turn (' + seat + ').';
-    } else {
-      status.textContent = 'Waiting for ' + (b.turn === 'black' ? 'black' : 'white') + '…';
+    $('fSeats').innerHTML = seatHtml('black') + seatHtml('white');
+    $('fQueue').textContent = rs && rs.line && rs.line.length
+      ? 'Next in line: ' + rs.line.map(function (p) { return p.name || 'Player'; }).join(', ')
+      : '';
+    var st = mpStatus(b);
+    setStatus($('fStatus'), mp.note && ROOM ? mp.note : st[0], st[1]);
+    var can = mpCanPlay();
+    mpPaint(s, can);
+    layoutCells();
+    var wrap = $('fCells'), r, c;
+    for (r = 0; r < G.N; r++) for (c = 0; c < G.N; c++) {
+      var off = !can || G.at(s, r, c) !== G.EMPTY;
+      wrap.children[r * G.N + c].disabled = off;
+      wrap.children[r * G.N + c].setAttribute('aria-disabled', off ? 'true' : 'false');
     }
-    if (b.undoAsk && !b.winner && seat && b.undoAsk.id !== mp.id) {
-      status.textContent = (b.names[b.undoAsk.id] || 'The other player') + ' wants to take back a stone. Press Undo if you agree.';
-    }
-    paint($('fBoard'), s, {
-      hover: (seat && b.turn === seat && !b.winner && mp.hover) ? { r: mp.hover.r, c: mp.hover.c, color: G.colorNum(seat) } : null
-    });
-    if (s.winLine) startPulse();
-    $('fUndo').hidden = !(seat && b.stones.length && !b.winner);
-    $('fResign').hidden = !(seat && b.stones.length && !b.winner);
+    $('fResign').hidden = !(can && (b.stones || []).length);
+    $('fNew').hidden = !(ROOM && mySeat() && b.winner);
   }
 
-  (function bindFriendBoard() {
-    var canvas = $('fBoard');
-    canvas.addEventListener('click', function (e) {
-      var cell = hitCell(canvas, e); if (!cell) return;
-      mpPlay(cell.r, cell.c);
-    });
-    canvas.addEventListener('mousemove', function (e) {
-      mp.hover = hitCell(canvas, e);
-      var b = mp.board; if (!b) return;
-      var seat = mySeat(b);
-      paint(canvas, boardToState(b), {
-        hover: (seat && b.turn === seat && !b.winner && mp.hover) ? { r: mp.hover.r, c: mp.hover.c, color: G.colorNum(seat) } : null
-      });
-    });
-    canvas.addEventListener('mouseleave', function () { mp.hover = null; if (mp.board) paint(canvas, boardToState(mp.board)); });
+  (function buildCells() {
+    var wrap = $('fCells'), r, c, btn;
+    function mk(r, c) {
+      btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'cellbtn'; btn.disabled = true;
+      btn.setAttribute('aria-label', 'Row ' + (r + 1) + ', column ' + (c + 1));
+      btn.addEventListener('click', function () { mpPlay(r, c); });
+      btn.addEventListener('pointerenter', function () { mp.hover = { r: r, c: c }; mpPaint(boardToState(curBoard()), mpCanPlay()); });
+      btn.addEventListener('pointerleave', function () { mp.hover = null; mpPaint(boardToState(curBoard()), mpCanPlay()); });
+      return btn;
+    }
+    for (r = 0; r < G.N; r++) for (c = 0; c < G.N; c++) wrap.appendChild(mk(r, c));
   })();
+
+  // The game only, so the checks and a tester can compare copies.
+  window['__gomoku'] = { state: function () {
+    var b = mp.board;
+    return { stones: b && b.stones ? b.stones.map(function (m) { return m.r + ',' + m.c; }).join(';') : '', winner: b ? b.winner : null };
+  } };
 
   window.addEventListener('resize', function () {
     if (!$('game').hidden && state.s) paint($('board'), state.s);
-    if (!$('friend').hidden && mp.board) paint($('fBoard'), boardToState(mp.board));
+    if (!$('friend').hidden && mp.board) { paint($('fBoard'), boardToState(mp.board)); layoutCells(); }
   });
 
   if (window.gifos && gifos.onBack) gifos.onBack(function () {
@@ -751,10 +668,25 @@
     else if (!$('game').hidden) { killAi(); $('game').hidden = true; $('setup').hidden = false; setChip('ready', 'Ready'); }
   });
 
+  // The board arrives as data; the room's word arrives from gifos.room.
+  if (mpDb) mpDb.subscribe(function (items) {
+    var b = null, i;
+    for (i = 0; i < (items || []).length; i++) if (items[i] && items[i].id === 'board') b = items[i];
+    mp.board = b;
+    mp.note = '';
+    mpRender();
+  });
+  if (ROOM) gifos.room.subscribe(function (s) {
+    mp.rs = s; mp.note = '';
+    // Somebody else is here: the room is what they see, without a mode tap. Not over a local game in progress.
+    if (!mp.on && !mp.auto && s.live && !$('setup').hidden && !(state.s && !state.over)) { mp.auto = true; mpEnter(); return; }
+    mpRender();
+  });
   setChip('ready', 'Ready');
+  if (!ROOM) { $('needsNewer').hidden = false; $('needsNewer').textContent = NEEDS_NEWER; }
   if (db) {
     db.get('game').then(function (g) {
-      if (!g || !g.stones || !g.stones.length || g.over) return;
+      if (mp.on || !g || !g.stones || !g.stones.length || g.over) return;
       state.mode = g.mode || 'cpu';
       state.color = g.color || 'black';
       state.level = g.level || 'medium';

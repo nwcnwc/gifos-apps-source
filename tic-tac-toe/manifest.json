@@ -3,8 +3,8 @@
   "appId": "tic-tac-toe",
   "name": "Tic-Tac-Toe",
   "shortName": "TicTacToe",
-  "version": "1.0",
-  "minBuild": 947,
+  "version": "1.1",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [232, 208, 148],
   "capabilities": {
@@ -14,5 +14,6 @@
   "data": {
     "ttt": { "visibility": "private" },
     "ttt-mp": { "visibility": "read-write" }
-  }
+  },
+  "room": { "seats": ["x", "o"], "turns": "order", "moves": ["ttt-mp"], "solo": true }
 }
