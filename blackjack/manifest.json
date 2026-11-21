@@ -3,17 +3,32 @@
   "appId": "blackjack",
   "name": "Blackjack",
   "shortName": "Blackjack",
-  "version": "1.1.0",
-  "minBuild": 947,
-  "description": "Beat the dealer to 21. The file holds your pile. Invite is extra seats.",
+  "version": "1.2.0",
+  "minBuild": 5861,
+  "description": "Beat the dealer to 21. The file holds your pile. Seats come with the invite.",
   "entry": "index.html",
-  "accent": [26, 122, 58],
+  "accent": [
+    26,
+    122,
+    58
+  ],
   "capabilities": {
     "db": true,
     "multiplayer": true
   },
   "data": {
-    "save": { "visibility": "private" },
-    "room": { "visibility": "read-write" }
+    "save": {
+      "visibility": "private"
+    },
+    "room": {
+      "visibility": "read-write"
+    }
+  },
+  "room": {
+    "seats": 6,
+    "min": 1,
+    "turns": "free",
+    "moves": [],
+    "solo": true
   }
 }

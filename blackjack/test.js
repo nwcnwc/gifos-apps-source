@@ -206,20 +206,8 @@ check('a refill is 200 chips', BJ.REFILL === 200 && BJ.START === 200 && BJ.STAKE
   check('guest 15 vs 19 loses 10', BJ.netFor(tab, 'guest') === -10);
 }
 
-// Invite seating helpers: live seats, host is first joined, stale seats drop.
-{
-  const now = 1e12;
-  const items = [
-    { kind: 'seat', id: 'a', at: now, joined: 10, name: 'Ann' },
-    { kind: 'seat', id: 'b', at: now, joined: 20, name: 'Bob' },
-    { kind: 'seat', id: 'c', at: now - 20000, joined: 1, name: 'Stale' },
-    { kind: 'table', id: 'table', phase: 'play' },
-  ];
-  const live = BJ.liveSeats(items, now, BJ.PRES_TTL);
-  check('a seat older than 12s is not at the table', live.length === 2 && live[0].id === 'a', live.map(function (p) { return p.id; }));
-  check('the host is the first person who sat', BJ.hostId(live) === 'a');
-  check('an empty room falls back to the owner', BJ.hostId([], 'owner') === 'owner');
-}
+// The room owns who sits; the rules module no longer carries presence helpers.
+check('no presence helpers left in the rules module', !BJ.liveSeats && !BJ.hostId && !BJ.PRES_TTL);
 
 // applyDeltas never pays cash below zero.
 check('a broke pile cannot go negative', BJ.applyDeltas(5, [-10]) === 0);
@@ -441,6 +429,22 @@ function makeRoom() {
   };
 }
 const clock = { t: 1700000000000 };
+// A fake gifos.room shared by every copy: join seats a person (up to 6), every copy gets the state.
+function makeRt() {
+  const rt = { people: [], seated: [], subs: [] };
+  rt.view = (id) => {
+    const mine = rt.seated.find((p) => p.id === id);
+    return {
+      on: true, live: rt.people.length > 1,
+      me: { id, name: (rt.people.find((p) => p.id === id) || {}).name || '', seat: mine ? String(rt.seated.indexOf(mine) + 1) : null, role: mine ? 'player' : 'watcher' },
+      seats: Array.from({ length: 6 }, (_, i) => rt.seated[i] ? { seat: String(i + 1), id: rt.seated[i].id, name: rt.seated[i].name, here: rt.seated[i].gone ? 'away' : 'here' } : { seat: String(i + 1), id: null, name: '', here: 'open' }),
+      turn: null, myTurn: true, round: 1, ready: true, line: [], asks: [], people: [],
+    };
+  };
+  rt.push = () => { for (const x of rt.subs) x.f(rt.view(x.id)); };
+  rt.add = (id, name) => { if (!rt.people.some((p) => p.id === id)) rt.people.push({ id, name }); };
+  return rt;
+}
 function bootApp(opts) {
   opts = opts || {};
   const doc = miniDom(read('index.html'));
@@ -452,8 +456,12 @@ function bootApp(opts) {
     Date: { now: () => clock.t }, document: doc,
     setInterval: (f) => { beats.push(f); return beats.length; }, clearInterval() {}, setTimeout: (f) => { f(); return 0; },
     gifos: {
-      info: () => Promise.resolve({ owner: opts.owner !== false }),
-      me: () => Promise.resolve({ id: opts.id || 'host', name: opts.name || 'Player One' }),
+      info: () => Promise.resolve({ owner: opts.ownerRef ? opts.ownerRef.v : opts.owner !== false }),
+      room: opts.rt ? {
+        subscribe: (f) => { opts.rt.add(opts.id || 'host', opts.name || 'Player One'); opts.rt.subs.push({ id: opts.id || 'host', f }); Promise.resolve().then(() => f(opts.rt.view(opts.id || 'host'))); },
+        join: () => { const id = opts.id || 'host'; if (!opts.rt.seated.some((p) => p.id === id) && opts.rt.seated.length < 6) opts.rt.seated.push({ id, name: opts.name || 'Player One' }); Promise.resolve().then(() => opts.rt.push()); return Promise.resolve({ ok: true }); },
+        move: () => Promise.reject(new Error('blackjack has no moves collection')), newRound: () => Promise.reject(new Error('no rounds')),
+      } : undefined,
       db: (name) => name === 'save' ? { get: (id) => Promise.resolve(saved.get(id) || null), put: (r) => { puts.push(JSON.parse(JSON.stringify(r))); saved.set(r.id, r); return Promise.resolve(); } }
         : (opts.room ? opts.room.adapter() : null),
     },
@@ -487,7 +495,7 @@ const appRuns = (async () => {
   {
     // a hand that can double (two cards, not 21, dealer no blackjack)
     const seed = seedFor((t, B) => t.phase === 'play' && B.canDouble(t, 'host', 200) && !B.canSplit(t, 'host', 200) && B.total(t.hands[0].cards) <= 11);
-    const A = bootApp({ seed, solo: true });
+    const A = bootApp({ seed, rt: makeRt(), id: 'host' });
     await settle();
     check('at rest only Deal shows', A.shown('deal') && !['hit', 'stand', 'double', 'split', 'refill'].some(A.shown));
     A.$('deal').click();
@@ -506,13 +514,13 @@ const appRuns = (async () => {
   }
   {
     const seed = seedFor((t, B) => t.phase === 'play' && B.canDouble(t, 'host', 200) && !B.canSplit(t, 'host', 200));
-    const A = bootApp({ seed, solo: true });
+    const A = bootApp({ seed, rt: makeRt(), id: 'host' });
     await settle();
     A.$('deal').click();
     A.key('d');
     check('the D key doubles: one more card and the hand is over', A.myCards() === 3 && A.shown('deal'));
     const seedP = seedFor((t, B) => t.phase === 'play' && B.canSplit(t, 'host', 200));
-    const P = bootApp({ seed: seedP, solo: true });
+    const P = bootApp({ seed: seedP, rt: makeRt(), id: 'host' });
     await settle();
     P.$('deal').click();
     check('a pair offers Split', P.shown('split'), seedP);
@@ -520,7 +528,7 @@ const appRuns = (async () => {
     check('…and Split makes two hands', P.hands() === 2);
   }
   {
-    const A = bootApp({ solo: true, saved: { last: { id: 'last', chips: 5 } } });
+    const A = bootApp({ rt: makeRt(), id: 'host', saved: { last: { id: 'last', chips: 5 } } });
     await settle();
     check('an old save (just a chips number) loads', A.chips() === 5);
     check('a broke pile cannot deal: Deal hides, Restock shows', !A.shown('deal') && A.shown('refill'));
@@ -529,23 +537,16 @@ const appRuns = (async () => {
     check('Restock adds REFILL chips, saves them, and Deal returns', A.chips() === 5 + A.BJ.REFILL && last && last.chips === 5 + A.BJ.REFILL && A.shown('deal') && !A.shown('refill'));
   }
   {
-    // Two seats on one room: the host joined first. The scenario is played as
-    // the app plays it; the host's shuffle seed is the first one that leaves
-    // the guest a hand to play and a result that moves chips (so a settle that
-    // never happens, or happens twice, shows).
-    async function twoSeat(hostSeed) {
+    // Two people on one room: the owner is the dealer. The scenario is played as the app plays it; the
+    // owner's shuffle seed is the first one that leaves the guest a hand to play and a result that moves chips.
+    async function twoSeat(hostSeed, handoff) {
       const r = {};
-      const room = makeRoom();
-      clock.t = 1700000000000;
-      const H = bootApp({ room, id: 'host', name: 'Host Person', seed: hostSeed });
-      await settle();
-      clock.t += 1000;
-      const G = bootApp({ room, id: 'guest', name: 'Guest Person', owner: false, seed: 99 });
-      await settle();
-      r.hostJoined = room.items.get('host').joined;
-      for (let k = 0; k < 4; k++) { clock.t += 3000; H.beats[0](); G.beats[0](); await settle(); }
-      r.hostJoinedAfter = room.items.get('host').joined; r.guestJoined = room.items.get('guest').joined;
+      const rt = makeRt(), room = makeRoom(), ownerRef = { v: true }, gOwner = { v: false };
+      const H = bootApp({ room, rt, id: 'host', name: 'Host Person', seed: hostSeed, ownerRef });
+      const G = bootApp({ room, rt, id: 'guest', name: 'Guest Person', ownerRef: gOwner, seed: 99 });
+      await settle(12);
       r.dealShown = { guest: G.shown('deal'), host: H.shown('deal') };
+      r.putsBefore = room.puts.length;
       H.$('deal').click();
       await settle();
       r.pub = room.items.get('table');
@@ -555,34 +556,54 @@ const appRuns = (async () => {
         r.n0 = gHand().cards.length;
         G.$('hit').click();
         await settle();
-        r.seat = room.items.get('guest');
+        r.act = room.items.get('guest');
         r.n1 = gHand().cards.length;
-        for (let k = 0; k < 3; k++) { clock.t += 3000; G.beats[0](); H.beats[0](); await settle(); }
+        await settle(12);
         r.n2 = gHand().cards.length;
+        r.seen = room.items.get('table').seen;
+        if (handoff) {
+          // the app is handed to the guest mid-hand: it carries the public table on and the old action is not applied twice
+          ownerRef.v = false; gOwner.v = true; rt.push(); await settle(12);
+          r.n3 = gHand().cards.length;
+        }
         if (!gHand().stood && !gHand().bust) { G.$('stand').click(); await settle(); }
       }
       if (room.items.get('table').phase === 'play') { H.$('stand').click(); await settle(); }
+      if (room.items.get('table').phase === 'play') { await settle(); }
       r.done = room.items.get('table');
       r.net = H.BJ.netFor(r.done, 'guest');
       r.want = H.BJ.applyDeltas(200, [r.net]);
       r.chips = G.chips();
-      for (let k = 0; k < 3; k++) { clock.t += 3000; H.beats[0](); G.beats[0](); await settle(); }
+      await settle(12);
       r.chipsAfter = G.chips();
       r.runaway = room.puts.length >= 400;
+      r.dealt = !!room.items.get('table');
       return r;
     }
     let r = null, hostSeed = 0;
     for (let sd = 1; sd < 60 && !r; sd++) { const t = await twoSeat(sd); if (t.playable && t.net !== 0 && t.done.phase === 'done') { r = t; hostSeed = sd; } }
     check('(fixture) a seeded deal leaves the guest a hand to play and a result that moves chips', !!r, hostSeed);
     r = r || await twoSeat(7);
-    check('heartbeats keep each seat\'s joined time (the host does not flip)', r.hostJoinedAfter === r.hostJoined && r.guestJoined > r.hostJoined);
-    check('the guest is not offered Deal; the host is', !r.dealShown.guest && r.dealShown.host);
-    check('the host writes a public table with no shoe in it', !!r.pub && r.pub.phase && Array.isArray(r.pub.hands) && r.pub.hands.length === 2 && !('shoe' in r.pub), r.pub && Object.keys(r.pub));
-    check('a guest action goes out on its seat with a sequence number', !!r.seat && r.seat.action === 'hit' && r.seat.seq === 1);
-    check('the host applies it exactly once, though the seat is re-delivered on every heartbeat', !r.runaway && r.n1 === r.n0 + 1 && r.n2 === r.n1, [r.n0, r.n1, r.n2, r.runaway]);
+    check('nothing is written until somebody acts (no seat rows, no heartbeat)', r.putsBefore === 0, r.putsBefore);
+    check('the guest is not offered Deal; the owner is', !r.dealShown.guest && r.dealShown.host);
+    check('the owner writes a public table with no shoe in it', !!r.pub && r.pub.phase && Array.isArray(r.pub.hands) && r.pub.hands.length === 2 && !('shoe' in r.pub), r.pub && Object.keys(r.pub));
+    check('a guest action goes out on its own row (its room id) with a sequence number and the hand it is for', !!r.act && r.act.action === 'hit' && r.act.seq === 1 && r.act.hand === r.pub.handId, r.act);
+    check('the owner applies it exactly once, though the row is re-delivered', !r.runaway && r.n1 === r.n0 + 1 && r.n2 === r.n1 && r.seen.guest === 1, [r.n0, r.n1, r.n2, r.runaway, r.seen]);
     check('the hand finishes on the shared table', r.done.phase === 'done');
     check('the guest settles its own pile from the public table', r.chips === r.want && r.chips !== 200, { chips: r.chips, net: r.net });
     check('…once: re-delivered tables do not pay it again', r.chipsAfter === r.chips);
+    const ho = await twoSeat(hostSeed, true);
+    check('after the app is handed on mid-hand the new owner does not replay the old action', ho.n3 === ho.n2, [ho.n2, ho.n3]);
+    check('…and the new owner finishes the hand', ho.done.phase === 'done');
+  }
+  {
+    // an old page (no gifos.room): one plain line, solo still deals, nothing shared is written
+    const room = makeRoom();
+    const O = bootApp({ room, id: 'host' });
+    await settle();
+    check('an old page says it needs a newer GifOS', /newer GifOS/i.test(O.$('who').textContent) && !O.$('who').hidden);
+    O.$('deal').click(); await settle();
+    check('…solo still deals, and writes nothing to the room', O.myCards() === 2 && room.puts.length === 0);
   }
   const css = parseCss(read('style.css'));
   const px = (v) => parseFloat(v) || 0;
@@ -598,7 +619,7 @@ const appRuns = (async () => {
   const manifest = JSON.parse(read('manifest.json'));
   check('listing tagline fits a card', listing.tagline.length <= 80);
   check('author is hanhaechi, not GifOS', listing.author.name === 'hanhaechi' && listing.porter.name === 'GifOS');
-  check('minBuild stays 947', manifest.minBuild === 947);
+  check('minBuild is the room build and the manifest declares the room', manifest.minBuild >= 5861 && manifest.room && manifest.room.turns === 'free' && manifest.room.seats === 6);
   check('save is private, room is read-write',
     manifest.data.save.visibility === 'private' && manifest.data.room.visibility === 'read-write');
   const rawCss = read('style.css').replace(/\/\*[\s\S]*?\*\//g, '');

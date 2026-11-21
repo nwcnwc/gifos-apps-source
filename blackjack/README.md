@@ -22,7 +22,7 @@ vendor/UPSTREAM.txt
 | `db` | Chips (`save`, private) and the table (`room`, read-write). |
 | `multiplayer` | Extra seats. Invite is OS chrome. |
 
-No `wasm`. No `network`. `minBuild` is **947**.
+No `wasm`. No `network`. `minBuild` is **5861** (gifos.room).
 
 ## Building
 

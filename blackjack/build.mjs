@@ -55,7 +55,7 @@ for (const s of SCRIPTS) if (!html.includes('src="' + s + '"')) throw new Error(
 if (/type=["']module["']/.test(html)) throw new Error('module');
 if (/https?:\/\//i.test(html.replace(/<!--[\s\S]*?-->/g, ''))) throw new Error('url');
 if (/>\s*Invite\s*</.test(html) || /id=["']invite/i.test(html)) throw new Error('Invite');
-if (manifest.minBuild !== 947) throw new Error('minBuild');
+if (!(manifest.minBuild >= 5861)) throw new Error('minBuild');
 if (!manifest.capabilities.db || !manifest.capabilities.multiplayer) throw new Error('caps');
 if (manifest.capabilities.network) throw new Error('network');
 if (manifest.data.save.visibility !== 'private' || manifest.data.room.visibility !== 'read-write') {
@@ -70,7 +70,9 @@ for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage',
 }
 if (!files['COPYING-blackjack.txt'].includes('Modesta Naciute')) throw new Error('COPYING');
 if (!files['app.js'].includes("db('save')") || !files['app.js'].includes("db('room')")) throw new Error('db');
-if (!files['app.js'].includes('Invite')) throw new Error('Invite copy');
+if (!manifest.room || manifest.room.turns !== 'free' || !manifest.room.seats) throw new Error('room block');
+if (!files['app.js'].includes('gifos.room.subscribe') || !files['app.js'].includes('needsNewer')) throw new Error('gifos.room');
+if (/putSeat|setInterval|HB_MS|liveSeats|hostId/.test(files['app.js'] + files['bj.js'])) throw new Error('old presence relay');
 if (/ce-sample-api|herokuapp|\$\.ajax/i.test(files['app.js'])) throw new Error('server must stay behind');
 
 for (const [n, s] of Object.entries(files)) {
