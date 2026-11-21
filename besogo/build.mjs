@@ -95,14 +95,18 @@ if (manifest.capabilities.wasm) {
 if (manifest.capabilities.network) {
   throw new Error('besogo has no network path');
 }
-if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947');
+// 5861 = the first GifOS with gifos.room (0.9.27): seats, turns and hand-off are the OS's.
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild < 5861) {
+  throw new Error('minBuild must be at least 5861 (gifos.room)');
 }
 if (!manifest.data || !manifest.data.save || manifest.data.save.visibility !== 'private') {
   throw new Error('manifest.data.save must be private');
 }
-if (!manifest.data.room || manifest.data.room.visibility !== 'read-write') {
-  throw new Error('manifest.data.room must be read-write — the shared board has to sync');
+if (!manifest.data.board || manifest.data.board.visibility !== 'read-write') {
+  throw new Error('manifest.data.board must be read-write — the shared board has to sync');
+}
+if (!manifest.room || !Array.isArray(manifest.room.seats) || manifest.room.seats.length !== 2 || (manifest.room.moves || []).indexOf('board') < 0) {
+  throw new Error('manifest.room must declare the two seats and the board as its moves (gifos.room)');
 }
 for (const [n, s] of Object.entries(files)) {
   if (!n.endsWith('.js')) continue;

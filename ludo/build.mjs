@@ -57,8 +57,11 @@ if (/type=["']module["']/.test(html)) throw new Error('no type=module');
 if (/>\s*Invite\s*</.test(html) || /id=["']invite/i.test(html)) throw new Error('Invite is OS chrome');
 if (!files['app.js'].includes('Invite')) throw new Error('tell the player to press Invite');
 if (!files['app.js'].includes("db('save')")) throw new Error('save');
-if (!files['app.js'].includes('putMe') || !files['rules.js'].includes('seatPeople')) {
-  throw new Error('guests must publish presence; host assigns seats');
+if (!files['app.js'].includes('gifos.room.move') || /putMe|seatPeople/.test(files['app.js'] + files['rules.js'])) {
+  throw new Error('seats come from gifos.room and moves go through gifos.room.move; no presence rows, no app-side seating');
+}
+if (!manifest.room || manifest.room.seats.join() !== 'Red,Green,Yellow,Blue' || (manifest.room.moves || []).indexOf('game') < 0) {
+  throw new Error('manifest.room must declare the four colours and the game as its moves');
 }
 if (!files['app.js'].includes('onBack')) throw new Error('onBack');
 if (!files['style.css'].includes('nth-child')) throw new Error('destack tokens on a square');
@@ -75,7 +78,7 @@ const listingBlob = JSON.stringify(listing);
 for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage', 'WebRTC', 'React']) {
   if (listingBlob.includes(bad)) throw new Error('listing ' + bad);
 }
-if (manifest.minBuild !== 947) throw new Error('minBuild');
+if (!(manifest.minBuild >= 5861)) throw new Error('minBuild must be at least 5861 (gifos.room)');
 if (manifest.appId !== 'ludo') throw new Error('appId');
 if (!manifest.capabilities.db || !manifest.capabilities.multiplayer) throw new Error('caps');
 if (manifest.capabilities.network || manifest.capabilities.wasm) throw new Error('no net/wasm');
@@ -96,11 +99,6 @@ for (const [n, s] of Object.entries(files)) {
   ctx.window = ctx;
   vm.runInNewContext(files['rules.js'] + '\n' +
     'result = (function () {\n' +
-    '  if (typeof LUDO.seatPeople !== "function") throw new Error("seatPeople");\n' +
-    '  var seats = LUDO.seatPeople([null,null,null,null], ["a","b","c"]);\n' +
-    '  if (seats[0] !== "a" || seats[1] !== "b" || seats[2] !== "c" || seats[3] !== null) throw new Error("seats " + seats);\n' +
-    '  var two = LUDO.seatPeople(["a",null,null,null], ["a","x"]);\n' +
-    '  if (two[0] !== "a" || two[1] !== "x") throw new Error("guest stole red");\n' +
     '  if (LUDO.LOOP.length !== 52) throw new Error("loop " + LUDO.LOOP.length);\n' +
     '  var s = LUDO.fresh(4);\n' +
     '  if (LUDO.moves(Object.assign(LUDO.clone(s), {die:1, rolled:true, turn:0})).length) throw new Error("1 leaves yard");\n' +

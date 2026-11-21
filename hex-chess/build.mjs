@@ -78,14 +78,18 @@ if (manifest.capabilities.network) {
 if (manifest.capabilities.pointer) {
   throw new Error('hex-chess does not need pointer lock');
 }
-if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947');
+// 5861 = the first GifOS with gifos.room (0.9.27): seats, turns and hand-off are the OS's.
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild < 5861) {
+  throw new Error('minBuild must be at least 5861 (gifos.room)');
 }
 if (!manifest.data || !manifest.data.save || manifest.data.save.visibility !== 'private') {
   throw new Error('manifest.data.save must be private');
 }
-if (!manifest.data.room || manifest.data.room.visibility !== 'read-write') {
-  throw new Error('manifest.data.room must be read-write — the shared board has to sync');
+if (!manifest.data.board || manifest.data.board.visibility !== 'read-write') {
+  throw new Error('manifest.data.board must be read-write — the shared board has to sync');
+}
+if (!manifest.room || !Array.isArray(manifest.room.seats) || manifest.room.seats.length !== 2 || (manifest.room.moves || []).indexOf('board') < 0) {
+  throw new Error('manifest.room must declare the two seats and the board as its moves (gifos.room)');
 }
 for (const [n, s] of Object.entries(files)) {
   if (!n.endsWith('.js')) continue;
@@ -104,11 +108,11 @@ if (!html.includes('Play a friend')) throw new Error('index.html is missing Play
 if (/>\s*Invite\s*</.test(html) || /id=["']invite/i.test(html)) {
   throw new Error('Invite is OS chrome — this app must not draw a share button');
 }
-if (!files['app.js'].includes('intent') || !files['app.js'].includes('putMe')) {
-  throw new Error('app.js must publish moves on the player\'s own row');
+if (!files['app.js'].includes('gifos.room.move') || /putMe|PRES_TTL|HB_MS/.test(files['app.js'])) {
+  throw new Error('app.js must move through gifos.room.move and keep no presence rows or heartbeat');
 }
-if (!files['app.js'].includes('putBoard') || !files['app.js'].includes('isHost')) {
-  throw new Error('host applies legal moves to the board row; nobody else writes it');
+if (!files['app.js'].includes('gifos.room.subscribe') || !/newer GifOS/.test(files['app.js'])) {
+  throw new Error('app.js must read seats and turn from gifos.room.subscribe and say plainly when GifOS is too old');
 }
 if (!files['style.css'].includes('touch-action:manipulation')) {
   throw new Error('the board must be touch-action:manipulation');
