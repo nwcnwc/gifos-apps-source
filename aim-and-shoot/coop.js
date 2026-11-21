@@ -39,6 +39,7 @@
   var api = null;
   var me = { id: 'local', name: 'Player' };
   var owner = true;         /* am I the app owner, i.e. the simulator? */
+  var ownerId = '';         /* people() id of the app owner */
   var joined = false;       /* did we get an identity at all? */
   var inputs = {};          /* id -> latest published input row (host side) */
   var lastPlayerList = [];  /* last players subscribe payload (re-filter on people()) */
@@ -77,6 +78,7 @@
       roomPeople = ppl;
       var handed = !owner && !!info.owner && roomRead;
       owner = !!info.owner;
+      if (owner && me.id) ownerId = me.id;
       roomRead = true;
       var mine = null, i;
       for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
@@ -99,7 +101,7 @@
         for (var i = 0; i < (list || []).length; i++) {
           var row = list[i];
           if (!row) continue;
-          if (row.id === 'world') { world = row; worldAt = now(); }
+          if (row.id === 'world') { world = row; worldAt = now(); if (row.hostId) ownerId = row.hostId; }
           else if (row.id === 'host') { beacon = row; beaconAt = now(); }
         }
       });
@@ -186,13 +188,20 @@
     if (!guest()) return null;
     var t = now();
     if (world && t - worldAt < QUIET_MS) return null;
-    // Prefer a recent host beacon if one exists (no age window against another device's clock).
     if (beacon && beaconAt && (t - beaconAt) < QUIET_MS) {
       var who = beacon.name || 'the host';
       return beacon.state === 'over'
         ? 'Waiting for ' + who + ' to start the next run\u2026'
         : 'Waiting for ' + who + ' to start\u2026';
     }
+    var i, rp, ownName = '';
+    if (ownerId) {
+      for (i = 0; i < roomPeople.length; i++) {
+        rp = roomPeople[i];
+        if (rp && rp.id === ownerId && rp.here !== 'gone') { ownName = rp.name || ''; break; }
+      }
+    }
+    if (ownName) return 'Waiting for ' + ownName + ' to start\u2026';
     return world ? 'Waiting for the host\u2026' : 'Joining the arena\u2026';
   }
 
