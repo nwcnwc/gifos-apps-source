@@ -207,7 +207,7 @@ function boot(db, opts) {
   };
   sandbox.globalThis = sandbox;
   sandbox.window = sandbox;
-  sandbox.gifos = { db: () => db };
+  sandbox.gifos = { db: () => db, people: () => Promise.resolve([{ id: 't', name: 'T', me: true, here: 'here' }]) };
   const listeners = {};
   sandbox.addEventListener = (n, fn) => { (listeners[n] = listeners[n] || []).push(fn); };
   sandbox.fire = (n) => (listeners[n] || []).forEach((fn) => fn());
@@ -290,6 +290,13 @@ function bootMp() {
   sandbox.gifos = {
     db: () => ({ put: () => Promise.resolve(), delete: () => Promise.resolve(), subscribe: (fn) => { feed = fn; } }),
     me: () => Promise.resolve({ id: 'aaa', name: 'You' }),
+    info: () => Promise.resolve({ owner: true }),
+    // Room roster: who is here (names come from here, not from score rows).
+    people: () => Promise.resolve([
+      { id: 'aaa', name: 'You', me: true, here: 'here' },
+      { id: 'bbb', name: 'Kim', here: 'here' },
+      { id: 'ccc', name: '', here: 'here' },
+    ]),
   };
   vm.createContext(sandbox);
   vm.runInContext(read('mp.js'), sandbox, { filename: 'mp.js' });
@@ -298,6 +305,7 @@ function bootMp() {
     ready: () => new Promise((r) => setTimeout(r, 0)),
     show(board, list) {
       Object.assign(game, board);
+      if (!feed) throw new Error('friend mode did not subscribe — gifos.people missing?');
       feed(list);
       return {
         status: nodes['friend-status'].textContent || nodes['friend-status'].innerHTML,
@@ -632,7 +640,7 @@ function gameRows(db) {
       const db = fakeDb();
       for (const r of rowsIn || []) db.rows.set(r.id, r);
       let gets = 0; const g0 = db.getAll; db.getAll = () => { gets++; return g0(); };
-      const dom = fakeDom(read('index.html'), { globals: { gifos: { db: () => db } } });
+      const dom = fakeDom(read('index.html'), { globals: { gifos: { db: () => db, people: () => Promise.resolve([{ id: 't', name: 'T', me: true, here: 'here' }]) } } });
       const srcs = order || dom.scripts.filter((x) => x.src).map((x) => x.src);
       let error = null;
       try { for (const f of srcs) dom.run(read(f), f); } catch (e) { error = e; }

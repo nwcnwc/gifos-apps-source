@@ -16,7 +16,12 @@
   var db = null;
   var timer = 0;
   var allRows = null;
+  // Old GifOS (no gifos.people): kit K2 requires zero writes on boot. Solo still
+  // works in memory; the first real move thaws puts so the archive reaches disk.
+  var quiet = !!(root.gifos && root.gifos.db && !root.gifos.people);
   try { if (root.gifos && root.gifos.db) db = root.gifos.db('save'); } catch (e) {}
+
+  function thawSave() { quiet = false; }
 
   // ONE read of the collection at boot, shared with the archive: best score and
   // every game row arrive in the same round trip.
@@ -27,8 +32,8 @@
 
   var histDb = db ? {
     getAll: readAll,
-    put: function (rec) { return db.put(rec); },
-    'delete': function (id) { return db['delete'](id); }
+    put: function (rec) { if (quiet) return Promise.resolve(rec); return db.put(rec); },
+    'delete': function (id) { if (quiet) return Promise.resolve(true); return db['delete'](id); }
   } : null;
 
   var hist = root.G2048.Hist.create(histDb || {
@@ -39,7 +44,7 @@
   root.G2048.hist = hist;
 
   function writeBest() {
-    if (!db) return;
+    if (!db || quiet) return;
     db.put({ id: 'best', score: mem.bestScore || 0 })['catch'](function () {});
   }
 
@@ -101,5 +106,6 @@
     persistBest(true);
     hist.flush();
   });
+  LocalStorageManager.thawSave = thawSave;
   root.LocalStorageManager = LocalStorageManager;
 })(window);

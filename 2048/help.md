@@ -38,7 +38,7 @@ A race is not part of this. **Play a friend** rounds are never filed here, and p
 
 ## Play a friend
 
-This is a **race**, not a shared board. Press **Play a friend**, then **Invite** in the bar above the app and send the link.
+This is a **race**, not a shared board. Press **Play a friend**, then **Invite** in the bar above the app and send the link. Opened with other people in the room, the race starts by itself. Who is here comes from the room; the person who shared the app hosts the shared seed, and GifOS hands that on when they leave. An older GifOS shows one plain line — solo still works, nothing is shared.
 
 You both start from the **same two tiles**. Same moves give the same board; different moves, the boards diverge. Every live score sits in one strip above the grid — yours, theirs, each with its highest tile — and the line beside it tells you the gap, never a score over again.
 

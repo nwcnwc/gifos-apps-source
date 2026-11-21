@@ -42,8 +42,10 @@ vendor/         GENERATED. Original classic scripts + inlined Clear Sans.
 
 | capability | why |
 |---|---|
-| `db` | Solo save (private) and the room’s live scores (read-write). Needs nothing newer than the App Store itself, so `minBuild` is **947**. |
+| `db` | Solo save (private) and the room’s live scores (read-write). |
 | `multiplayer` | The room. Invite is OS chrome — this app never draws its own share sheet. |
+
+`minBuild` is **5861**. Who is here comes from the room (`gifos.people()`); the person who shared the app (its owner) starts the race seed, and GifOS hands that role to the next person when the owner leaves. An older GifOS shows one plain line and keeps solo play; nothing is shared.
 
 No `network`, no `wasm`. The original is plain JS.
 
