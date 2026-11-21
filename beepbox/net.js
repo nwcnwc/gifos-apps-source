@@ -24,6 +24,7 @@
   var roomKey = '';
   var roomRead = false;
   var lastSong = null;
+  var applying = false;
   var lastPacked = '';
   var myN = 0;
   var pubTimer = 0;
@@ -66,7 +67,6 @@
       if (handed && ppl.length > 1) {
         on = true;
         if (getJson) frozen = getJson();
-        noteLocalChange();
       }
       if (changed && on) ingest(lastList);
     }, function () {});
@@ -155,7 +155,10 @@
       if (packed && packed !== lastPacked) {
         lastPacked = packed;
         lastSong = canonical;
-        if (applyJson) applyJson(canonical.json);
+        if (applyJson) {
+          applying = true;
+          try { applyJson(canonical.json); } finally { applying = false; }
+        }
       }
     }
 
@@ -176,7 +179,7 @@
   }
 
   function noteLocalChange() {
-    if (!on || !me.id) return;
+    if (applying || !on || !me.id) return;
     myN += 1;
     publish();
     if (isHost()) {
@@ -231,8 +234,9 @@
   };
 
   root['__beepbox'] = {
+    // no seq — it races while the host republishes the same song
     state: function () {
-      return lastSong ? { seq: lastSong.seq | 0, host: lastSong.host || null } : null;
+      return lastSong ? { host: lastSong.host || null, len: (lastPacked || '').length | 0 } : null;
     },
     people: function () {
       return on ? playersHere(lastList).map(function (p) { return p.id; }) : [];
