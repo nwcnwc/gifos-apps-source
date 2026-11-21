@@ -1054,10 +1054,13 @@
       var changed = key !== mp.roomKey;
       mp.roomKey = key;
       mp.room = ppl;
+      var handed = !mp.owner && !!(r[1] && r[1].owner) && mp.read;
       mp.owner = !!(r[1] && r[1].owner);
+      mp.read = true;
       if (me) { mp.id = me.id; mp.name = me.name || 'You'; }
-      // Opened in a room with other people: play together at once, no button to find.
-      if (!mp.auto && !mp.on && !solo && ppl.length > 1) { mp.auto = true; mpEnter(); }
+      // Opened in a room with other people: play together at once, no button to find. And when GifOS hands this
+      // copy the app (the owner left), it hosts from now on: back to the room with the others.
+      if ((handed || (!mp.auto && !solo)) && !mp.on && ppl.length > 1) { mp.auto = true; mpEnter(); }
       else if (changed && mp.on) mpRefresh();
     }, function () {});
   }
