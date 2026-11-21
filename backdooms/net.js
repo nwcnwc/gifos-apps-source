@@ -40,17 +40,7 @@
 
   function init() {
     if (!root.gifos || !root.gifos.db) return Promise.resolve();
-    if (!PEOPLE) {
-      var el = document.getElementById('hud') || document.body;
-      if (el && el !== document.body) el.insertAdjacentHTML('beforeend', '<p id="bd-needs">' + NEEDS_NEWER + '</p>');
-      else {
-        var p = document.createElement('p');
-        p.id = 'bd-needs';
-        p.textContent = NEEDS_NEWER;
-        document.body.appendChild(p);
-      }
-      return Promise.resolve();
-    }
+    if (!PEOPLE) return Promise.resolve();
     db = gifos.db('players');
     return readRoom().then(function () {
       if (!me.id || me.id === 'solo') return;
@@ -173,9 +163,10 @@
   };
 
   root['__backdooms'] = {
+    // seed from a published row only — local maze seed races before the first put
     state: function () {
-      var s = root.Backdooms && root.Backdooms.state ? root.Backdooms.state() : null;
-      return s ? { seed: s.seed, score: s.score | 0 } : null;
+      var seed = sharedSeed();
+      return seed != null ? { seed: seed } : null;
     },
     people: function () {
       var out = [], i, r, names = {};
@@ -188,6 +179,20 @@
       }
       return out;
     },
-    amHost: function () { return !!db && owner && roomPeople.length > 1; }
+    amHost: function () {
+      var n = 0, i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') n++;
+      }
+      return !!db && owner && n > 1;
+    }
   };
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'bd-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
