@@ -12,7 +12,7 @@ opened the same file. The invite is the studio.
 ```
 index.html          setup / solo doodle / play with friends
 style.css           dark paper, gold turn chrome
-game.js             turns, host apply, playback order, titles
+game.js             turns by seat, strokes, votes, playback order
 app.js              pointer pad, solo save, room, vote, loop
 icon.mjs            a line drawing itself + 1200×720 cover
 build.mjs           packs the GIF into site/apps/one-stroke/one-stroke.gif
@@ -25,10 +25,11 @@ build.mjs           packs the GIF into site/apps/one-stroke/one-stroke.gif
   this file (`gifos.db('save')`, private).
 - **With friends** — send the invite (top bar; that button is OS chrome).
   Seats around the page. Whose-turn sits on the paper. You cannot draw
-  when it is not your turn. Each person writes only their own row. The
-  host of the page (lowest live id) is the only writer of the picture
-  row: a player publishes an intended stroke, the host appends it if it
-  is legal. After a round, a title vote, then the loop.
+  when it is not your turn. `gifos.room` seats up to eight
+  people and lines the rest up (turns are "free" in the room because it does
+  not skip open seats; the picture's own turn skips them). The mover writes
+  the whole picture with `gifos.room.move`; votes are one plain row per
+  person. **Send a random line** sends a stroke for you. After a round, a title vote, then the loop.
 
 A stroke is a compact list of `{x,y}` in `0..1` plus a palette colour and a
 width. No bitmaps go in the hot collection.
@@ -44,7 +45,7 @@ Undo only clears the in-progress stroke before you send.
 | `multiplayer` | The room. |
 
 No `wasm`. No `network`. No `pointer` (ordinary pointer events; the canvas
-sets `touch-action: none`). `minBuild` is **947**.
+sets `touch-action: none`). `minBuild` is **5861**.
 
 Collections: `save` private, `room` read-write. The picture row id is
 `picture`. Player rows use `me.id`.

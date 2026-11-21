@@ -78,8 +78,8 @@ if (manifest.capabilities.network) {
 if (manifest.capabilities.pointer) {
   throw new Error('do not set capabilities.pointer — ordinary pointer events are enough');
 }
-if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947');
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild < 5861) {
+  throw new Error('minBuild must be at least 5861 (the first build with gifos.room)');
 }
 if (!manifest.data || !manifest.data.save || manifest.data.save.visibility !== 'private') {
   throw new Error('manifest.data.save must be private');
@@ -100,11 +100,14 @@ if (/>\s*Invite\s*</.test(html) || /id=["']invite/i.test(html)) {
 if (!files['app.js'].includes('Invite') || files['app.js'].includes('id="invite"')) {
   throw new Error('Invite is OS chrome — tell the player to press it, do not draw a share button');
 }
-if (!files['app.js'].includes('intent') || !files['app.js'].includes('putMe')) {
-  throw new Error('app.js must publish strokes on the player\'s own row');
+if (!files['app.js'].includes('gifos.room.subscribe') || !files['app.js'].includes('gifos.room.move')) {
+  throw new Error('app.js must read the room and write the picture through gifos.room.move');
 }
-if (!files['app.js'].includes('putPicture') || !files['app.js'].includes('isHost')) {
-  throw new Error('host appends to the picture row; nobody else writes it');
+if (/PRES_TTL|HB_MS|isHost|putMe/.test(files['app.js'])) {
+  throw new Error('app.js must not keep its own presence, heartbeat or host');
+}
+if (!manifest.room || !manifest.room.moves || manifest.room.moves.indexOf('picture') < 0) {
+  throw new Error('manifest must declare a room block with the picture as its moves collection');
 }
 if (!files['style.css'].includes('touch-action:none')) {
   throw new Error('the pad must set touch-action:none so a finger draws instead of scrolling');
@@ -141,46 +144,42 @@ if (jargon.test(listing.description) || jargon.test(listing.tagline)) {
   throw new Error('listing copy is technical — keep it for humans');
 }
 
-// Sanity: other person's turn rejected; two strokes from the same seat in
-// one turn rejected; playback order is stable.
+// Sanity: the other seat's turn is refused; one stroke per seat per round; open seats are skipped;
+// the round ends with the vote; playback order is stable.
 {
   const ctx = { console };
   vm.runInNewContext(
     files['game.js'] + '\n' +
     'self = this; result = (function () {\n' +
     '  var C = OS.COLORS[0], W = OS.WIDTHS[1];\n' +
-    '  function pts(a,b,c,d) { return [{x:a,y:b},{x:c,y:d}]; }\n' +
-    '  function stroke(seq, c) {\n' +
-    '    return { kind: "stroke", seq: seq, pts: pts(0.1,0.2,0.4,0.5), c: c || C, w: W };\n' +
-    '  }\n' +
-    '  var pic = OS.fresh(["ann","bob"], { host: "ann" });\n' +
-    '  if (OS.actorOf(pic) !== "ann") throw new Error("first turn is ann");\n' +
-    '  var other = OS.applyIntent(pic, "bob", stroke(0));\n' +
-    '  if (other) throw new Error("stroke on the other person\'s turn must be refused");\n' +
-    '  var two = OS.applyIntents(pic, [\n' +
-    '    { id: "ann", intent: stroke(0, OS.COLORS[0]) },\n' +
-    '    { id: "ann", intent: stroke(0, OS.COLORS[1]) }\n' +
-    '  ]);\n' +
-    '  if (!two || two.strokes.length !== 1) throw new Error("two strokes from the same seat in one turn");\n' +
-    '  if (two.strokes[0].c !== OS.COLORS[0]) throw new Error("first stroke should win");\n' +
-    '  if (OS.actorOf(two) !== "bob") throw new Error("turn should pass to bob");\n' +
-    '  var again = OS.applyIntent(two, "ann", stroke(two.seq, OS.COLORS[2]));\n' +
-    '  if (again) throw new Error("ann already drew this turn");\n' +
-    '  var p = OS.fresh(["a","b","c"]);\n' +
-    '  p = OS.applyIntent(p, "a", stroke(p.seq, OS.COLORS[0]));\n' +
-    '  p = OS.applyIntent(p, "b", stroke(p.seq, OS.COLORS[1]));\n' +
-    '  p = OS.applyIntent(p, "c", stroke(p.seq, OS.COLORS[2]));\n' +
-    '  if (!p) throw new Error("three legal strokes should apply");\n' +
+    '  function stroke(c) { return { pts: [{x:0.1,y:0.2},{x:0.4,y:0.5}], c: c || C, w: W }; }\n' +
+    '  var held = [true, true];\n' +
+    '  var pic = OS.fresh();\n' +
+    '  if (OS.actorIndex(pic, held) !== 0) throw new Error("first turn is seat 0");\n' +
+    '  if (OS.addStroke(pic, 1, "bob", stroke(), held)) throw new Error("stroke on the other seat\'s turn must be refused");\n' +
+    '  var two = OS.addStroke(pic, 0, "ann", stroke(OS.COLORS[0]), held);\n' +
+    '  if (!two || two.strokes.length !== 1) throw new Error("the first stroke lands");\n' +
+    '  if (OS.actorIndex(two, held) !== 1) throw new Error("turn should pass to seat 1");\n' +
+    '  if (OS.addStroke(two, 0, "ann", stroke(OS.COLORS[2]), held)) throw new Error("ann already drew this turn");\n' +
+    '  var h3 = [true, false, true];\n' +
+    '  var p = OS.fresh();\n' +
+    '  p = OS.addStroke(p, 0, "a", stroke(OS.COLORS[0]), h3);\n' +
+    '  if (OS.actorIndex(p, h3) !== 2) throw new Error("an open seat is skipped");\n' +
+    '  if (p.phase !== "draw") throw new Error("the round is not over yet");\n' +
+    '  p = OS.addStroke(p, 2, "c", stroke(OS.COLORS[2]), h3);\n' +
+    '  if (!p) throw new Error("the last held seat draws");\n' +
+    '  if (p.phase !== "vote") throw new Error("the last held seat ends the round and opens the vote");\n' +
     '  var order = OS.playback(p);\n' +
-    '  if (order.length !== 3) throw new Error("playback length " + order.length);\n' +
-    '  if (order[0].n !== 0 || order[1].n !== 1 || order[2].n !== 2) throw new Error("playback n");\n' +
-    '  if (order[0].c !== OS.COLORS[0] || order[1].c !== OS.COLORS[1] || order[2].c !== OS.COLORS[2]) {\n' +
-    '    throw new Error("playback colour order");\n' +
-    '  }\n' +
-    '  var shuffled = { strokes: [order[2], order[0], order[1]] };\n' +
+    '  if (order.length !== 2 || order[0].n !== 0 || order[1].n !== 1) throw new Error("playback n");\n' +
+    '  var shuffled = { strokes: [order[1], order[0]] };\n' +
     '  var againP = OS.playback(shuffled);\n' +
-    '  if (againP[0].n !== 0 || againP[1].n !== 1 || againP[2].n !== 2) throw new Error("playback order is not stable");\n' +
-    '  if (p.phase !== "vote") throw new Error("full round should open the vote");\n' +
+    '  if (againP[0].n !== 0 || againP[1].n !== 1) throw new Error("playback order is not stable");\n' +
+    '  if (OS.settle(p, { a: "A map" }, ["a", "c"])) throw new Error("the vote waits for every held seat");\n' +
+    '  var done = OS.settle(p, { a: "A map", c: "A map" }, ["a", "c"]);\n' +
+    '  if (!done || done.phase !== "play" || done.title !== "A map") throw new Error("a complete vote picks the title");\n' +
+    '  var more = OS.another(done);\n' +
+    '  if (!more || more.phase !== "draw" || more.roundStart !== 2 || more.round !== 2) throw new Error("another round");\n' +
+    '  if (!OS.randomLine()) throw new Error("a random line is a legal stroke");\n' +
     '  return order.length;\n' +
     '})();',
     ctx

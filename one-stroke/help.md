@@ -25,8 +25,9 @@ Press **With friends**, then press **Invite** in the bar **above** the app and s
 - You cannot draw when it is not your turn.
 - After everyone has drawn once, you vote on a title (pick a suggestion or write one). Then the loop plays.
 - **Another round** keeps the picture and starts a new turn. **New page** starts a blank one.
-- Up to eight seats. Extra people watch.
-- A friend who leaves mid-turn is skipped.
+- Up to eight seats; the room seats people as they open the link. Extra people watch and are next in line. When other people are here, the game opens straight on the shared page.
+- A seat nobody holds is skipped. A friend who is only reconnecting is waited for.
+- **Send a random line** sends a smooth line as your stroke on your turn.
 
 Need two people before turns start. While you wait, send the Invite.
 
@@ -34,7 +35,7 @@ Need two people before turns start. While you wait, send the Invite.
 
 - **Mouse:** click and drag on the paper, then release. Left button only.
 - **Phone / touch:** one finger draws until you lift. That lift ends the stroke. The page will not scroll while you draw.
-- **Keyboard:** there is none for drawing. Colour and thickness are the dots under the paper.
+- **Keyboard:** there is none for drawing. Colour and thickness are the dots under the paper; they appear once you have drawn your stroke (the stroke takes the colour you pick before you send it).
 - **Undo** only throws away the stroke you have not sent. Sent lines stay.
 
 ## What is saved

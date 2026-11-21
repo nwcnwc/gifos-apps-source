@@ -1,6 +1,6 @@
 // One Stroke rules. A picture is an ordered stack of strokes. Each seat
-// may add exactly one stroke per turn; the host is the only writer of
-// the picture row. Classic script — no import/export.
+// may add exactly one stroke per round; the room (gifos.room) says who sits
+// where, the mover writes the whole picture. Classic script — no import/export.
 (function (root) {
   'use strict';
 
@@ -70,79 +70,72 @@
     return t;
   }
 
-  function fresh(seatIds, opts) {
+  // The picture is the one record a seated player writes with gifos.room.move. It names no people: seats come
+  // from the room. `turn` is a seat INDEX; the actor is the first held seat at or after it (open seats are skipped).
+  function fresh(opts) {
     opts = opts || {};
-    var seats = [];
-    var i, id;
-    for (i = 0; i < (seatIds || []).length && seats.length < MAX_SEATS; i++) {
-      id = seatIds[i];
-      if (!id || seats.indexOf(id) >= 0) continue;
-      seats.push(id);
-    }
     return {
       id: 'picture',
-      host: opts.host || seats[0] || '',
-      seats: seats,
-      names: opts.names ? clone(opts.names) : {},
       strokes: [],
       roundStart: 0,
       turn: 0,
-      seq: opts.seq || 0,
       phase: 'draw',
       round: 1,
       title: '',
       suggestions: (opts.suggestions || SUGGESTIONS).slice(),
-      votes: {},
       startedAt: opts.now || 0
     };
   }
 
-  function actorOf(pic) {
-    if (!pic || pic.phase !== 'draw' || !pic.seats || !pic.seats.length) return null;
-    return pic.seats[pic.turn] || null;
+  // held: one entry per seat, truthy when somebody holds it
+  function actorIndex(pic, held) {
+    if (!pic || pic.phase !== 'draw' || !held || !held.length) return -1;
+    var n = held.length, i, j;
+    for (i = 0; i < n; i++) {
+      j = (pic.turn + i) % n;
+      if (held[j]) return j;
+    }
+    return -1;
   }
 
   function drewThisRound(pic, playerId) {
-    var n = (pic.seats && pic.seats.length) || 0;
-    if (n < 2) return false;
-    /* The round's strokes start at the RECORDED index, never at a modulo
-       guess: skipAbsent ends a round with fewer strokes than seats, so
-       `length % seats` reached back into the previous round after "Another
-       round" and refused the actor's own stroke forever — the host silently
-       bricked the room. Old picture rows predate roundStart; fall back to
-       the modulo for them rather than scanning from zero. */
-    var start = (pic.roundStart != null)
-      ? pic.roundStart
-      : pic.strokes.length - (pic.strokes.length % n);
     var i;
-    for (i = start; i < pic.strokes.length; i++) {
+    for (i = pic.roundStart || 0; i < pic.strokes.length; i++) {
       if (pic.strokes[i] && pic.strokes[i].by === playerId) return true;
     }
     return false;
   }
 
-  function maybeEndRound(pic) {
-    if (pic.phase !== 'draw') return pic;
-    if (pic.seats.length < 2) return pic;
-    if (pic.turn !== 0) return pic;
-    if (!pic.strokes.length) return pic;
-    pic.phase = 'vote';
-    pic.votes = {};
-    return pic;
+  // The next picture after seat `seat` (held by playerId) draws one stroke, or null when it is not legal.
+  // The round ends (the vote starts) when nobody holds a later seat.
+  function addStroke(pic, seat, playerId, intent, held) {
+    if (!pic || pic.phase !== 'draw') return null;
+    if (actorIndex(pic, held) !== seat) return null;
+    if (drewThisRound(pic, playerId)) return null;
+    var s = legalStroke(intent);
+    if (!s) return null;
+    var next = clone(pic), later = false, i;
+    next.strokes = pic.strokes.concat([{ n: pic.strokes.length, by: playerId, pts: s.pts, c: s.c, w: s.w }]);
+    next.turn = seat + 1;
+    for (i = seat + 1; i < held.length; i++) if (held[i]) later = true;
+    if (!later) { next.phase = 'vote'; next.turn = 0; }
+    return next;
   }
 
-  function winningTitle(pic) {
+  // The title the votes pick: most votes; ties go to a suggestion (in list order), then to the earlier word.
+  // votes: { playerId: title } of held players only
+  function winningTitle(votes, order, suggestions) {
     var counts = {}, i, id, t, best = '', bestN = 0;
-    var votes = pic.votes || {};
-    for (i = 0; i < pic.seats.length; i++) {
-      id = pic.seats[i];
+    suggestions = suggestions || SUGGESTIONS;
+    for (i = 0; i < order.length; i++) {
+      id = order[i];
       t = votes[id];
       if (!t) continue;
       counts[t] = (counts[t] || 0) + 1;
     }
     function prefer(a, b) {
-      var ia = pic.suggestions.indexOf(a);
-      var ib = pic.suggestions.indexOf(b);
+      var ia = suggestions.indexOf(a);
+      var ib = suggestions.indexOf(b);
       if (ia >= 0 && ib < 0) return true;
       if (ia < 0 && ib >= 0) return false;
       if (ia >= 0 && ib >= 0) return ia < ib;
@@ -158,129 +151,36 @@
     return best || 'Untitled';
   }
 
-  function applyIntent(pic, playerId, intent) {
-    if (!pic || !playerId || !intent) return null;
-    if (intent.seq !== pic.seq) return null;
-    var next, s, title, allIn, i;
-
-    if (intent.kind === 'stroke') {
-      if (pic.phase !== 'draw') return null;
-      if (actorOf(pic) !== playerId) return null;
-      if (drewThisRound(pic, playerId)) return null;
-      s = legalStroke(intent);
-      if (!s) return null;
-      next = clone(pic);
-      next.strokes = pic.strokes.concat([{
-        n: pic.strokes.length,
-        by: playerId,
-        pts: s.pts,
-        c: s.c,
-        w: s.w
-      }]);
-      next.seq = pic.seq + 1;
-      next.turn = (pic.turn + 1) % Math.max(1, pic.seats.length);
-      return maybeEndRound(next);
-    }
-
-    if (intent.kind === 'vote') {
-      if (pic.phase !== 'vote') return null;
-      if (pic.seats.indexOf(playerId) < 0) return null;
-      title = sanitizeTitle(intent.title);
-      if (!title) return null;
-      next = clone(pic);
-      next.votes = pic.votes ? clone(pic.votes) : {};
-      if (next.votes[playerId] === title) return null;
-      next.votes[playerId] = title;
-      allIn = true;
-      for (i = 0; i < next.seats.length; i++) {
-        if (!next.votes[next.seats[i]]) { allIn = false; break; }
-      }
-      if (allIn) {
-        next.title = winningTitle(next);
-        next.phase = 'play';
-        next.seq = pic.seq + 1;
-      }
-      return next;
-    }
-
-    if (intent.kind === 'again') {
-      if (pic.phase !== 'play') return null;
-      if (pic.seats.indexOf(playerId) < 0) return null;
-      next = clone(pic);
-      next.phase = 'draw';
-      next.turn = 0;
-      next.seq = pic.seq + 1;
-      next.votes = {};
-      next.round = (pic.round || 1) + 1;
-      next.roundStart = next.strokes.length;
-      return next;
-    }
-
-    if (intent.kind === 'new') {
-      if (pic.phase !== 'play' && pic.phase !== 'vote' && pic.phase !== 'draw') return null;
-      if (pic.seats.indexOf(playerId) < 0) return null;
-      next = fresh(pic.seats, {
-        host: pic.host,
-        names: pic.names,
-        seq: pic.seq + 1,
-        suggestions: pic.suggestions,
-        now: pic.startedAt
-      });
-      return next;
-    }
-
-    return null;
-  }
-
-  // Host batch: walk rows in order. A second stroke from the same seat in
-  // the same turn is skipped, then refused by applyIntent if it still lands.
-  function applyIntents(pic, rows) {
-    var cur = pic, i, row, next, sawStroke = {};
-    for (i = 0; i < (rows || []).length; i++) {
-      row = rows[i];
-      if (!row || !row.id || !row.intent) continue;
-      if (row.intent.kind === 'stroke' && sawStroke[row.id]) continue;
-      next = applyIntent(cur, row.id, row.intent);
-      if (next) {
-        if (row.intent.kind === 'stroke') sawStroke[row.id] = true;
-        cur = next;
-      }
-    }
-    return cur === pic ? null : cur;
-  }
-
-  function skipAbsent(pic, liveIds) {
-    if (!pic || pic.phase !== 'draw') return null;
-    var actor = actorOf(pic);
-    if (!actor) return null;
-    if (liveIds && liveIds[actor]) return null;
-    if (!pic.seats.length) return null;
+  // The vote is over when every held seat has voted. Returns the next picture, or null while someone has not.
+  function settle(pic, votes, order) {
+    if (!pic || pic.phase !== 'vote' || !order.length) return null;
+    var i;
+    for (i = 0; i < order.length; i++) if (!votes[order[i]]) return null;
     var next = clone(pic);
-    next.turn = (pic.turn + 1) % pic.seats.length;
-    next.seq = pic.seq + 1;
-    return maybeEndRound(next);
-  }
-
-  /* The draw phase copes with an absent seat (skipAbsent); the vote phase
-     had no equivalent, so one permanent leaver stalled every round at the
-     vote forever — allIn could never be true. The host settles the vote as
-     soon as every LIVE seat has voted (and someone has). */
-  function settleVotes(pic, liveIds) {
-    if (!pic || pic.phase !== 'vote') return null;
-    var votes = pic.votes || {}, i, id, liveN = 0, all = true, any = false;
-    for (i = 0; i < pic.seats.length; i++) {
-      id = pic.seats[i];
-      if (votes[id]) any = true;
-      if (!liveIds || !liveIds[id]) continue;
-      liveN++;
-      if (!votes[id]) all = false;
-    }
-    if (!liveN || !all || !any) return null;
-    var next = clone(pic);
-    next.title = winningTitle(next);
+    next.title = winningTitle(votes, order, pic.suggestions);
     next.phase = 'play';
-    next.seq = pic.seq + 1;
     return next;
+  }
+
+  function another(pic) {
+    if (!pic || pic.phase !== 'play') return null;
+    var next = clone(pic);
+    next.phase = 'draw';
+    next.turn = 0;
+    next.round = (pic.round || 1) + 1;
+    next.roundStart = next.strokes.length;
+    return next;
+  }
+
+  // A smooth random line (for a player who would rather not draw), in 0..1.
+  function randomLine(rand) {
+    rand = rand || Math.random;
+    var pts = [], n = 24, i, x0 = 0.15 + rand() * 0.2, y0 = 0.15 + rand() * 0.7, x1 = 0.65 + rand() * 0.2, y1 = 0.15 + rand() * 0.7, bend = (rand() - 0.5) * 0.5, t;
+    for (i = 0; i < n; i++) {
+      t = i / (n - 1);
+      pts.push({ x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t + Math.sin(t * Math.PI) * bend });
+    }
+    return legalPts(pts);
   }
 
   function playback(picOrStrokes) {
@@ -332,12 +232,12 @@
     legalPts: legalPts,
     legalStroke: legalStroke,
     sanitizeTitle: sanitizeTitle,
-    actorOf: actorOf,
     drewThisRound: drewThisRound,
-    applyIntent: applyIntent,
-    applyIntents: applyIntents,
-    skipAbsent: skipAbsent,
-    settleVotes: settleVotes,
+    actorIndex: actorIndex,
+    addStroke: addStroke,
+    settle: settle,
+    another: another,
+    randomLine: randomLine,
     playback: playback,
     compactPts: compactPts,
     pathLen: pathLen,

@@ -3,8 +3,8 @@
   "appId": "one-stroke",
   "name": "One Stroke",
   "shortName": "OneStroke",
-  "version": "1.0",
-  "minBuild": 947,
+  "version": "1.1",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [244, 201, 93],
   "capabilities": {
@@ -13,6 +13,8 @@
   },
   "data": {
     "save": { "visibility": "private" },
+    "picture": { "visibility": "read-write" },
     "room": { "visibility": "read-write" }
-  }
+  },
+  "room": { "seats": 8, "min": 2, "turns": "free", "moves": ["picture"] }
 }
