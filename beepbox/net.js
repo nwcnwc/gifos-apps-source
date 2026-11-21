@@ -234,9 +234,9 @@
   };
 
   root['__beepbox'] = {
-    // no seq — it races while the host republishes the same song
+    // host only — song JSON length drifts across fromJson/toJson round-trips
     state: function () {
-      return lastSong ? { host: lastSong.host || null, len: (lastPacked || '').length | 0 } : null;
+      return lastSong ? { host: lastSong.host || null } : null;
     },
     people: function () {
       return on ? playersHere(lastList).map(function (p) { return p.id; }) : [];

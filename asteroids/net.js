@@ -348,7 +348,13 @@
   }
 
   function tick() {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
+    var G = root.AsteroidsGame;
+    // Waiting/boot: no player or world writes (kit K3).
+    if (!G || !G.FSM || G.FSM.state === "waiting" || G.FSM.state === "boot") {
+      pushGhosts();
+      return;
+    }
     publish(false);
     if (owner) publishWorld(false);
     pushGhosts();
@@ -461,8 +467,7 @@
       return {
         wave: G.totalAsteroids | 0,
         score: Math.floor(G.score) | 0,
-        lives: G.lives | 0,
-        host: !!owner
+        lives: G.lives | 0
       };
     },
     people: function () {

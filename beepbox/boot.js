@@ -33,9 +33,12 @@
       editor.doc.song.fromJsonObject(json);
       if (editor.doc.notifier && editor.doc.notifier.changed) editor.doc.notifier.changed();
       if (asNew && editor.doc.goBackToStart) editor.doc.goBackToStart();
-      lastPacked = p;
+      // Round-trip form — fromJson/toJson drifts; using the wire pack made
+      // persist() think every apply was a local edit and re-publish forever.
+      lastPacked = pack(songJson()) || p;
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; }
       if (songsDb) {
-        songsDb.put({ id: 'current', json: json, at: Date.now() }).catch(function () {});
+        songsDb.put({ id: 'current', json: songJson() || json, at: Date.now() }).catch(function () {});
       }
     } catch (e2) {
       try { console.warn('BeepBox: could not apply song', e2); } catch (e3) {}
