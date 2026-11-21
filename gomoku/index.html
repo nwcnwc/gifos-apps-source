@@ -39,6 +39,7 @@
       <p class="lvlnote" id="lvlNote">A fair game. It looks a couple of moves ahead.</p>
     </div>
     <p class="lvlnote" id="hotseatNote" hidden>Pass the device. Black goes first. Tap an empty point.</p>
+    <p class="lvlnote" id="needsNewer" hidden></p>
     <button class="primary" id="startBtn" type="button">Start game</button>
     <button class="ghost wide" id="friendBtn" type="button">Play a friend</button>
   </section>
@@ -69,10 +70,11 @@
     <div class="boardwrap">
       <div class="boardstage">
         <canvas id="fBoard" width="480" height="480" aria-label="Shared Gomoku board"></canvas>
+        <div class="cellbtns" id="fCells"></div>
       </div>
     </div>
     <div class="controls">
-      <button id="fUndo" class="ghost" type="button" hidden>Undo</button>
+      <button id="fNew" class="ghost" type="button" hidden>New game</button>
       <button id="fResign" class="ghost" type="button" hidden>Resign</button>
     </div>
   </section>

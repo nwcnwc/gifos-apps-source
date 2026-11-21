@@ -3,8 +3,8 @@
   "appId": "gomoku",
   "name": "Gomoku",
   "shortName": "Gomoku",
-  "version": "1.0",
-  "minBuild": 947,
+  "version": "1.1",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [196, 140, 70],
   "capabilities": {
@@ -14,5 +14,6 @@
   "data": {
     "gomoku": { "visibility": "private" },
     "gomoku-mp": { "visibility": "read-write" }
-  }
+  },
+  "room": { "seats": ["black", "white"], "turns": "order", "moves": ["gomoku-mp"], "solo": true }
 }

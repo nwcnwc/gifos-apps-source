@@ -109,3 +109,6 @@ body.cover main{max-width:none;width:100%;height:100%;padding:12px 28px 20px;gap
 body.cover .game{height:100%}
 body.cover .controls{display:none}
 body.cover .boardwrap{min-height:0}
+.cellbtns{position:absolute;inset:0}
+.cellbtn{position:absolute;padding:0;border:0;background:transparent;border-radius:50%;cursor:pointer}
+.cellbtn:disabled{cursor:default}

@@ -23,11 +23,10 @@ build.mjs           packs the GIF into site/apps/gomoku/gomoku.gif
   worker searches.
 - **Two here** — pass the device. Black goes first.
 - **Play a friend** — send the invite (top bar; that button is OS chrome).
-  Black and white seats, turns. Each person writes only their own row. The
-  host of the board (first seated / lowest id) is the only writer of the
-  board row: a player publishes an intended move, the host applies it if it
-  is legal. Undo of the stone you just put down if the other person has not
-  answered yet; further than that, both have to tap Undo.
+  Black and white seats, turns, who is here and who waits all come from
+  `gifos.room` (manifest `room`); the mover writes the whole next board with
+  `gifos.room.move`. No undo on a shared board. On a GifOS older than build
+  5861 the app says it needs a newer GifOS and writes nothing.
 
 A game in progress auto-saves in the icon.
 
