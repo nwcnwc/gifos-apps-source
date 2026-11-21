@@ -14,7 +14,12 @@
   // Peers write their own rows, so an id lands in an attribute quote-escaped.
   var escAttr = function (s) { return esc(s).replace(/"/g, '&quot;'); };
 
-  var PRES_TTL = 9000, HB_MS = 3000, AUTO_MS = 5000;
+  var NEEDS_NEWER = 'Bingo needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(window.gifos && gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var AUTO_MS = 5000;
   var view = 'home';
   var lastStamp = null;
   var lastCallShown = null;
@@ -372,22 +377,50 @@
     // their own room, so a runtime that cannot say defaults to yes.
     owner: true
   };
-  function askOwner() {
-    if (!(window.gifos && gifos.info)) return Promise.resolve(true);
-    return gifos.info().then(function (i) {
-      return !!(i && i.owner);
-    }).catch(function () { return true; });
-  }
   var _items = [];
 
-  function livePeople(items, t) {
-    t = t || nowMs();
-    var out = [], i, it;
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !window.gifos) return Promise.resolve();
+    return Promise.all([
+      gifos.people(),
+      gifos.info ? gifos.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      mp.owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) {
+        mp.id = mine.id;
+        mp.name = mine.name || 'You';
+      }
+      if (key !== roomKey) {
+        roomKey = key;
+        if (mp.on) mpRefresh();
+      }
+    }, function () {});
+  }
+
+  function livePeople(items) {
+    var names = peopleNames(), out = [], i, it, row;
     for (i = 0; i < (items || []).length; i++) {
       it = items[i];
       if (!it || !it.id) continue;
-      if (it.at && t - it.at >= PRES_TTL) continue;
-      out.push(it);
+      if (!Object.prototype.hasOwnProperty.call(names, it.id)) continue;
+      row = Object.assign({}, it);
+      row.name = names[it.id] || it.name || 'Player';
+      out.push(row);
     }
     return out;
   }
@@ -474,11 +507,9 @@
   }
 
   function putMe(extra) {
-    if (!roomDb || !mp.id) return;
+    if (!roomDb || !mp.id || !PEOPLE) return;
     var row = {
       id: mp.id,
-      name: mp.name,
-      at: nowMs(),
       ready: true,
       own: !!mp.owner,   // "this is my room" — only the owner's row says so
       bingo: false,
@@ -505,14 +536,14 @@
       setChip('', 'No room');
       return;
     }
-    Promise.all([
-      window.gifos && gifos.me ? gifos.me() : Promise.resolve({ id: 'local', name: 'You' }),
-      askOwner()
-    ]).then(function (pair) {
-      var me = pair[0];
-      mp.owner = !!pair[1];
-      mp.id = (me && me.id) || 'local';
-      mp.name = (me && me.name) || 'You';
+    if (!PEOPLE) {
+      $('lobbyStatus').textContent = NEEDS_NEWER;
+      show('lobby');
+      setChip('', 'Needs newer GifOS');
+      return;
+    }
+    readRoom().then(function () {
+      if (!mp.id) return;
       mp.on = true;
       mp.row = null;
       mp.adopted = null;
@@ -527,10 +558,9 @@
       if (!mp.sub) {
         mp.sub = true;
         roomDb.subscribe(function (items) { _items = items || []; mpRefresh(); });
+        setInterval(readRoom, PEOPLE_MS);
       }
       putMe({ phase: 'lobby', round: 0, seed: null, called: [], bingo: false, pattern: null, marked: null });
-      if (mp.hb) clearInterval(mp.hb);
-      mp.hb = setInterval(function () { if (mp.on) putMe(); }, HB_MS);
       mpRefresh();
     }).catch(function () {});
   }
@@ -538,7 +568,6 @@
     mp.on = false;
     mp.auto = false;
     stopAuto();
-    if (mp.hb) { clearInterval(mp.hb); mp.hb = 0; }
     if (roomDb && mp.id) roomDb.delete(mp.id).catch(function () {});
     show('home');
     setChip('', 'Ready');
@@ -899,4 +928,24 @@
   };
 
   setChip('', 'Ready');
+
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'bingo-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
+
+  window['__bingo'] = {
+    state: function () {
+      var ad = mp.adopted;
+      return mp.on && ad ? { round: ad.round | 0, phase: ad.phase || 'lobby', called: (ad.called || []).length | 0 } : null;
+    },
+    people: function () {
+      return livePeople(_items).map(function (p) { return p.id; });
+    },
+    amHost: function () { return mp.on && mp.owner && livePeople(_items).length > 1; }
+  };
+
 })();
