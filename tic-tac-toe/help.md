@@ -16,9 +16,9 @@ Tap or click an empty square. **Undo** takes back your last mark (and the comput
 
 ## Play a friend
 
-Press **Play a friend**, then **Invite** in the bar above the app, and send the link. First to sit is X, second is O. Extra people watch.
+Press **Play a friend**, then **Invite** in the bar above the app, and send the link. If other people are already in the room with you, the game opens on the shared board by itself. GifOS seats the first two people X and O; extra people watch and take a seat when one opens.
 
-After a win or a draw, the next game starts in a few seconds. If someone leaves mid-game, the remaining player wins.
+You only play on your own turn, and a player who is away is waited for. After a win or a draw, **New game** (either player) starts the next one. **Leave** gives up your seat.
 
 You cannot undo a mark on a shared board. Wait for their turn; the board will not move until they play.
 
