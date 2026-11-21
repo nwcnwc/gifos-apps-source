@@ -10,9 +10,9 @@ A host puts a question on the big screen. Everyone else's phone is four huge col
 
 ## With friends
 
-1. Press **Play with friends**.
-2. Press **Invite** in the bar above the app — not inside this game. The people who open the link are the room.
-3. Put the **host** device where everyone can see the question. The host is whoever the room picks (usually the person who opened the app). Their name in the list says **hosts**.
+1. Press **Invite** in the bar above the app — not inside this game. The people who open the link are the room, and the game opens in the lobby for everyone (or press **Play with friends**).
+2. The person who shared the app hosts. If they leave, GifOS hands the game to the next person, who hosts from then on.
+3. Put the **host** device where everyone can see the question. Their name in the list says **hosts**.
 4. Host picks 5 / 10 / 20 / all 40 questions, and 10 / 15 / 20 seconds.
 5. **Start the pack**, or type a custom question.
 

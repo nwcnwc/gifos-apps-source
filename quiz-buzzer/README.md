@@ -30,14 +30,18 @@ their own buzz. Answers are on the phone, so you do not need a projector.
   player. Pack progress (asked / correct / streak) is private, inside the icon.
   Type a question on this device; tick Keep in this file and it travels with
   the GIF. **My questions** drills only those.
-- **Friends** — press Play with friends, then **Invite** in the GifOS menu
-  (OS chrome; this app does not draw a share button). Lowest live id hosts:
-  put that device where people can see it. Host picks how many questions and
+- **Friends** — press **Invite** in the GifOS menu (OS chrome; this app does
+  not draw a share button). Opened with other people in the room, the app goes
+  straight to the lobby. The person who shared the app (its owner) hosts:
+  put that device where people can see it. If the owner leaves a resilient
+  room, GifOS hands the app to the next person, who hosts from then on. Host picks how many questions and
   how many seconds, or types a custom question + four answers (tap the colour
   that is right). Start. Guests tap one of four coloured pads — that lock is
   their buzz (`pointerdown`). When everyone is in, or the clock hits zero,
   Reveal. First legal correct buzz scores. Next. End-of-round board.
-- Without GifOS the solo pack still runs. Friends need a room.
+- Who is here comes from the room (`gifos.people()`, GifOS 0.9.27+): no
+  presence rows, no heartbeat. On an older GifOS the app says "needs a newer
+  GifOS" and runs solo only. Without GifOS the solo pack still runs.
 
 ## Scoring (host authority)
 
@@ -53,7 +57,7 @@ the right index. Early, late, and wrong are recorded and do not score.
 | `db` | Private pack progress + custom questions, shared match, each player's own buzz. |
 | `multiplayer` | The room. |
 
-No `wasm`, no `network`, no `pointer`. `minBuild` is **947**.
+No `wasm`, no `network`, no `pointer`. `minBuild` is **5861** (`gifos.people()`).
 
 Collections:
 
@@ -61,7 +65,9 @@ Collections:
   answer (so a refresh mid-question can still Reveal without putting the key
   on the match).
 - `match` read-write — host is the only writer of the round.
-- `players` read-write — each person writes only their own row.
+- `players` read-write — each person writes only their own row, keyed by
+  their room id, and only when they act (join, new round, buzz). Rows of
+  people the room no longer has are not shown.
 
 ## Building
 
