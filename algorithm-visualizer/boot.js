@@ -210,6 +210,8 @@
 
   function paintRoster(list) {
     var el = $('room');
+    if (!el) return;
+    if (el.textContent && /newer GifOS/i.test(el.textContent)) return;
     if (!list || list.length < 2) {
       el.hidden = true;
       return;
@@ -366,7 +368,9 @@
         // Host snapshot arrives on subscribe; until then show the default.
         if (!lastFollow) loadAlgo(id, input, { play: false, paused: true, speed: speed });
       } else {
-        loadAlgo(id, input, { play: true, speed: speed });
+        // Alone: auto-play. With friends: wait for Play so idle kit copies write nothing.
+        var alone = !(room.others > 0);
+        loadAlgo(id, input, { play: alone, speed: speed });
       }
     }).catch(function () {
       loadAlgo('bubble-sort', null, { play: true });

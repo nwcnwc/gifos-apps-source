@@ -57,6 +57,8 @@
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
     if (!PEOPLE) {
+      var blurb = document.getElementById('blurb');
+      if (blurb) blurb.textContent = NEEDS_NEWER;
       var room = document.getElementById('room');
       if (room) { room.hidden = false; room.textContent = NEEDS_NEWER; }
       return Promise.resolve({ owner: true, others: 0 });
@@ -154,7 +156,7 @@
   root['__algorithm-visualizer'] = {
     state: function () {
       return lastSession ? {
-        algo: lastSession.algo, cursor: lastSession.cursor | 0,
+        algo: lastSession.algo,
         playing: !!lastSession.playing, by: lastSession.by || null
       } : null;
     },
