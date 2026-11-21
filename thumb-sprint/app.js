@@ -1,7 +1,10 @@
 /*
  * Thumb Sprint — mash pad, canvas track, solo ghost/cpu, versus.
- * Invite is OS chrome. Each person writes ONLY their own lanes row.
- * Host writes the race row. Photo finish is a local loop of positions.
+ * Invite is OS chrome. The lanes (seats) come from gifos.room; the line waits.
+ * Each seated person writes ONLY their own lanes row, when they tap. The app's
+ * owner (gifos.info().owner) writes the race row; when the owner leaves GifOS
+ * hands the app on and the next copy takes the race row over. Photo finish is
+ * a local loop of positions.
  */
 (function () {
   'use strict';
@@ -14,7 +17,9 @@
     { body: '#60a5fa', hi: '#bfdbfe', ink: '#0c1a3a' },
     { body: '#fbbf24', hi: '#fde68a', ink: '#3a2800' }
   ];
-  var STALE_MS = 9000, HB_MS = 3000, PUT_MS = 80;
+  var PUT_MS = 80;   // at most one lane write per 80 ms of tapping
+  var OWNER_POLL = 2000;   // ms between local info() reads, taken inside the frame loop (no network)
+  var EN = { needsNewer: 'Thumb Sprint needs a newer GifOS to play together. Reload the page to update.' };
   var CPU_ID = 'cpu', GHOST_ID = 'ghost';
 
   var $ = function (id) { return document.getElementById(id); };
@@ -26,12 +31,16 @@
   };
 
   var api = typeof gifos !== 'undefined' ? gifos : null;
+  var ROOM = !!(api && api.room && api.room.subscribe);
   var saveDb = null, raceDb = null, lanesDb = null;
   try {
     if (api && api.db) {
       saveDb = api.db('save');
-      raceDb = api.db('race');
-      lanesDb = api.db('lanes');
+      // An older GifOS has no room: solo play only, nothing shared is written.
+      if (ROOM) {
+        raceDb = api.db('race');
+        lanesDb = api.db('lanes');
+      }
     }
   } catch (e) {}
 
@@ -48,7 +57,10 @@
     photo: null,
     shown: {},
     lastPut: 0,
-    hb: 0,
+    rs: null,
+    rows: {},
+    joined: false,
+    ownerAt: 0,
     seq: -1,
     vsFriend: false,
     ignoreUntil: 0,
@@ -69,13 +81,37 @@
     return !!(S.mine && S.mine.finishedAt);
   }
 
-  function liveOthers() {
-    var t = now(), out = [];
-    for (var i = 0; i < S.others.length; i++) {
-      var p = S.others[i];
-      if (p && p.at && t - p.at < STALE_MS) out.push(p);
+  // The other seated people who are here (from the room); a lane row, when they have written one, carries their taps.
+  function liveOthers() { return S.others; }
+
+  function mySeated() {
+    return !ROOM || !S.rs || !S.rs.me || S.rs.me.seat != null;
+  }
+
+  function rebuildOthers() {
+    var out = [];
+    var rs = S.rs;
+    if (ROOM && rs) {
+      for (var i = 0; i < rs.seats.length; i++) {
+        var st = rs.seats[i];
+        if (!st.id || st.id === S.me.id || st.here !== 'here') continue;
+        var p = S.rows[st.id] || {};
+        out.push({
+          id: st.id,
+          name: st.name || 'Friend',
+          taps: p.taps || 0,
+          position: p.position || 0,
+          falseStart: !!p.falseStart,
+          finishedAt: p.finishedAt || 0,
+          at: 0,
+          ready: true,
+          seq: p.seq || 0
+        });
+      }
     }
-    return out;
+    S.others = out;
+    if (out.length && !S.vsFriend && (!S.race || !S.race.startAt || finished())) S.vsFriend = true;
+    if (iAmHost()) hostCompile();
   }
 
   function seatedIds() {
@@ -83,8 +119,9 @@
       return S.race.seats.slice(0, T.MAX_LANES);
     }
     if (S.vsFriend) {
-      var ids = [S.me.id].concat(liveOthers().map(function (p) { return p.id; }));
-      ids.sort();
+      var ids = [], seats = S.rs ? S.rs.seats : [];
+      for (var k = 0; k < seats.length; k++) if (seats[k].id && seats[k].here === 'here') ids.push(seats[k].id);
+      if (ids.indexOf(S.me.id) < 0 && mySeated()) ids.push(S.me.id);
       return ids.slice(0, T.MAX_LANES);
     }
     return [S.me.id, S.mode === 'ghost' ? GHOST_ID : CPU_ID];
@@ -121,7 +158,7 @@
   }
 
   function putMine(force) {
-    if (!lanesDb || !S.me.id || S.me.id === 'local') return;
+    if (!lanesDb || !S.me.id || S.me.id === 'local' || !mySeated() || !S.others.length) return;
     var t = now();
     if (!force && t - S.lastPut < PUT_MS) return;
     S.lastPut = t;
@@ -135,8 +172,6 @@
       position: S.mine.position || 0,
       falseStart: !!S.mine.falseStart,
       finishedAt: S.mine.finishedAt || 0,
-      at: t,
-      ready: true,
       seq: S.race ? S.race.seq : 0
     }).catch(function () {});
   }
@@ -150,6 +185,7 @@
 
   function hostStart() {
     if (!iAmHost()) return;
+    if (!mySeated()) return;
     var others = liveOthers();
     var vs = others.length > 0;
     S.vsFriend = vs;
@@ -224,29 +260,13 @@
   }
 
   function ingestLanes(list) {
-    var t = now();
-    var others = [];
+    S.rows = {};
     (list || []).forEach(function (p) {
       if (!p || !p.id || p.id === S.me.id) return;
-      if (p.id === 'race' || p.id === 'host-probe') return;
-      if (!p.at || t - p.at > STALE_MS) return;
-      others.push({
-        id: p.id,
-        name: p.name || 'Friend',
-        taps: p.taps || 0,
-        position: p.position || 0,
-        falseStart: !!p.falseStart,
-        finishedAt: p.finishedAt || 0,
-        at: p.at,
-        ready: !!p.ready,
-        seq: p.seq || 0
-      });
+      if (p.id === 'race') return;
+      S.rows[p.id] = p;   // only seated people are ever read (rebuildOthers)
     });
-    S.others = others;
-    if (others.length && !S.vsFriend && (!S.race || !S.race.startAt || finished())) {
-      S.vsFriend = true;
-    }
-    if (iAmHost()) hostCompile();
+    rebuildOthers();
   }
 
   function ingestRace(list) {
@@ -255,13 +275,15 @@
       if (r && r.id === 'race') rec = r;
     });
     if (!rec) return;
+    var first = !S.race;
     var prevSeq = S.race && S.race.seq;
     S.race = rec;
     if (rec.seq !== prevSeq) {
       resetMine();
       S.vsFriend = !!(rec.seats && rec.seats.length > 1 &&
         rec.seats.indexOf(CPU_ID) < 0 && rec.seats.indexOf(GHOST_ID) < 0);
-      putMine(true);
+      // A new race the owner started: my lane starts again from zero. Finding an old race on open is not a start.
+      if (!first) putMine(true);
     }
   }
 
@@ -379,10 +401,12 @@
 
   function statusLine(lanes) {
     if (!S.race || !S.race.startAt) {
+      if (ROOM && S.rs && S.rs.me && S.rs.me.role === 'waiting') return 'You are next in line.';
+      if (ROOM && S.rs && S.rs.me && S.rs.me.role === 'asking') return 'Waiting for the host to seat you.';
       if (S.vsFriend && liveOthers().length) {
         return iAmHost()
           ? 'A friend is in the next lane. Mash when you are ready.'
-          : 'Waiting for the host to start.';
+          : 'Waiting for the owner to start.';
       }
       if (S.vsFriend) return 'Press Invite in the bar above the app.';
       return S.mode === 'ghost'
@@ -422,7 +446,7 @@
     mash.classList.remove('warn', 'go');
     var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
     var seated = seatedIds();
-    var mySeat = seated.indexOf(S.me.id) >= 0;
+    var mySeat = seated.indexOf(S.me.id) >= 0 && mySeated();
     if (!mySeat) {
       label.textContent = 'WATCH';
       hint.textContent = 'watching';
@@ -774,6 +798,7 @@
     recordHistory(lanes, t);
     maybePhoto(lanes, t);
     if (iAmHost()) hostCompile();
+    if (ROOM && t - S.ownerAt > OWNER_POLL) { S.ownerAt = t; readOwner(); }
 
     var overlay = S.photo ? photoPos(t) : null;
     paintFrom(lanes, overlay);
@@ -794,25 +819,36 @@
     requestAnimationFrame(tick);
   }
 
-  function probeHost() {
-    if (!raceDb) { S.host = true; return Promise.resolve(true); }
-    return raceDb.put({ id: 'host-probe', by: S.me.id, t: now() }).then(function () {
-      S.host = true;
-      return raceDb.delete('host-probe').catch(function () {});
-    }).then(function () { return true; }).catch(function () {
-      S.host = false;
-      return false;
-    });
+  // Who owns the app can change (the owner leaves, GifOS hands it on): a local read, no network.
+  function readOwner() {
+    if (!api || !api.info) return Promise.resolve(S.host);
+    return api.info().then(function (i) {
+      var o = !(i && typeof i.owner === 'boolean') || !!i.owner;
+      if (o && !S.host) takeOver();
+      S.host = o;
+      return o;
+    }).catch(function () { return S.host; });
   }
 
-  function detectHost() {
-    if (api && api.info) {
-      return api.info().then(function (i) {
-        if (i && typeof i.owner === 'boolean') { S.host = !!i.owner; return S.host; }
-        return probeHost();
-      }).catch(function () { return probeHost(); });
+  // Handed the app mid-race: the race row names the old owner, so name myself and say so once.
+  function takeOver() {
+    S.host = true;
+    if (S.race && S.race.startAt && S.race.host !== S.me.id && !finished()) {
+      putRace(T.freshRace({
+        host: S.me.id, seed: S.race.seed, startAt: S.race.startAt, falseStarts: S.race.falseStarts,
+        finishOrder: S.race.finishOrder, seats: S.race.seats, names: S.race.names, seq: S.race.seq, phase: S.race.phase
+      }));
     }
-    return probeHost();
+    rebuildOthers();
+  }
+
+  function onRoom(s) {
+    S.rs = s;
+    if (s && s.me) { S.me.id = s.me.id; S.me.name = s.me.name || 'You'; }
+    // Opening the game is asking to play, once; the room seats me, lines me up, or asks the host.
+    if (!S.joined && s && s.me && s.me.role === 'watcher') { S.joined = true; api.room.join().catch(function () {}); }
+    readOwner();
+    rebuildOthers();
   }
 
   function bind() {
@@ -854,35 +890,47 @@
   function boot() {
     bind();
     resetMine();
-    var who = api && api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' });
-    who.then(function (id) {
-      S.me.id = (id && id.id) || 'local';
-      S.me.name = (id && id.name) || 'You';
-      resetMine();
-      var prefs = saveDb ? saveDb.getAll() : Promise.resolve([]);
-      return prefs.then(function (rows) {
-        (rows || []).forEach(function (r) {
-          if (r && r.id === 'best') S.best = r;
-          if (r && r.id === 'prefs' && (r.vs === 'ghost' || r.vs === 'cpu')) {
-            S.mode = r.vs;
-            Array.prototype.forEach.call($('modeSeg').children, function (c) {
-              c.classList.toggle('on', c.getAttribute('data-mode') === S.mode);
-            });
-          }
-        });
-        return detectHost();
-      });
-    }).then(function () {
+    if (!ROOM) {
+      // An older GifOS (or no GifOS): solo against the computer or the ghost, nothing shared.
+      if (api) { var note = $('note'); note.textContent = EN.needsNewer; note.hidden = false; }
+      if (saveDb) loadSave();
+      requestAnimationFrame(tick);
+      return;
+    }
+    loadSave().then(function () { return readOwner(); }).then(function () {
       if (lanesDb) lanesDb.subscribe(function (list) { ingestLanes(list || []); });
       if (raceDb) raceDb.subscribe(function (list) { ingestRace(list || []); });
-      putMine(true);
-      if (S.hb) clearInterval(S.hb);
-      S.hb = setInterval(function () { putMine(true); }, HB_MS);
+      api.room.subscribe(onRoom);
       requestAnimationFrame(tick);
     }).catch(function () {
       requestAnimationFrame(tick);
     });
   }
+
+  function loadSave() {
+    var prefs = saveDb ? saveDb.getAll() : Promise.resolve([]);
+    return prefs.then(function (rows) {
+      (rows || []).forEach(function (r) {
+        if (r && r.id === 'best') S.best = r;
+        if (r && r.id === 'prefs' && (r.vs === 'ghost' || r.vs === 'cpu')) {
+          S.mode = r.vs;
+          Array.prototype.forEach.call($('modeSeg').children, function (c) {
+            c.classList.toggle('on', c.getAttribute('data-mode') === S.mode);
+          });
+        }
+      });
+    });
+  }
+
+  // Low-rate shared state only (who is seated, which race) so copies can be compared.
+  window['__thumb-sprint'] = {
+    state: function () {
+      return {
+        seats: S.rs ? S.rs.seats.map(function (x) { return x.id || null; }) : [],
+        race: S.race ? { seq: S.race.seq, phase: S.race.phase } : null
+      };
+    }
+  };
 
   if (typeof document !== 'undefined') boot();
 })();

@@ -37,7 +37,7 @@ Invite is **OS chrome** — the bar above the app. This game does not draw its
 own invite button (`id="invite"` is forbidden).
 
 Each person writes **only their own** `lanes` row (`id = me`, taps + position).
-The host alone writes the `race` row (`seed`, `startAt`, false-start flags,
+The app's owner (GifOS hands that on if the owner leaves) alone writes the `race` row (`seed`, `startAt`, false-start flags,
 finish order). `race` is **read-only** for guests, so a second racer cannot
 put that row. 2–4 seated lanes.
 
@@ -46,7 +46,7 @@ put that row. 2–4 seated lanes.
 | capability | why |
 |---|---|
 | `db` | Private best-time, shared race + per-lane rows. |
-| `multiplayer` | One invite, side-by-side lanes. Needs nothing newer than the App Store, so `minBuild` is **947**. |
+| `multiplayer` | One invite, side-by-side lanes. Lanes (seats) come from `gifos.room`, so `minBuild` is **5861**. An older GifOS shows one line and plays solo, nothing shared. |
 
 No `network`, no `wasm`, no pointer lock. Stickers are procedural; nothing is
 fetched.
