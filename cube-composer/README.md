@@ -28,7 +28,7 @@ build.mjs       packs the GIF; BFS-checks every level still solves
 
 | capability | why |
 |---|---|
-| `db` | Solo save (private) and the room’s live scores (read-write). Needs nothing newer than the App Store itself, so `minBuild` is **947**. |
+| `db` | Solo save (private) and the room’s live scores (read-write). `minBuild` **5861** for gifos.people(). |
 | `multiplayer` | The room. Invite is OS chrome — this app never draws its own share sheet. |
 
 No `network`, no `wasm`. Classic JS.
