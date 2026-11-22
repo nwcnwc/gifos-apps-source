@@ -123,8 +123,9 @@
       var mine = null, i;
       for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
       if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
-      if (handed && !declined) {
-        // New owner must host the race after hand-off (P2).
+      if (handed) {
+        // Kit taps may have hit Leave; hand-off must still host (P2).
+        declined = false;
         if (!on) enter();
       } else if (key !== roomKey) {
         roomKey = key;
