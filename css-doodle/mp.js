@@ -305,7 +305,14 @@
     people: function () {
       return live(lastList).map(function (p) { return p.id; });
     },
-    amHost: function () { return on && owner && live(lastList).length > 1; }
+    amHost: function () {
+      var n = 0, i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') n++;
+      }
+      return on && owner && n > 1;
+    }
   };
 
   $('shareBtn').addEventListener('click', function (e) { e.preventDefault(); enter(); });
