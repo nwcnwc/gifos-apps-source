@@ -42,7 +42,7 @@ clean traces wins.
 | capability | why |
 |---|---|
 | `db` | Solo progress, private, inside the icon. |
-| `multiplayer` | Shared match + per-player stroke rows. `minBuild` **947**. |
+| `multiplayer` | Shared match + per-player stroke rows. `minBuild` **5861**. Who is here from gifos.people(); the owner hosts.. |
 
 No `network`. The characters are in the GIF. No `wasm`, no `pointer`.
 
