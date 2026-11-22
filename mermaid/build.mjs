@@ -45,7 +45,7 @@ const mermaidBuf = readFileSync(join(dir, 'vendor/mermaid.min.js'));
 if (/<\/script/i.test(mermaidBuf.toString('utf8'))) throw new Error('</script in mermaid.min.js');
 if (!mermaidBuf.toString('utf8').includes('ZM.mermaid=Dg()')) throw new Error('mermaid UMD global missing');
 
-if (manifest.minBuild !== 947 || manifest.appId !== 'mermaid') throw new Error('manifest');
+if (manifest.minBuild < 5861 || manifest.appId !== 'mermaid') throw new Error('manifest');
 if (!manifest.capabilities.db || !manifest.capabilities.multiplayer) throw new Error('caps');
 if (manifest.capabilities.network) throw new Error('no network');
 if (listing.basedOn.blessed !== false || listing.basedOn.name !== 'mermaid') throw new Error('basedOn');

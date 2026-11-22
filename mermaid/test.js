@@ -455,9 +455,14 @@ function loadEngine() {
 }
 
 // One collection store per page, the shape gifos.db hands an app.
-function fakeGifos(seed) {
+function fakeGifos(seed, opt) {
+  opt = opt || {};
   const cols = {};
   const writes = [];
+  const me = opt.me || { id: 'b-me', name: 'Me' };
+  const peopleRows = opt.people || [
+    { id: me.id, name: me.name, me: true, here: 'here' },
+  ];
   const db = (name) => {
     const rows = cols[name] = cols[name] || new Map(Object.entries((seed || {})[name] || {}));
     const subs = [];
@@ -465,11 +470,18 @@ function fakeGifos(seed) {
       put: (r) => { writes.push({ name, rec: JSON.parse(JSON.stringify(r)) }); rows.set(r.id, r); subs.forEach((f) => f([...rows.values()])); return Promise.resolve(r); },
       get: (id) => Promise.resolve(rows.has(id) ? rows.get(id) : null),
       getAll: () => Promise.resolve([...rows.values()]),
+      delete: (id) => { rows.delete(id); return Promise.resolve(); },
       subscribe: (f) => { subs.push(f); db.subs[name] = f; },
     };
   };
   db.subs = {};
-  return { db, writes, me: () => Promise.resolve({ id: 'b-me', name: 'Me' }), onBack() {} };
+  return {
+    db, writes,
+    me: () => Promise.resolve(me),
+    people: () => Promise.resolve(peopleRows.map((p) => Object.assign({}, p))),
+    info: () => Promise.resolve({ owner: opt.owner !== false }),
+    onBack() {}
+  };
 }
 
 function loadApp(engine, opts) {
@@ -616,13 +628,20 @@ function loadApp(engine, opts) {
     check('reopening restores and draws the saved document', C.$('src').value === 'pie title Saved\n  "a" : 1' &&
       C.rendered[C.rendered.length - 1].text === C.$('src').value && !!C.$('view').querySelector('svg'));
 
-    // Play together: a friend's newer round is adopted and drawn here.
-    const D = loadApp(engine, { gifos: fakeGifos() });
+    // Play together: a friend's newer round is adopted when they are in people().
+    const D = loadApp(engine, { gifos: fakeGifos(null, {
+      owner: false,
+      people: [
+        { id: 'b-me', name: 'Me', me: true, here: 'here' },
+        { id: 'a-friend', name: 'Friend', me: false, here: 'here' },
+      ],
+    }) });
+    await wait(30);
     D.$('shareBtn').click();
-    await wait(10);
+    await wait(30);
     const room = D.g.gifos.db.subs.room;
-    if (room) room([{ id: 'a-friend', name: 'Friend', round: 7, text: FIXTURE, at: Date.now() }]);
-    await wait(20);
+    if (room) room([{ id: 'a-friend', name: 'Friend', round: 7, text: FIXTURE }]);
+    await wait(40);
     check('Play together joins the room and shows a friend\'s newer diagram',
       !!room && !D.$('friend-bar').hidden && D.$('src').value === FIXTURE && D.rendered[D.rendered.length - 1].text === FIXTURE);
   }
