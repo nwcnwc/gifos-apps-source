@@ -75,7 +75,7 @@ if (/type=["']module["']/.test(html)) throw new Error('classic scripts only');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare db + multiplayer');
 }
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861');
 if (manifest.capabilities.network) throw new Error('no network');
 if (!listing.basedOn || listing.basedOn.blessed !== false) throw new Error('blessed must be false');
 if ((listing.author && listing.author.name) === 'GifOS') throw new Error('author is THEM');

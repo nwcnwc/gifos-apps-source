@@ -23,6 +23,8 @@ A potion spends one flask and hurts every monster near you.
 
 ## Extra adventurers
 
+Who is here comes from gifos.people(). The app owner hosts the dungeon; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.
+
 Press **Invite** in the bar **above** the app and send the link. There is no in-app share button. A friend who opens it takes a free class and walks into **your** dungeon. Up to four classes. The person who opened the app runs the monsters; everyone else walks and shoots in that same room.
 
 When every adventurer is down, the run is over.

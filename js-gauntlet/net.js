@@ -7,24 +7,47 @@
   'use strict';
 
   var api = root.gifos || null;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'JS Gauntlet needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var me = { id: 'local', name: 'You' };
-  var owner = true;
+  var owner = false;
+  var roomPeople = [];
+  var roomKey = '';
+  var roomRead = false;
   var others = {};
   var held = {};
   var lastPub = 0;
+  var lastSelfSig = '';
   var world = null;
-  var STALE = 4000;
+  var worldSeq = 0;
   var TYPES = ['WARRIOR', 'VALKYRIE', 'WIZARD', 'ELF'];
   var joining = false;
   var nuked = {};
 
   function now() { return Date.now(); }
   function db(n) { return api && api.db ? api.db(n) : null; }
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
   function liveOthers() {
-    var list = [], id, o;
+    var list = [], id, o, names = peopleNames();
     for (id in others) {
       o = others[id];
-      if (o && (now() - o.seen) < STALE) list.push(o);
+      if (o && names[id]) list.push(o);
     }
     return list;
   }
@@ -140,7 +163,7 @@
   }
 
   function publish(g) {
-    if (!owner || !g || !g.map) return;
+    if (!PEOPLE || !owner || !g || !g.map) return;
     var t = now();
     if (t - lastPub < 80) return;
     lastPub = t;
@@ -164,8 +187,9 @@
       e = snapEnt(g.map.entities[i]);
       if (e) ents.push(e);
     }
+    worldSeq = (worldSeq | 0) + 1;
     d.put({
-      id: 'world', n: g.map.nlevel, p: plist, e: ents, seen: t
+      id: 'world', n: g.map.nlevel, p: plist, e: ents, seq: worldSeq
     }).catch(function () {});
   }
 
@@ -245,20 +269,25 @@
     catch (err) { joining = false; }
   }
 
-  function writeSelf() {
+  function writeSelf(force) {
+    if (!PEOPLE || !me.id) return;
     var d = db('players');
     if (!d) return;
     var g = root.game;
     var rec = {
       id: me.id,
-      name: me.name,
       type: g && g.player ? typeOf(g.player) : null,
-      l: !!held.left, r: !!held.right, u: !!held.up, dwn: !!held.down,
-      f: !!held.fire, n: !!held.potion,
-      seen: now()
+      l: !!held.left, r: !!held.right, u: !!held.up,
+      d: !!held.down,
+      f: !!held.fire, n: !!held.potion
     };
-    rec.d = rec.dwn;
-    delete rec.dwn;
+    var sig = JSON.stringify(rec);
+    if (!force && sig === lastSelfSig) {
+      maybeJoin();
+      paintTaken();
+      return;
+    }
+    lastSelfSig = sig;
     d.put(rec).catch(function () {});
     held.potion = false;
     maybeJoin();
@@ -266,11 +295,12 @@
   }
 
   function onPlayers(rows) {
+    var names = peopleNames();
     others = {};
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       if (!r || r.id === me.id) continue;
-      r.seen = r.seen || now();
+      if (!names[r.id]) continue;
       others[r.id] = r;
     }
     paintTaken();
@@ -292,19 +322,45 @@
     }
   }
 
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      var handed = !owner && !!info.owner && roomRead;
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey || handed) {
+        roomKey = key;
+        if (handed) status('');
+        else if (!owner) status('Waiting for the host to start the dungeon.');
+        paintTaken();
+      }
+    }, function () {});
+  }
+
   function init() {
     if (!api) return;
-    Promise.all([
-      api.me ? api.me() : Promise.resolve(me),
-      api.info ? api.info() : Promise.resolve({ owner: true })
-    ]).then(function (pair) {
-      me = pair[0] || me;
-      owner = !!(pair[1] && pair[1].owner);
+    if (!PEOPLE) {
+      status(NEEDS_NEWER);
+      return;
+    }
+    readRoom().then(function () {
       var pd = db('players'), wd = db('world');
       if (pd && pd.subscribe) pd.subscribe(onPlayers);
       if (wd && wd.subscribe) wd.subscribe(onWorld);
       if (!owner) status('Waiting for the host to start the dungeon.');
-      setInterval(writeSelf, 100);
+      // Poll input; writeSelf skips when unchanged (kit K3).
+      setInterval(function () { writeSelf(false); }, 100);
+      setInterval(readRoom, PEOPLE_MS);
     }).catch(function (err) {
       status((err && err.message) || 'Could not join the room.');
     });
@@ -320,7 +376,7 @@
     guestWatching: function () {
       return !owner && !!world && !!(root.game && root.game.map);
     },
-    noteInput: function (h) { held = h || held; },
+    noteInput: function (h) { held = h || held; writeSelf(true); },
     freeType: freeType,
     taken: taken,
     isOwner: function () { return owner; },
@@ -342,4 +398,28 @@
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else setTimeout(init, 0);
+
+  root['__js-gauntlet'] = {
+    state: function () {
+      return world ? { n: world.n | 0, seq: world.seq | 0 } : null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'jsg-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
+
 })(window);
