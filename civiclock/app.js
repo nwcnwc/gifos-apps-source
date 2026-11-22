@@ -34,6 +34,7 @@
   var roomKey = '';
   var roomRead = false;
   var mpOn = false;
+  var sharedSnap = null; // city row only — local paint races ahead of the host put
   var cam = { x: 0, y: 0, s: 1 };
   var canvas = $('map');
   var ctx = canvas.getContext('2d');
@@ -178,9 +179,21 @@
     requestAnimationFrame(loop);
   }
 
+  function noteShared(w) {
+    if (!w) return;
+    sharedSnap = {
+      month: w.month | 0,
+      pop: w.pop | 0,
+      money: w.money | 0,
+      v: w.v | 0,
+      speed: w.speed | 0
+    };
+  }
+
   function persistWorld(w) {
     world = w;
     if (!cityDb || !PEOPLE) return;
+    noteShared(w);
     cityDb.put(C.dump(w)).catch(function () {});
   }
 
@@ -507,6 +520,7 @@
             if (rec && rec.tiles) {
               if (!owner && rec.v && world.v && rec.v < world.v) return;
               world = C.load(rec);
+              noteShared(world);
               if (world.kind === 'village' || world.pop > 0) hideCoach();
             }
           });
@@ -518,6 +532,7 @@
       .then(function (rec) {
         if (rec && rec.tiles) {
           world = C.load(rec);
+          noteShared(world);
           if (world.kind === 'village' || world.pop > 0) hideCoach();
         } else if (owner) {
           persistWorld(world);
@@ -539,14 +554,8 @@
   window.CiviclockApp = { coverShot: coverShot, world: function () { return world; }, setWorld: persistWorld };
   window['__civiclock'] = {
     state: function () {
-      if (!mpOn || !PEOPLE) return null;
-      return {
-        month: world.month | 0,
-        pop: world.pop | 0,
-        money: world.money | 0,
-        v: world.v | 0,
-        speed: world.speed | 0
-      };
+      // City row only — local paint/ticks race ahead of the shared put.
+      return sharedSnap;
     },
     people: function () {
       var names = peopleNames(), out = [], id;
