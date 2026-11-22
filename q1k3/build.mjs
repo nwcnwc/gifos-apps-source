@@ -125,8 +125,8 @@ if (!manifest.capabilities.fullscreen) {
 if (manifest.capabilities.network) {
   throw new Error('Q1K3 has no network path. Do not declare capabilities.network.');
 }
-if (manifest.minBuild !== 1314) {
-  throw new Error('minBuild must be 1314 — pointer lock is 1285 and fullscreen is 1314');
+if (manifest.minBuild !== 5861) {
+  throw new Error('minBuild must be 5861 — pointer lock is 1285 and fullscreen is 1314');
 }
 if (manifest.appId !== 'q1k3') throw new Error('appId must be q1k3');
 

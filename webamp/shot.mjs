@@ -71,6 +71,10 @@ function stubSource() {
       },
       me: function () { return Promise.resolve({ id: 'me', name: 'You' }); },
       info: function () { return Promise.resolve({ owner: true, appId: 'webamp' }); },
+      people: function () {
+        var list = window.__people || [{ id: 'me', name: 'You', here: 'here', me: true }];
+        return Promise.resolve(list.slice());
+      },
       onBack: function () {}
     };
   }.toString() + ')();';
@@ -258,6 +262,10 @@ export async function captureCover() {
     })`);
     await evaluate(cdp, sid, `(async function () {
       var room = gifos.db('room');
+      window.__people = [
+        { id: 'me', name: 'You', here: 'here', me: true },
+        { id: 'guest-1', name: 'Sam', here: 'here', me: false }
+      ];
       await room.put({ id: 'guest-1', kind: 'peer', name: 'Sam', at: Date.now() });
       await room.put({
         id: 'mix', kind: 'mix',

@@ -3,8 +3,8 @@
   "appId": "q1k3",
   "name": "Q1K3",
   "shortName": "Q1K3",
-  "version": "1.0.1",
-  "minBuild": 1314,
+  "version": "1.0.2",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [196, 92, 36],
   "capabilities": {

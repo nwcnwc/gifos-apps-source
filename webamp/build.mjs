@@ -46,7 +46,7 @@ if (!existsSync(join(dir, 'vendor', 'COPYING-webamp.txt'))) {
   throw new Error('vendor/COPYING-webamp.txt is missing — the MIT notice must ride inside the GIF');
 }
 
-if (manifest.minBuild !== 2154) throw new Error('minBuild must be 2154 — capabilities.links');
+if (manifest.minBuild !== 5861) throw new Error('minBuild must be 5861 — capabilities.links');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
 }

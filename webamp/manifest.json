@@ -3,8 +3,8 @@
   "appId": "webamp",
   "name": "Webamp",
   "shortName": "Webamp",
-  "version": "1.0.0",
-  "minBuild": 2154,
+  "version": "1.0.1",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [0, 255, 0],
   "capabilities": {
