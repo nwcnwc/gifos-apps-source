@@ -5,12 +5,16 @@
  * + body). The elected host (lowest present id) writes gifos.db('arena') —
  * seed, apple, tick — and never anyone else's snake. Guests never write arena.
  * Invite is OS chrome; this file has no Invite button.
+ * Who is here is gifos.people(). The app owner writes the arena.
  */
 (function () {
   'use strict';
 
   var G = window.SnakeGame;
-  var STALE_MS = 8000, HOLD_MS = 2500, HB_MS = 1500;
+  var HOLD_MS = 2500;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(window.gifos && window.gifos.people);
+  var NEEDS_NEWER = 'Snake needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var FIELD = '#00008c', FOOD = '#ff3030', FOOD_HI = '#ffd24a', LEAF = '#3cb85a';
 
   var canvas = document.getElementById('board');
@@ -42,8 +46,12 @@
   var others = {};               // id -> {id,name,body,alive,len,d,x,y,at,color}
   var arena = null;
   var snakesDb = null, arenaDb = null, prefsDb = null;
-  var soloTimer = 0, hostTimer = 0, hbTimer = 0;
+  var soloTimer = 0, hostTimer = 0;
   var lastPublish = 0;
+  var lastPubSig = '';
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
   var cell = 20, dpr = 1;
   var swipe = null;
   var touchy = false;
@@ -57,7 +65,16 @@
     if (!mp && touchy) v = Math.round(v * 2);
     return v;
   }
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
   function isHost() {
+    if (PEOPLE) return !!owner;
     var ids = presentIds();
     if (!ids.length) return true;
     var h = ids[0];
@@ -65,9 +82,10 @@
     return h === me.id;
   }
   function presentIds() {
-    var t = now(), ids = [me.id];
+    var names = peopleNames(), ids = [];
+    if (me.id && names[me.id]) ids.push(me.id);
     for (var id in others) {
-      if (others[id] && t - others[id].at < STALE_MS && ids.indexOf(id) < 0) ids.push(id);
+      if (others[id] && names[id] && ids.indexOf(id) < 0) ids.push(id);
     }
     return ids.sort();
   }
@@ -134,6 +152,7 @@
   /* ------------------------------------------------------------------ */
 
   function publish(force) {
+    if (mp && !PEOPLE) return;
     if (!snakesDb || me.id === 'local') return;
     var t = now();
     if (!force && t - lastPublish < 40) return;
@@ -161,10 +180,11 @@
   }
 
   function ingestSnakes(list) {
-    var t = now(), seen = {};
+    var t = now(), seen = {}, names = peopleNames();
     for (var i = 0; i < (list || []).length; i++) {
       var p = list[i];
       if (!p || !p.id || p.id === me.id) continue;
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
       var body = G.unpackBody(p.body);
       var prev = others[p.id];
@@ -188,7 +208,8 @@
         stamp: p.at
       };
     }
-    for (var id in others) if (!seen[id] || t - others[id].at > STALE_MS) delete others[id];
+    var names = peopleNames();
+    for (var id in others) if (!seen[id] || !names[id]) delete others[id];
     var n = presentCount();
     if (n >= 2 && !mp) enterMp();
     if (n < 2 && mp && view === 'play') leaveMpToSolo();
@@ -330,7 +351,7 @@
     if (snake.alive) live.push({ id: me.id, name: me.name });
     for (var id in others) {
       var o = others[id];
-      if (!o || t - o.at > STALE_MS) continue;
+      if (!o || !peopleNames()[id]) continue;
       if (!o.alive) anyDead = true;
       else live.push({ id: o.id, name: o.name });
     }
@@ -839,21 +860,47 @@
       loadPrefs().then(function () {
         if (view === 'welcome') welcome();
       });
-      var who = api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' });
-      Promise.resolve(who).then(function (id) {
-        me.id = (id && id.id) || 'local';
-        me.name = (id && id.name) || 'You';
-        if (snakesDb) snakesDb.subscribe(function (list) { ingestSnakes(list || []); });
-        if (arenaDb) arenaDb.subscribe(function (list) { ingestArena(list || []); });
-        publish(true);
-        if (hbTimer) clearInterval(hbTimer);
-        hbTimer = setInterval(function () { publish(true); }, HB_MS);
-      }).catch(function () {});
+      function readRoom() {
+        if (!PEOPLE || !api) return Promise.resolve();
+        return Promise.all([
+          api.people(),
+          api.info ? api.info() : Promise.resolve({})
+        ]).then(function (r) {
+          var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+          var info = r[1] || {};
+          var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+          roomPeople = ppl;
+          owner = !!info.owner;
+          var mine = null, i;
+          for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+          if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+          if (key !== roomKey) {
+            roomKey = key;
+            var names = peopleNames(), id;
+            for (id in others) if (!names[id]) delete others[id];
+          }
+        }, function () {});
+      }
+      if (!PEOPLE) { /* solo only on old GifOS */ }
+      else {
+        readRoom().then(function () {
+          if (snakesDb) snakesDb.subscribe(function (list) { ingestSnakes(list || []); });
+          if (arenaDb) arenaDb.subscribe(function (list) { ingestArena(list || []); });
+          publish(true);
+          setInterval(readRoom, PEOPLE_MS);
+        }).catch(function () {});
+      }
     }
     if (api && api.onBack) {
       api.onBack(function () { return onBack(); });
     }
   }
+
+  window['__snake'] = {
+    state: function () { return arena ? { tick: arena.tick | 0, seed: arena.seed | 0 } : (mp ? { len: snake.len || 0 } : null); },
+    people: function () { return presentIds(); },
+    amHost: function () { return PEOPLE && owner && presentCount() > 1; }
+  };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();

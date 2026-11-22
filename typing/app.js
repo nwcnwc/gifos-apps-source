@@ -392,17 +392,23 @@
 
   // ---- multiplayer ----
   // One collection. Each person writes ONLY their own row (id = me).
-  // The race row (shared passage) is written only by the host (lowest live id).
-  var PRES_TTL = 9000, HB_MS = 3000, END_HOLD = 5000;
+  // The race row (shared passage) is written only by the app owner.
+  // Who is here is gifos.people(). No heartbeat.
+  var PEOPLE = !!(window.gifos && window.gifos.people);
+  var PEOPLE_MS = 2000;
+  var END_HOLD = 5000;
+  var NEEDS_NEWER = 'Typing needs a newer GifOS to race with friends. Reload the page to update. Solo works on this device.';
   var mpDb = null;
   try { if (window.gifos) mpDb = gifos.db('room'); } catch (e) {}
   var mp = {
     on: false, id: null, name: 'You', row: null, race: null, people: [],
-    hb: 0, sub: false, typed: '', startedAt: 0, finishedAt: 0, done: false, seq: -1, misses: 0
+    sub: false, typed: '', startedAt: 0, finishedAt: 0, done: false, seq: -1, misses: 0,
+    owner: false, roomPeople: [], roomKey: '', lastPubSig: ''
   };
   var _items = [];
 
   function isHost(people) {
+    if (PEOPLE) return !!mp.owner;
     if (!people.length) return true;
     var m = people[0].id, i;
     for (i = 0; i < people.length; i++) if (people[i].id < m) m = people[i].id;
@@ -417,11 +423,11 @@
     };
   }
   function putMe(extra) {
-    if (!mpDb || !mp.id) return;
+    if (!mpDb || !mp.id || !PEOPLE) return;
     var s = T.score((mp.race && mp.race.text) || '', mp.typed,
       mp.startedAt ? ((mp.finishedAt || nowMs()) - mp.startedAt) : 0, mp.misses);
     var row = {
-      id: mp.id, name: mp.name, at: nowMs(),
+      id: mp.id,
       seq: mp.race ? mp.race.seq : 0,
       n: mp.typed.length,
       wpm: T.round1(s.wpm),
@@ -432,10 +438,15 @@
     if (extra) {
       if (extra.seq != null) row.seq = extra.seq;
     }
+    var sig = JSON.stringify(row);
+    if (sig === mp.lastPubSig) return;
+    mp.lastPubSig = sig;
+    row.name = mp.name;
+    row.at = nowMs();
     mp.row = row;
     mpDb.put(row).catch(function () {});
   }
-  function putRace(r) { mp.race = r; mpDb.put(r).catch(function () {}); }
+  function putRace(r) { if (!PEOPLE || !mpDb) return; mp.race = r; mpDb.put(r).catch(function () {}); }
 
   function raceOpen(race, people) {
     if (!race || people.length < 2) return false;
@@ -450,11 +461,26 @@
     return left;
   }
 
+  window['__typing'] = {
+    state: function () { return mp.on && mp.race ? { seq: mp.race.seq | 0, n: mp.typed.length } : null; },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      var n = 0, id, names = peopleNames();
+      for (id in names) n++;
+      return mp.on && mp.owner && n > 1;
+    }
+  };
   $('friendBtn').onclick = mpEnter;
   function mpEnter() {
     if (!mpDb) { setChip('', 'Play a friend needs storage.'); return; }
-    (window.gifos ? gifos.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (me) {
-      mp.id = me.id; mp.name = me.name || 'You'; mp.on = true; mp.row = null;
+    if (!PEOPLE) { setChip('', NEEDS_NEWER); return; }
+    readRoom().then(function () {
+      if (!mp.id) return;
+      mp.on = true; mp.row = null; mp.lastPubSig = '';
       mp.typed = ''; mp.startedAt = 0; mp.finishedAt = 0; mp.done = false; mp.seq = -1; mp.misses = 0;
       $('fKb').value = '';
       show('friend');
@@ -464,8 +490,7 @@
         mpDb.subscribe(function (items) { _items = items || []; mpRefresh(); });
       }
       putMe();
-      if (mp.hb) clearInterval(mp.hb);
-      mp.hb = setInterval(function () { if (mp.on) putMe(); }, HB_MS);
+      setInterval(readRoom, PEOPLE_MS);
       startTick();
       mpPaint({ snap: true });
     });
@@ -473,23 +498,52 @@
   function mpLeave() {
     mp.on = false;
     stopTick();
-    if (mp.hb) clearInterval(mp.hb); mp.hb = 0;
     if (mpDb && mp.id) mpDb.delete(mp.id).catch(function () {});
     goHome();
   }
   $('fLeave').onclick = mpLeave;
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < (mp.roomPeople || []).length; i++) {
+      p = mp.roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+  function readRoom() {
+    if (!PEOPLE || !window.gifos) return Promise.resolve();
+    return Promise.all([
+      gifos.people(),
+      gifos.info ? gifos.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      mp.roomPeople = ppl;
+      mp.owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { mp.id = mine.id; mp.name = mine.name || 'You'; }
+      if (key !== mp.roomKey) {
+        mp.roomKey = key;
+        if (mp.on) mpRefresh();
+      }
+    }, function () {});
+  }
   function mpRefresh() {
     if (!mp.on) return;
     var t = nowMs();
+    var names = peopleNames();
     var people = [], race = null, i, it;
     for (i = 0; i < _items.length; i++) {
       it = _items[i];
       if (!it || !it.id) continue;
       if (it.id === 'race') { race = it; continue; }
-      if (it.at && t - it.at < PRES_TTL) people.push(it);
+      if (!names[it.id]) continue;
+      people.push(Object.assign({}, it, { name: names[it.id] || it.name }));
     }
-    if (!people.some(function (p) { return p.id === mp.id; })) {
+    if (mp.id && names[mp.id] && !people.some(function (p) { return p.id === mp.id; })) {
       people.push(mp.row || { id: mp.id, name: mp.name, at: t });
     }
     mp.people = people;

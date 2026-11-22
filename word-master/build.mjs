@@ -89,7 +89,7 @@ if (/https?:\/\//i.test(html) && /src=["']https?:/i.test(html)) {
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
 }
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947 (nothing newer than the App Store)');
+if (manifest.minBuild !== 5861) throw new Error('minBuild must be 5861 (nothing newer than the App Store)');
 if (manifest.capabilities.network) throw new Error('word-master has no network path');
 if (!files['app.js'].includes('players') || !files['app.js'].includes('guesses')) {
   throw new Error('app.js must publish guess counts on the players collection');

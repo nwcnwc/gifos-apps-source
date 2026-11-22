@@ -3,17 +3,27 @@
   "appId": "snake",
   "name": "Snake",
   "shortName": "Snake",
-  "version": "1.0.0",
-  "minBuild": 947,
+  "version": "1.0.1",
+  "minBuild": 5861,
   "entry": "index.html",
-  "accent": [56, 176, 72],
+  "accent": [
+    56,
+    176,
+    72
+  ],
   "capabilities": {
     "db": true,
     "multiplayer": true
   },
   "data": {
-    "prefs": { "visibility": "private" },
-    "snakes": { "visibility": "read-write" },
-    "arena": { "visibility": "read-write" }
+    "prefs": {
+      "visibility": "private"
+    },
+    "snakes": {
+      "visibility": "read-write"
+    },
+    "arena": {
+      "visibility": "read-write"
+    }
   }
 }

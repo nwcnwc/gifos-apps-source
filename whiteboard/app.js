@@ -615,3 +615,18 @@
   }
   loadWords().then(boot, boot);
 })();
+
+(function () {
+  window['__whiteboard'] = {
+    state: function () { return (window.gifos && window.gifos.people) ? { ok: 1 } : null; },
+    people: function () {
+      try {
+        var c = window.__wbCollab;
+        return c && c.people ? c.people().map(function (p) { return p.pid || p.id; }) : [];
+      } catch (e) { return []; }
+    },
+    amHost: function () {
+      try { return !!(window.__wbCollab && window.__wbCollab.amHost && window.__wbCollab.amHost()); } catch (e) { return false; }
+    }
+  };
+})();

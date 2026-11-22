@@ -35,8 +35,7 @@
   var FLUSH_BUSY_MS = 400; // ...and this long when many elements move at once
   var BUSY_ROWS = 20;
   var RETRY_MS = 3000;     // a refused or lost write waits this long before the next send
-  var BEAT_MS = 3000;      // presence heartbeat
-  var STALE_MS = 10000;    // no heartbeat for this long: gone
+  var PEOPLE_MS = 2000;    // poll gifos.people()
   var POINTER_MS = 400;    // a moving pointer is sent at most this often
   var POINTER_MAX = 12;    // more people than this: no pointer traffic at all
   var HEAL_MS = 1500;      // how long a winner may be missing from the room before a page that has it sends it
@@ -266,46 +265,85 @@
       if (n) { stats.healed += n; touch(); }
     }
 
-    // ---- who is here -----------------------------------------------------------
-    function presRow() {
-      var row = { id: board.actor, pid: me.id, name: me.name || '', at: now() };
+    // ---- who is here: gifos.people(); pointers only on move (no heartbeat) ----
+    var PEOPLE = !!(typeof gifos !== 'undefined' && gifos && gifos.people);
+    var roomPeople = [];
+    var roomOwner = false;
+    var lastPtrSig = '';
+    function peopleNames() {
+      var m = {}, i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+      }
+      return m;
+    }
+    function paintPeople() {
+      var names = peopleNames(), ptr = Object.create(null), out = [], id;
+      (presRows || []).forEach(function (p) {
+        if (!p || typeof p.id !== 'string') return;
+        ptr[p.id] = p;
+      });
+      for (id in names) {
+        var p = ptr[id] || {};
+        out.push({
+          id: id,
+          pid: String(p.pid || id),
+          name: String(names[id] || p.name || '').slice(0, 60),
+          me: id === me.id || id === board.actor,
+          x: typeof p.x === 'number' && isFinite(p.x) ? p.x : null,
+          y: typeof p.y === 'number' && isFinite(p.y) ? p.y : null
+        });
+      }
+      out.sort(function (a, b) { return a.id < b.id ? -1 : 1; });
+      people = out;
+      onPeople(out);
+    }
+    function readRoom() {
+      if (!PEOPLE || stopped || typeof gifos === 'undefined') return Promise.resolve();
+      return Promise.all([
+        gifos.people(),
+        gifos.info ? gifos.info() : Promise.resolve({})
+      ]).then(function (r) {
+        roomPeople = (r[0] || []).filter(function (p) { return p && p.id; });
+        roomOwner = !!(r[1] && r[1].owner);
+        var mine = null, i;
+        for (i = 0; i < roomPeople.length; i++) if (roomPeople[i].me) mine = roomPeople[i];
+        if (mine) { me.id = mine.id; me.name = mine.name || me.name; }
+        paintPeople();
+      }, function () {});
+    }
+    function putPointer(force) {
+      if (stopped || !PEOPLE) return;
+      var row = { id: board.actor, pid: me.id, name: me.name || '' };
       if (pointer) { row.x = pointer.x; row.y = pointer.y; }
       if (extra) for (var k in extra) row[k] = extra[k];
-      return row;
-    }
-    function beat() {
-      if (stopped) return;
-      try { Promise.resolve(pres.put(presRow())).catch(function () {}); } catch (e) {}
+      var sig = JSON.stringify(row);
+      if (!force && sig === lastPtrSig) return;
+      lastPtrSig = sig;
+      row.at = now();
+      try { Promise.resolve(pres.put(row)).catch(function () {}); } catch (e) {}
     }
     function onPres(rows) {
       if (stopped) return;
       presRows = rows || [];
-      var t = now(), out = [];
-      presRows.forEach(function (p) {
-        if (!p || typeof p.id !== 'string' || p.id.length > 200) return;
-        var s = seenAt[p.id];
-        if (!s || s.at !== p.at) s = seenAt[p.id] = { at: p.at, seen: t };
-        if (t - s.seen > STALE_MS) return;
-        out.push({ id: p.id, pid: String(p.pid || p.id), name: String(p.name || '').slice(0, 60), me: p.id === board.actor,
-                   x: typeof p.x === 'number' && isFinite(p.x) ? p.x : null, y: typeof p.y === 'number' && isFinite(p.y) ? p.y : null });
-      });
-      out.sort(function (a, b) { return a.id < b.id ? -1 : 1; });
-      people = out;
-      onPeople(out);
+      paintPeople();
     }
     function setPointer(x, y) {
       pointer = (x == null) ? null : { x: Math.round(x), y: Math.round(y) };
       if (people.length > POINTER_MAX || people.length < 2) return;
       var wait = POINTER_MS - (now() - pointerAt);
-      if (wait <= 0) { pointerAt = now(); beat(); }
-      else if (!pointerTimer) pointerTimer = setT(function () { pointerTimer = 0; pointerAt = now(); beat(); }, wait);
+      if (wait <= 0) { pointerAt = now(); putPointer(false); }
+      else if (!pointerTimer) pointerTimer = setT(function () { pointerTimer = 0; pointerAt = now(); putPointer(false); }, wait);
     }
 
     function start() {
       els.subscribe(onRows);
-      pres.subscribe(onPres);
-      beat();
-      (function loop() { beatTimer = setT(function () { beat(); onPres(presRows); loop(); }, BEAT_MS); })();
+      if (PEOPLE) {
+        pres.subscribe(onPres);
+        readRoom();
+        beatTimer = setT(function loop() { readRoom(); beatTimer = setT(loop, PEOPLE_MS); }, PEOPLE_MS);
+      }
     }
     function stop() {
       flush();
@@ -315,9 +353,10 @@
     }
 
     return { start: start, stop: stop, touch: touch, flush: flush, setPointer: setPointer,
-             setExtra: function (o) { extra = o; }, setName: function (n) { me.name = n || me.name; beat(); },
-             pending: pending, people: function () { return people; }, stats: stats };
+             setExtra: function (o) { extra = o; }, setName: function (n) { me.name = n || me.name; putPointer(true); },
+             pending: pending, people: function () { return people; }, stats: stats,
+             amHost: function () { return roomOwner && people.length > 1; } };
   }
 
-  return { Board: Board, sync: sync, newer: newer, legal: legal, keyOf: keyOf, STALE_MS: STALE_MS };
+  return { Board: Board, sync: sync, newer: newer, legal: legal, keyOf: keyOf };
 });

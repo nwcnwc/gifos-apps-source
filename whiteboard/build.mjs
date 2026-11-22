@@ -106,7 +106,7 @@ for (const [n, s] of Object.entries(files)) {
 }
 
 // --- manifest checks ---
-if (manifest.minBuild !== 947) fail('minBuild must be 947 — this app needs nothing newer than the store.');
+if (manifest.minBuild !== 5861) fail('minBuild must be 5861 — this app needs nothing newer than the store.');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   fail('manifest must declare capabilities.db and capabilities.multiplayer');
 }

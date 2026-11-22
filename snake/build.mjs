@@ -64,7 +64,7 @@ if (!html.includes('href="style.css"')) throw new Error('index.html does not loa
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare db + multiplayer');
 }
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947');
+if (manifest.minBuild !== 5861) throw new Error('minBuild must be 5861');
 if (manifest.capabilities.network) throw new Error('snake has no network path');
 for (const [n, s] of Object.entries(files)) {
   if (!n.endsWith('.js')) continue;

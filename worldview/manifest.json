@@ -3,29 +3,54 @@
   "appId": "worldview",
   "name": "Worldview",
   "shortName": "worldview",
-  "version": "1.0.0",
-  "minBuild": 1089,
+  "version": "1.0.1",
+  "minBuild": 5861,
   "description": "NASA's satellite imagery of the whole Earth, every day since 2000, in a GIF. 74 layers from the Global Imagery Browse Services, a timeline you can scrub and animate, A/B compare, and an offline base map so the world is still there on a plane. One invite and someone else is looking at the same map, live.",
   "entry": "index.html",
-  "accent": [76, 194, 255],
+  "accent": [
+    76,
+    194,
+    255
+  ],
   "help": "help.md",
   "capabilities": {
     "db": true,
     "multiplayer": true,
-    "network": ["gibs.earthdata.nasa.gov"],
-    "pool": ["gibs.earthdata.nasa.gov"]
+    "network": [
+      "gibs.earthdata.nasa.gov"
+    ],
+    "pool": [
+      "gibs.earthdata.nasa.gov"
+    ]
   },
   "data": {
-    "prefs": { "visibility": "private" },
-    "tiles": { "visibility": "private" },
-    "tilecache": { "visibility": "private" },
-    "legends": { "visibility": "private" },
-    "views": { "visibility": "read-write" },
-    "session": { "visibility": "read-write" },
-    "cursors": { "visibility": "read-write" }
+    "prefs": {
+      "visibility": "private"
+    },
+    "tiles": {
+      "visibility": "private"
+    },
+    "tilecache": {
+      "visibility": "private"
+    },
+    "legends": {
+      "visibility": "private"
+    },
+    "views": {
+      "visibility": "read-write"
+    },
+    "session": {
+      "visibility": "read-write"
+    },
+    "cursors": {
+      "visibility": "read-write"
+    }
   },
   "lead": [
-    { "collection": "session", "id": "view" }
+    {
+      "collection": "session",
+      "id": "view"
+    }
   ],
   "launch": {
     "at": {
@@ -34,7 +59,7 @@
     },
     "date": {
       "label": "Open on a particular day",
-      "detail": "A day like 2018-09-12 — the imagery from that date."
+      "detail": "A day like 2018-09-12 \u2014 the imagery from that date."
     },
     "layers": {
       "label": "Open with these layers switched on",

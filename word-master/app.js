@@ -19,7 +19,9 @@
     ['Z', 'X', 'C', 'V', 'B', 'N', 'M']
   ];
   var LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  var STALE_MS = 9000, HB_MS = 3000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(typeof gifos !== 'undefined' && gifos.people);
+  var NEEDS_NEWER = 'Word Master needs a newer GifOS to play versus. Reload the page to update. Solo works on this device.';
   var DIFF_HINT = {
     easy: 'Guess any 5 letters',
     normal: 'Guess any valid word',
@@ -86,16 +88,33 @@
   var others = [];
   var match = null;
   var vsRound = 0;
-  var hbTimer = 0;
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var lastPubSig = '';
   var toastTimer = 0;
   var openModal = null;
   var saveTimer = 0;
   var loaded = false;
 
-  function versusOn() { return others.length > 0; }
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+  function versusOn() { return PEOPLE && peopleCount() > 1; }
   function now() { return Date.now(); }
 
   function iAmManager() {
+    if (PEOPLE) return !!owner;
     var ids = [me.id].concat(others.map(function (p) { return p.id; }));
     ids.sort();
     return ids[0] === me.id;
@@ -608,36 +627,38 @@
   }
 
   function publishMe() {
-    if (!playersDb || !me.id || me.id === 'local') return;
-    playersDb.put({
+    if (!playersDb || !me.id || me.id === 'local' || !PEOPLE) return;
+    var row = {
       id: me.id,
-      name: me.name,
       guesses: G.currentRow,
       solved: G.gameState === 'won',
       done: G.gameState !== 'playing',
-      at: now(),
       round: vsRound,
-      ready: !!G.ready,
-      seen: now()
-    }).catch(function () {});
+      ready: !!G.ready
+    };
+    var sig = JSON.stringify(row);
+    if (sig === lastPubSig) return;
+    lastPubSig = sig;
+    row.name = me.name;
+    row.at = now();
+    playersDb.put(row).catch(function () {});
   }
 
   function ingestPlayers(list) {
-    var t = now();
+    var names = peopleNames();
     others = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id || p.id === me.id) return;
-      if (!p.seen || t - p.seen > STALE_MS) return;
+      if (!names[p.id]) return;
       others.push({
         id: p.id,
-        name: p.name || 'Friend',
+        name: names[p.id] || p.name || 'Friend',
         guesses: p.guesses || 0,
         solved: !!p.solved,
         done: !!p.done,
         at: p.at || 0,
         round: p.round || 0,
-        ready: !!p.ready,
-        seen: p.seen
+        ready: !!p.ready
       });
     });
     if (versusOn()) {
@@ -701,16 +722,35 @@
     render();
   }
 
-  function beat() {
-    publishMe();
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        if (loaded) render();
+      }
+    }, function () {});
   }
 
   function boot() {
     render();
-    var who = api && api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' });
-    who.then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
+    if (!PEOPLE) {
+      loaded = true;
+      render();
+      return;
+    }
+    readRoom().then(function () {
       var pPrefs = prefsDb ? prefsDb.getAll() : Promise.resolve([]);
       return pPrefs.then(function (rows) {
         restorePrefs(rows);
@@ -725,14 +765,23 @@
           matchDb.subscribe(function (list) { ingestMatch(list || []); });
         }
         publishMe();
-        if (hbTimer) clearInterval(hbTimer);
-        hbTimer = setInterval(beat, HB_MS);
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () {
       loaded = true;
       render();
     });
   }
+
+  window['__word-master'] = {
+    state: function () { return { round: vsRound | 0, guesses: G.currentRow | 0, done: G.gameState !== 'playing' ? 1 : 0 }; },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
+    },
+    amHost: function () { return owner && peopleCount() > 1; }
+  };
 
   boot();
 })();
