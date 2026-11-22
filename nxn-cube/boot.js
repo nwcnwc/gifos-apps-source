@@ -1,6 +1,7 @@
 // NxN Cube — GifOS shell around NXN.Rubiks.
-// Solo is the toy. In a room, Scramble publishes a seed so every peer builds
-// the same shuffle; each player then writes ONLY their own row (moves + solved).
+// Solo is the toy. In a room, the app owner publishes a scramble seed so every
+// peer builds the same shuffle; each player then writes ONLY their own row.
+// Who is here is gifos.people().
 (function () {
   'use strict';
 
@@ -10,6 +11,9 @@
   var $ = function (id) { return document.getElementById(id); };
   var cube = new Rubiks($('stage'));
 
+  var NEEDS_NEWER = 'NxN Cube needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(typeof gifos !== 'undefined' && gifos && gifos.people);
   var me = { id: 'local', name: 'You' };
   var myMoves = 0;
   var mySolved = false;
@@ -17,7 +21,11 @@
   var applying = false;
   var raceRec = null;
   var roster = [];
+  var lastPlayerRows = [];
   var prefsDb = null, raceDb = null, playersDb = null;
+  var roomPeople = [];
+  var owner = false;
+  var roomRead = false;
 
   try {
     if (window.gifos && gifos.db) {
@@ -33,6 +41,40 @@
     });
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+  function readRoom() {
+    if (!PEOPLE || typeof gifos === 'undefined' || !gifos) return Promise.resolve();
+    return Promise.all([
+      gifos.people(),
+      gifos.info ? gifos.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      ingestPlayers(lastPlayerRows);
+    }, function () {});
+  }
+
   function setStatus(solved) {
     $('status').textContent = solved ? 'Solved' : 'Shuffled';
     $('status').className = 'stat' + (solved ? ' solved' : '');
@@ -40,17 +82,28 @@
   }
 
   function publish() {
-    if (!playersDb || !me.id || me.id === 'local') return;
+    if (!PEOPLE || !playersDb || !me.id || me.id === 'local') return;
+    if (peopleCount() < 2) return;
     playersDb.put({
       id: me.id,
-      name: me.name,
       moves: myMoves,
       solved: mySolved,
       solvedAt: mySolvedAt || 0,
       seed: raceRec ? raceRec.seed : (cube.seed || 0),
-      order: cube.order,
-      t: Date.now()
+      order: cube.order
     }).catch(function () {});
+  }
+
+  function ingestPlayers(list) {
+    lastPlayerRows = list || [];
+    var names = peopleNames();
+    roster = [];
+    lastPlayerRows.forEach(function (p) {
+      if (!p || !p.id) return;
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
+      roster.push(Object.assign({}, p, { name: names[p.id] || p.name || 'Player' }));
+    });
+    paintBoard();
   }
 
   function paintBoard() {
@@ -122,15 +175,16 @@
     mySolvedAt = 0;
     setStatus(false);
     raceRec = { seed: seed, order: cube.order, at: Date.now(), by: me.name };
-    if (raceDb) {
+    if (raceDb && PEOPLE && owner && peopleCount() > 1) {
       raceDb.put({
         id: 'race',
         seed: seed,
         order: cube.order,
-        at: raceRec.at,
-        by: me.name,
+        n: raceRec.at,
         byId: me.id
       }).catch(function () {});
+    } else if (raceDb && PEOPLE && peopleCount() > 1 && !owner) {
+      // Guest scramble is local only until the host deals.
     }
     publish();
     paintBoard();
@@ -171,28 +225,51 @@
     }).catch(function () {});
   }
 
-  var ready = window.gifos && gifos.me
-    ? gifos.me().catch(function () { return { id: 'local', name: 'You' }; })
-    : Promise.resolve({ id: 'local', name: 'You' });
-
-  ready.then(function (id) {
-    me.id = (id && id.id) || 'local';
-    me.name = (id && id.name) || 'You';
-    if (playersDb) {
-      playersDb.subscribe(function (list) {
-        roster = (list || []).filter(function (p) { return p && p.id; });
-        paintBoard();
-      });
+  function boot() {
+    var roomP = PEOPLE ? readRoom() : Promise.resolve();
+    if (!PEOPLE && window.gifos && gifos.me) {
+      gifos.me().then(function (id) {
+        me.id = (id && id.id) || 'local';
+        me.name = (id && id.name) || 'You';
+      }).catch(function () {});
     }
-    if (raceDb) {
-      raceDb.subscribe(function (list) {
-        var r = (list || []).find(function (x) { return x && x.id === 'race'; });
-        if (r && !applying) applyRace(r);
-      });
-    }
-    publish();
-    paintBoard();
-  });
+    roomP.then(function () {
+      if (PEOPLE && playersDb) {
+        playersDb.subscribe(function (list) { ingestPlayers(list || []); });
+      }
+      if (PEOPLE && raceDb) {
+        raceDb.subscribe(function (list) {
+          var r = (list || []).find(function (x) { return x && x.id === 'race'; });
+          if (r && !applying) applyRace(r);
+        });
+      }
+      if (PEOPLE) setInterval(readRoom, PEOPLE_MS);
+      publish();
+      paintBoard();
+    }).catch(function () {});
+  }
 
+  window['__nxn-cube'] = {
+    state: function () {
+      if (!raceRec) return null;
+      return { seed: raceRec.seed | 0, order: raceRec.order | 0 };
+    },
+    people: function () {
+      return roster.map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'nxn-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
+
+  boot();
   setStatus(true);
 })();
