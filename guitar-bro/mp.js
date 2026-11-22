@@ -215,14 +215,12 @@
     if (!on) return;
     var ad = adopted(lastList);
     if (ad && (!used || ad.round !== used.round || !sameChart(ad, used))) {
-      var first = !used;
       applyChart(ad, ad.round, ad.by === me.id);
-      if (first) publish();
     }
     render();
   }
 
-  function startRace() {
+  function startRace(fromAct) {
     if (on) return;
     on = true;
     document.body.classList.add('friend');
@@ -236,8 +234,8 @@
     round = 1;
     used = null;
     applyChart(ch, round, true);
-    lastPub = 0;
-    publish();
+    // Auto-enter from people() is not an act — no room put (K3). Button / hand-off may put.
+    if (fromAct) { lastPub = 0; publish(); }
     render();
   }
 
@@ -259,7 +257,7 @@
       if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
       if (handed && !declined) {
         // New owner must host the race after hand-off (P2).
-        if (!on) startRace();
+        if (!on) startRace(true);
         else { publish(); }
       } else if (key !== roomKey) {
         roomKey = key;
@@ -271,7 +269,7 @@
 
   function maybeEnterFromPeople() {
     if (on || declined || !PEOPLE) return;
-    if (peopleCount() > 1) startRace();
+    if (peopleCount() > 1) startRace(false);
   }
 
   function enter() {
@@ -290,7 +288,7 @@
     declined = false;
     readRoom().then(function () {
       watch();
-      startRace();
+      startRace(true);
     }).catch(function () {});
   }
 
