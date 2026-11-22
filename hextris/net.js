@@ -6,28 +6,33 @@
  * Nobody writes anybody else's row. Last one still stacking wins; if
  * both hexes fill, highest score among the stuck boards takes it.
  *
- * Invite is OS chrome. This file only tells the player to press Invite.
+ * Who is here is gifos.people(); the app owner hosts the seed. Invite is OS chrome.
  */
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 3000;
+  var NEEDS_NEWER = 'Hextris needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var roomRead = false;
 
   var api = null;
   var room = null;
   var me = { id: null, name: 'You' };
   var on = false;
   var subscribed = false;
-  var hbTimer = 0;
+  var peopleTimer = 0;
   var mySeed = 0;
   var round = 1;
   var usedSeed = null;
   var usedRound = 0;
   var lastList = [];
-  var seenAt = {};
   var roundOver = false;
   var lastPub = 0;
+  var lastScorePub = -1;
 
   var $id = function (id) { return document.getElementById(id); };
   var now = function () { return Date.now(); };
@@ -48,15 +53,28 @@
 
   function newSeed() { return (Math.random() * 0x100000000) >>> 0; }
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id) return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      var rec = seenAt[p.id];
-      if (t - rec.seen > STALE_MS) return;
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
       out.push(p);
     });
     return out;
@@ -69,32 +87,38 @@
     players.forEach(function (p) { if ((p.round || 1) > maxR) maxR = p.round || 1; });
     var cand = players.filter(function (p) { return (p.round || 1) === maxR && p.seed != null; });
     if (!cand.length) return null;
-    cand.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
-    return { round: maxR, seed: cand[0].seed, by: cand[0].id };
+    var i, a = null;
+    if (owner && me.id) {
+      for (i = 0; i < cand.length; i++) if (cand[i].id === me.id) { a = cand[i]; break; }
+    }
+    if (!a) {
+      cand.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
+      a = cand[0];
+    }
+    return { round: maxR, seed: a.seed, by: a.id };
   }
 
   function snapshot() {
     return {
       id: me.id,
-      name: me.name,
       seed: mySeed,
       round: round,
       score: root.score | 0,
       over: !!(root.HT && HT.over && HT.over()),
-      stacks: (root.HT && HT.packStacks) ? HT.packStacks() : '',
-      at: now()
+      stacks: (root.HT && HT.packStacks) ? HT.packStacks() : ''
     };
   }
 
-  function publish() {
-    if (!on || !room || !me.id) return;
+  function publish(force) {
+    if (!PEOPLE || !on || !room || !me.id) return;
     var t = now();
-    if (t - lastPub < 80) return;
+    if (!force && t - lastPub < 2000) return;
+    if (force && t - lastPub < 80) return;
     lastPub = t;
     room.put(snapshot()).catch(function () {});
   }
 
-  function applySeed(seed, r) {
+  function applySeed(seed, r, doPut) {
     usedSeed = seed;
     usedRound = r;
     round = r;
@@ -103,8 +127,7 @@
     var go = $id('gameoverscreen');
     if (go) go.style.display = 'none';
     if (typeof init === 'function') init(1);
-    lastPub = 0;
-    publish();
+    if (doPut) { lastPub = 0; publish(); }
     paintThem(null);
   }
 
@@ -131,7 +154,7 @@
     if (!p) { wrap.hidden = true; return; }
     wrap.hidden = false;
     var nm = $id('them-name');
-    if (nm) nm.textContent = (p.name || 'Friend') + ' · ' + (p.score || 0) + (p.over ? ' · out' : '');
+    if (nm) nm.textContent = (peopleNames()[p.id] || p.name || 'Friend') + ' · ' + (p.score || 0) + (p.over ? ' · out' : '');
     var c = $id('them');
     if (!c || !c.getContext) return;
     var ctx = c.getContext('2d');
@@ -192,7 +215,7 @@
     players.forEach(function (p) {
       var mine = p.id === me.id;
       html += '<li class="' + (mine ? 'me' : '') + (p.over ? ' out' : '') + '">' +
-        '<span class="name">' + (mine ? 'You' : esc(p.name || 'Player')) + '</span>' +
+        '<span class="name">' + (mine ? 'You' : esc(peopleNames()[p.id] || p.name || 'Player')) + '</span>' +
         '<span class="meta">' + (p.score || 0) + (p.over ? ' · out' : '') + '</span>' +
         '</li>';
     });
@@ -208,7 +231,7 @@
         if (status) status.textContent = 'Tie at ' + (v.a.score || 0) + '.';
       } else {
         var mineWin = v.winner.id === me.id;
-        var who = mineWin ? 'You' : (v.winner.name || 'They');
+        var who = mineWin ? 'You' : (peopleNames()[v.winner.id] || v.winner.name || 'They');
         var why = v.kind === 'last' ? ' still stacking' : ' wins on score';
         if (status) status.textContent = who + why + ' (' + (v.winner.score || 0) + ').';
       }
@@ -222,7 +245,7 @@
         if (status) status.textContent = 'You’re out. Waiting on the rest.';
       } else {
         if (status) status.textContent = others.length === 1
-          ? (others[0].name || 'Friend') + ' · ' + (others[0].score || 0)
+          ? (peopleNames()[others[0].id] || others[0].name || 'Friend') + ' · ' + (others[0].score || 0)
           : others.length + ' playing · last one stacking wins';
       }
     }
@@ -234,19 +257,42 @@
     var ad = adopted(lastList);
     if (ad && (ad.seed !== usedSeed || ad.round !== usedRound)) {
       if (ad.by !== me.id) mySeed = ad.seed;
-      applySeed(ad.seed, ad.round);
+      applySeed(ad.seed, ad.round, false);
     }
     renderMp();
   }
 
-  function beat() {
-    if (!on) return;
-    lastPub = 0;
-    publish();
-    renderMp();
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      var handed = !owner && !!info.owner && roomRead;
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (handed && !on) enter(true);
+      else if (key !== roomKey) {
+        roomKey = key;
+        if (on) onRoom(lastList);
+        else maybeEnterFromPeople();
+      }
+    }, function () {});
   }
 
-  function enter() {
+  function maybeEnterFromPeople() {
+    if (on || !PEOPLE) return;
+    if (peopleCount() > 1) enter(false);
+  }
+
+  function enter(fromAct) {
     api = root.gifos;
     var bar = $id('friend-bar');
     if (bar) bar.hidden = false;
@@ -255,10 +301,14 @@
       if (s) s.textContent = 'Play a friend needs a GifOS room.';
       return;
     }
-    room = api.db('room');
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
+    if (!PEOPLE) {
+      var s2 = $id('friend-status');
+      if (s2) s2.textContent = NEEDS_NEWER;
+      return;
+    }
+    if (on) return;
+    room = room || api.db('room');
+    readRoom().then(function () {
       on = true;
       document.body.classList.add('friend');
       $id('friendBtn').hidden = true;
@@ -267,17 +317,17 @@
       usedSeed = null;
       usedRound = 0;
       roundOver = false;
-      seenAt = {};
+      lastScorePub = -1;
       if (!subscribed) {
         subscribed = true;
         room.subscribe(onRoom);
       } else {
         onRoom(lastList);
       }
-      if (!usedSeed) applySeed(mySeed, round);
-      beat();
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(beat, HB_MS);
+      if (!usedSeed) applySeed(mySeed, round, !!(fromAct || owner));
+      if (peopleTimer) clearInterval(peopleTimer);
+      peopleTimer = setInterval(readRoom, PEOPLE_MS);
+      renderMp();
     }).catch(function () {});
   }
 
@@ -292,7 +342,6 @@
     var again = $id('againBtn');
     if (again) again.hidden = true;
     paintThem(null);
-    if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
     if (room && me.id) room.delete(me.id).catch(function () {});
     if (typeof init === 'function') init(1);
   }
@@ -301,12 +350,17 @@
     if (!on || !roundOver) return;
     mySeed = newSeed();
     round = (usedRound || round || 1) + 1;
-    applySeed(mySeed, round);
+    applySeed(mySeed, round, true);
   }
 
   function onActuate() {
     if (!on) return;
-    publish();
+    var sc = root.score | 0;
+    var over = !!(root.HT && HT.over && HT.over());
+    if (sc > lastScorePub || over) {
+      if (sc > lastScorePub) lastScorePub = sc;
+      publish(true);
+    }
     renderMp();
   }
 
@@ -316,9 +370,27 @@
     return true;
   }
 
+  function watch() {
+    api = root.gifos;
+    if (!api || !api.db || !PEOPLE) return;
+    room = room || api.db('room');
+    readRoom().then(function () {
+      if (subscribed) return;
+      subscribed = true;
+      room.subscribe(function (list) {
+        lastList = list || [];
+        if (!on) maybeEnterFromPeople();
+        else onRoom(lastList);
+      });
+      if (peopleTimer) clearInterval(peopleTimer);
+      peopleTimer = setInterval(readRoom, PEOPLE_MS);
+      maybeEnterFromPeople();
+    }).catch(function () {});
+  }
+
   root.HT = root.HT || {};
   root.HT.Mp = {
-    enter: enter,
+    enter: function () { enter(true); },
     leave: leave,
     playAgain: playAgain,
     onActuate: onActuate,
@@ -326,4 +398,27 @@
     mulberry32: mulberry32,
     live: function () { return on; }
   };
+
+  root['__hextris'] = {
+    state: function () {
+      var ad = adopted(lastList);
+      if (!ad) return null;
+      return { round: ad.round | 0 };
+    },
+    people: function () {
+      return live(lastList).map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  watch();
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'ht-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);

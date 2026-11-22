@@ -3,8 +3,8 @@
   "appId": "hextris",
   "name": "Hextris",
   "shortName": "Hextris",
-  "version": "1.0.0",
-  "minBuild": 947,
+  "version": "1.1",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [231, 76, 60],
   "capabilities": {
