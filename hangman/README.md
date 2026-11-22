@@ -47,7 +47,7 @@ When a second person opens the link, both play the **same** word.
 | capability | why |
 |---|---|
 | `db` | Solo game in progress, private, inside the icon. |
-| `multiplayer` | Shared match + per-player rows. Needs nothing newer than the App Store, so `minBuild` is **947**. |
+| `multiplayer` | Shared match + per-player rows. Needs nothing newer than the App Store, so `minBuild` is **5861**. |
 
 No `network`. The frames and the word list are in the GIF.
 
@@ -65,3 +65,5 @@ elsewhere.
 
 simonjsuh's MIT notice is packed **inside the GIF** as
 `COPYING-hangman.txt` (`vendor/COPYING-hangman.txt`).
+
+Who is here comes from gifos.people(). The app owner hosts the match; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

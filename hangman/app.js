@@ -22,7 +22,14 @@
   var ALPHA = 'abcdefghijklmnopqrstuvwxyz';
   var KEYS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
   var MAX_WRONG = 6;
-  var STALE_MS = 9000, HB_MS = 3000;
+  var NEEDS_NEWER = 'Hangman needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(typeof gifos !== 'undefined' && gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var roomRead = false;
+  var lastPlayerRows = [];
 
   function spotlight(answer, guessed) {
     return answer.split('').map(function (ch) {
@@ -85,12 +92,26 @@
   var keysBuilt = false;
   var meterBuilt = false;
 
-  function versusOn() { return others.length > 0; }
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+  function versusOn() { return PEOPLE && peopleCount() > 1; }
   function now() { return Date.now(); }
   function iAmManager() {
-    var ids = [me.id].concat(others.map(function (p) { return p.id; }));
-    ids.sort();
-    return ids[0] === me.id;
+    return !!(owner && PEOPLE);
   }
   function sharing() { return versusOn() && G.mode === 'share'; }
 
@@ -494,18 +515,16 @@
   }
 
   function publishMe() {
-    if (!playersDb || !me.id || me.id === 'local') return;
+    if (!PEOPLE || !playersDb || !me.id || me.id === 'local') return;
+    if (peopleCount() < 2) return;
     var row = {
       id: me.id,
-      name: me.name,
       mistakes: wrongOf(G.answer, G.guessed).length,
       solved: wonOf(G.answer, G.guessed),
       done: G.gameState !== 'playing',
       solvedAt: G.solvedAt || 0,
-      at: now(),
       round: vsRound,
       ready: !!G.ready,
-      seen: now(),
       mode: G.mode
     };
     // Race: guess counts only — never the letters. Share: letters must ride
@@ -515,14 +534,15 @@
   }
 
   function ingestPlayers(list) {
-    var t = now();
+    lastPlayerRows = list || [];
+    var names = peopleNames();
     others = [];
-    (list || []).forEach(function (p) {
+    lastPlayerRows.forEach(function (p) {
       if (!p || !p.id || p.id === me.id) return;
-      if (!p.seen || t - p.seen > STALE_MS) return;
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
       others.push({
         id: p.id,
-        name: p.name || 'Friend',
+        name: names[p.id] || 'Friend',
         mistakes: p.mistakes || 0,
         solved: !!p.solved,
         done: !!p.done,
@@ -530,7 +550,6 @@
         at: p.at || 0,
         round: p.round || 0,
         ready: !!p.ready,
-        seen: p.seen,
         guessed: Array.isArray(p.guessed) ? p.guessed.slice() : []
       });
     });
@@ -594,28 +613,76 @@
     render();
   }
 
-  function beat() { publishMe(); }
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      var wasOwner = owner;
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (!wasOwner && owner && roomRead && peopleCount() > 1) {
+        // New owner hosts the match after hand-off (P2).
+        ensureMatch();
+        publishMe();
+      }
+      if (key !== roomKey) {
+        roomKey = key;
+        ingestPlayers(lastPlayerRows);
+      }
+    }, function () {});
+  }
 
   function boot() {
     $('maxWrong').textContent = String(MAX_WRONG);
     render();
-    var who = api && api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' });
-    who.then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
-      var pPrefs = prefsDb ? prefsDb.getAll() : Promise.resolve([]);
-      return pPrefs.then(function (rows) {
-        restorePrefs(rows);
-        render();
-        if (playersDb) playersDb.subscribe(function (list) { ingestPlayers(list || []); });
-        if (matchDb) matchDb.subscribe(function (list) { ingestMatch(list || []); });
+    var pPrefs = prefsDb ? prefsDb.getAll() : Promise.resolve([]);
+    var roomP = PEOPLE ? readRoom() : Promise.resolve();
+    Promise.all([pPrefs, roomP]).then(function (pair) {
+      restorePrefs(pair[0]);
+      render();
+      if (PEOPLE && playersDb) playersDb.subscribe(function (list) { ingestPlayers(list || []); });
+      if (PEOPLE && matchDb) matchDb.subscribe(function (list) { ingestMatch(list || []); });
+      if (PEOPLE) {
         publishMe();
         if (hbTimer) clearInterval(hbTimer);
-        hbTimer = setInterval(beat, HB_MS);
-      });
+        hbTimer = setInterval(readRoom, PEOPLE_MS);
+      }
     }).catch(function () {
       render();
     });
+  }
+
+  root['__hangman'] = {
+    state: function () {
+      if (!match) return null;
+      return { round: match.round | 0, mode: match.mode || 'race' };
+    },
+    people: function () {
+      var names = peopleNames(), out = [];
+      if (me.id && names[me.id]) out.push(me.id);
+      others.forEach(function (p) { if (names[p.id]) out.push(p.id); });
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'hm-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
   }
 
   if (typeof document !== 'undefined') boot();
