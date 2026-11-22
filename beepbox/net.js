@@ -158,6 +158,11 @@
         if (applyJson) {
           applying = true;
           try { applyJson(canonical.json); } finally { applying = false; }
+          // Absorb fromJson/toJson drift so a later getJson does not look like an edit.
+          if (getJson) {
+            var after = pack(getJson());
+            if (after) lastPacked = after;
+          }
         }
       }
     }
@@ -215,14 +220,10 @@
       });
     }).then(function (roomInfo) {
       on = true;
-      // No publish() on boot — wait for a real editor change (kit K3 / no write storm).
-      if (pubTimer) clearInterval(pubTimer);
-      pubTimer = setInterval(function () {
-        if (!on || !owner) return;
-        var j = getJson && getJson();
-        var p = pack(j);
-        if (p && p !== lastPacked) publishSong(j);
-      }, PUB_MS);
+      // No publish on boot or on a timer — fromJson/toJson drifts; a host
+      // interval that re-published drift fought remote applies into a stack overflow.
+      // Song publishes come only from noteLocalChange (real editor edits).
+      if (pubTimer) { clearInterval(pubTimer); pubTimer = 0; }
       return roomInfo;
     }).catch(function () { return { owner: true, others: 0 }; });
   }
