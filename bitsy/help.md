@@ -41,7 +41,7 @@ This app is ready to share as soon as it opens. Press **Invite** in the bar abov
 
 **← Solo** stops sharing and keeps you on this device.
 
-The host holds the room. If they leave and nobody chose to keep the room alive on Invite, the square empties.
+The app owner holds the shared writing. If they leave, GifOS hands ownership to someone still here.
 
 ## What is saved
 

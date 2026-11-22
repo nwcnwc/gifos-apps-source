@@ -3,8 +3,8 @@
   "appId": "algorithm-visualizer",
   "name": "Algorithm Visualizer",
   "shortName": "Algos",
-  "version": "1.0.0",
-  "minBuild": 947,
+  "version": "1.1.0",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [61, 139, 253],
   "capabilities": {
@@ -13,8 +13,7 @@
   },
   "data": {
     "save": { "visibility": "private" },
-    "session": { "visibility": "read-only" },
-    "players": { "visibility": "read-write" }
+    "session": { "visibility": "read-only" }
   },
   "launch": {
     "algo": {

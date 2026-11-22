@@ -19,7 +19,7 @@ style.css                  dark blue room, pink talk, friend chrome
 worlds.js                  three original rooms + the official example
 editor.js                  room paint, 8×8 drawing, words, world writing
 app.js                     play / make / last world in gifos.db
-mp.js                      shared world writing, own-row publish
+mp.js                      shared world writing via gifos.people(), own-row publish
 icon.mjs                   procedural cat-in-a-room icon + 1200×720 cover
 vendor.mjs                 rebuilds vendor/ from the pinned bitsy v8.15
 build.mjs                  packs the GIF into site/apps/bitsy/bitsy.gif

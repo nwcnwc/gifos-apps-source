@@ -22,7 +22,7 @@ There are many walls. Pick one from the menu before you start, or just play: cle
 
 Press **Invite** in the bar above the app and send the link. A second paddle appears on the **same brick wall** — you are orange on the left, they are cyan on the right. You both keep the ball up. You both score on the same bricks. Lives are shared. After that you can both move anywhere.
 
-The person who opened the app runs the ball. A third person who opens the link can watch; they do not get a paddle.
+The app owner runs the ball (GifOS hands ownership to someone still here if they leave). A third person who opens the link can watch; they do not get a paddle.
 
 ## What is saved
 

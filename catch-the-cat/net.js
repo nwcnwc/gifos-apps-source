@@ -26,15 +26,19 @@
  *
  * The collection is the host's stored state, not a presence list: a player who
  * closes the app leaves their row behind forever. So rows carry a heartbeat,
- * and a player who has gone quiet for STALE_MS drops out of the roster and
+ * and a player who has gone quiet for people() drops out of the roster and
  * stops holding up the round. Staleness is measured on the LOCAL clock (when
  * we last saw the stamp change), never by comparing their clock to ours.
  */
 (function (root) {
   'use strict';
 
-  var STALE_MS = 12000;
-  var HB_MS = 4000;
+  var NEEDS_NEWER = 'Catch the Cat needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
 
   var api = null;
   var me = { id: null, name: 'Player' };
@@ -54,7 +58,6 @@
   var onResult = null;
   var onMirror = null;
   var started = false;
-  var beatTimer = 0;
 
   function db() { return api.db('players'); }
 
@@ -74,7 +77,7 @@
 
   function mineRow() {
     return {
-      id: me.id, name: me.name, round: round.id, rn: round.n, seed: round.seed,
+      id: me.id, round: round.id, rn: round.n, seed: round.seed,
       mode: round.mode,
       clicks: my.clicks, status: my.status,
       wins: my.wins, played: my.played, best: my.best, streak: my.streak,
@@ -84,16 +87,43 @@
     };
   }
 
-  // Everyone whose heartbeat is still moving. A row that stopped changing is a
-  // player who walked away — they keep their place in the host's collection,
-  // but not in the race.
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Player'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        ingest(lastRows);
+      }
+    }, function () {});
+  }
+
   function liveOthers() {
-    var t = Date.now();
-    var out = [];
+    var names = peopleNames(), out = [];
     Object.keys(others).forEach(function (id) {
-      var seen = seenAt[id];
-      if (seen && t - seen.at > STALE_MS) return;
-      out.push(others[id]);
+      if (!Object.prototype.hasOwnProperty.call(names, id)) return;
+      var o = others[id];
+      o.name = names[id] || o.name;
+      out.push(o);
     });
     return out;
   }
@@ -277,38 +307,26 @@
   }
 
   function publish() {
-    if (!started || !api || !me.id || me.id === 'local') return;
+    if (!started || !api || !me.id || me.id === 'local' || !PEOPLE) return;
     var row = mineRow();
     row.t = Date.now();
     db().put(row).catch(function () {});
   }
 
-  // Republish on a timer so the others can tell we are still here, and re-read
-  // the rows we already have so a player who went quiet ages out even when no
-  // fresh snapshot arrives to notice it.
-  function beat() {
-    publish();
-    ingest(lastRows);
-  }
-
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ solo: true });
-    return api.me().then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'Player';
-      if (me.id === 'local' || !api.db) return { solo: true };
+    if (!PEOPLE) return Promise.resolve({ solo: true });
+    return readRoom().then(function () {
+      if (!me.id || me.id === 'local') return { solo: true };
       return new Promise(function (resolve) {
         var settled = false;
         var done = function () {
           if (settled) return;
           settled = true;
           started = true;
-          // Announce ourselves at once. Until our row exists we are invisible,
-          // and an invisible player is one the room can score a round without
-          // — which is exactly what a late joiner must not be.
           publish();
-          if (!beatTimer) beatTimer = setInterval(beat, HB_MS);
+          setInterval(readRoom, PEOPLE_MS);
           resolve({ solo: false });
         };
         setTimeout(done, 2500);
@@ -343,7 +361,7 @@
     // ingest runs before this function has returned. If our rules were still
     // on the old round at that moment, mirror() would drop the co-op rows on
     // the floor and this board would show no cats but its own until the next
-    // heartbeat four seconds later. Get local state onto the new round first,
+    // next put. Get local state onto the new round first,
     // then tell the room.
     if (onRound) onRound(round);
     mirrorNow();
@@ -389,4 +407,32 @@
     set onResult(fn) { onResult = fn; },
     set onMirror(fn) { onMirror = fn; }
   };
+
+  root['__catch-the-cat'] = {
+    state: function () {
+      return started ? { round: round.id | 0, mode: round.mode, n: round.n | 0 } : null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [];
+      if (me.id && names[me.id]) out.push(me.id);
+      liveOthers().forEach(function (o) { out.push(o.id); });
+      return out;
+    },
+    amHost: function () {
+      var n = 0, i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') n++;
+      }
+      return started && owner && n > 1;
+    }
+  };
+
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'ctc-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);

@@ -28,7 +28,7 @@ Your high score sits under the current one. There is no extra ship at 10,000.
 
 Press **Invite** in the bar above the app and send the link. Extra ships appear in the **same field** — everyone flies their own, everyone shoots the same rocks. There is no in-app share button.
 
-The person who opened the app flies the rocks and the saucer. Friendly fire is **off** unless they turn it on (**F**, or the button). Then a shot can kill another ship; the person who was hit still decides they died.
+The app owner flies the rocks and the saucer (GifOS hands ownership to someone still here if they leave). Friendly fire is **off** unless they turn it on (**F**, or the button). Then a shot can kill another ship; the person who was hit still decides they died.
 
 Tap the “N ships” tally (or hold Tab) for the scoreboard.
 

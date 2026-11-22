@@ -3,8 +3,8 @@
   "appId": "anyroad",
   "name": "Anyroad",
   "shortName": "Anyroad",
-  "version": "1.0.0",
-  "minBuild": 1089,
+  "version": "1.1.0",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [
     92,

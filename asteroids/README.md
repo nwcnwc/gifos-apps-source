@@ -13,7 +13,7 @@ ships. Upstream has no networking.
 index.html      canvas, HUD, scoreboard, touch markup
 style.css       overlay chrome
 vendor/game.js  the original game, vanilla. Never fetch it at runtime.
-net.js          extra ships — presence, rock claims, the scoreboard
+net.js          extra ships — gifos.people(), rock claims, the scoreboard
 touch.js        THRUST / LEFT / RIGHT / FIRE, written into KEY_STATUS
 boot.js         mount, prefs, wiring
 icon.mjs        procedural ship shooting a rock, and the 1200×720 cover

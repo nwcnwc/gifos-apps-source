@@ -116,8 +116,8 @@ if (/type=["']module["']/.test(html)) {
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
 }
-if (manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947 — this app needs nothing newer than the App Store.');
+if (manifest.minBuild < 5861) {
+  throw new Error('minBuild must be >= 5861');
 }
 if (manifest.capabilities.network) {
   throw new Error('Catch the Cat has no network path. Do not declare capabilities.network.');

@@ -90,7 +90,7 @@ if (!manifest.capabilities.multiplayer) throw new Error('multiplayer required');
 if (!manifest.capabilities.pointer) throw new Error('pointer required');
 if (!manifest.capabilities.fullscreen) throw new Error('fullscreen required');
 if (manifest.capabilities.network) throw new Error('no network path');
-if (manifest.minBuild !== 1314) throw new Error('minBuild must be 1314 — pointer lock is 1285 and fullscreen is 1314');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861 — gifos.people(); pointer/fullscreen already covered');
 if (manifest.appId !== 'backdooms') throw new Error('appId must be backdooms');
 if (!files['COPYING-backdooms.txt'].includes('Kuber Mehta')) {
   throw new Error('COPYING-backdooms.txt is not the upstream MIT notice');
