@@ -48,7 +48,7 @@ const read = (p) => readFileSync(join(dir, p), 'utf8');
 const manifest = JSON.parse(read('manifest.json'));
 const listing = JSON.parse(read('listing.json'));
 
-const JS_SHA256 = '47dbd5196ef91f44372056a72d3d6f59512f597f46cd98555146df8eb1463e48';
+const JS_SHA256 = 'caac6918c799de58f16138956080fa49d2b1da230ec714f128123d683b46fa31';
 
 for (const need of ['vendor/css-doodle.js', 'vendor/COPYING-css-doodle.txt']) {
   if (!existsSync(join(dir, need))) {
