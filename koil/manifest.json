@@ -3,8 +3,8 @@
   "appId": "koil",
   "name": "Koil",
   "shortName": "Koil",
-  "version": "1.0.0",
-  "minBuild": 947,
+  "version": "1.1.0",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [
     140,

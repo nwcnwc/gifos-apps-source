@@ -40,7 +40,7 @@ const read = (p) => readFileSync(join(dir, p), 'utf8');
 const bin = (p) => readFileSync(join(dir, p));
 
 const manifest = JSON.parse(read('manifest.json'));
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861');
 if (!manifest.capabilities || !manifest.capabilities.db || !manifest.capabilities.multiplayer) {
   throw new Error('manifest must declare db + multiplayer');
 }
