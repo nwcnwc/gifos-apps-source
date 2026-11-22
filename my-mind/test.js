@@ -71,6 +71,15 @@ function load(opts) {
     gifos: {
       db: function (name) { return collections[name] || mockDb(); },
       me: function () { return Promise.resolve({ id: opts.meId || 'aaa', name: opts.meName || 'You' }); },
+      people: function () {
+        var id = opts.meId || 'aaa';
+        var rows = opts.people || [
+          { id: id, name: opts.meName || 'You', me: true, here: 'here' },
+          { id: id === 'aaa' ? 'bbb' : 'aaa', name: 'Friend', me: false, here: 'here' }
+        ];
+        return Promise.resolve(rows.map(function (r) { return Object.assign({}, r); }));
+      },
+      info: function () { return Promise.resolve({ owner: opts.owner !== false && (opts.meId || 'aaa') === 'aaa' }); },
       onBack: function (cb) { sandbox._onBack = cb; }
     }
   };
@@ -237,9 +246,12 @@ function flush() {
     { id: 'aaa', name: 'You', at: Date.now(), map: { root: { text: 'Host map' } } }
   ];
   const host = mpBox.MMMp._hostOf(players);
-  check('the live host is the lowest id (a friend can watch)', host && host.id === 'aaa' && host.map.root.text === 'Host map');
+  check('the live host is the app owner (else lowest id)', host && host.id === 'aaa' && host.map.root.text === 'Host map');
   // A guest's screen follows the live host's map; the host never loads a guest's.
-  const { sandbox: gBox, room: gRoom } = load({ meId: 'zzz' });
+  const { sandbox: gBox, room: gRoom } = load({ meId: 'zzz', owner: false, people: [
+    { id: 'aaa', name: 'Host', me: false, here: 'here' },
+    { id: 'zzz', name: 'Guest', me: true, here: 'here' }
+  ] });
   gBox._applied = null;
   gBox.MyMind = { getJSON: () => ({ root: { text: 'Guest scratch' } }), loadJSON: (j) => { gBox._applied = j; } };
   gBox.MMMp.start();
@@ -348,9 +360,9 @@ function flush() {
   const manifest = JSON.parse(fs.readFileSync(path.join(APP, 'manifest.json'), 'utf8'));
   const listing = JSON.parse(fs.readFileSync(path.join(APP, 'listing.json'), 'utf8'));
   check('listing names the upstream it ports', listing.basedOn && listing.basedOn.name === 'My Mind');
-  check('manifest claims db + multiplayer, minBuild 947',
+  check('manifest claims db + multiplayer, minBuild 5861',
     manifest.capabilities.db === true && manifest.capabilities.multiplayer === true &&
-    manifest.minBuild === 947 && manifest.data.room.visibility === 'read-write');
+    manifest.minBuild === 5861 && manifest.data.room.visibility === 'read-write');
 
   // The icon: render it. A map that GROWS (later frames carry more bubble
   // pixels and more colours than the first), not a static pivot grid.

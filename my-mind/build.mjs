@@ -46,7 +46,7 @@ pin('vendor/my-mind.css', 'bf6038b3dd37f9b8178827c6f483ee0e6c3891b035076992b33f0
 for (const need of ['vendor/map-css.js', 'vendor/COPYING-my-mind.txt', 'vendor/UPSTREAM.txt', 'ls-stub.js', 'mp.js']) {
   if (!existsSync(join(dir, need))) throw new Error(need + ' is missing');
 }
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861');
 if (manifest.appId !== 'my-mind') throw new Error('appId must be my-mind');
 if (!manifest.capabilities || manifest.capabilities.db !== true) throw new Error('must declare capabilities.db');
 if (manifest.capabilities.network) throw new Error('no network path');
