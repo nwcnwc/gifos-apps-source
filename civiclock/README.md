@@ -34,8 +34,11 @@ visible immediately. A launch link can ask for that (`go.village=1`).
 
 ## Multiplayer
 
-Host ticks `city`. Guests write `edits`; the host applies them, then ticks.
-`cursors` are presence. `prefs` (tool, coach) stay on this device.
+Who is here comes from `gifos.people()`. The app owner ticks `city`; GifOS
+hands ownership on when they leave. Guests write `edits`; the host applies
+them, then ticks. `cursors` are live pointer rows (no heartbeat). `prefs`
+(tool, coach) stay on this device. An older GifOS shows a needs-newer line;
+solo still works.
 
 ## capabilities
 

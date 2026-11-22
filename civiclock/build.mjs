@@ -66,8 +66,8 @@ if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capa
 }
 if (manifest.capabilities.wasm) throw new Error('do not declare wasm');
 if (manifest.capabilities.network) throw new Error('civiclock has no network path');
-if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947');
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild < 5861) {
+  throw new Error('minBuild must be >= 5861');
 }
 if (manifest.appId !== 'civiclock') throw new Error('appId must be civiclock');
 if (manifest.name !== 'Civiclock') throw new Error('name must be Civiclock');
