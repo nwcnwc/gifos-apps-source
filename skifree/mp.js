@@ -98,11 +98,15 @@
   }
 
   function publish(force) {
-    if (!room || !me.id) return;
-    var t = now();
-    if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
-    lastPublished = t;
-    try { room.put(snap()).catch(function () {}); } catch (e) {}
+    if (!PEOPLE || !room || !me.id) return;
+    var t0 = now();
+    if (!force && t0 - lastPublished < 1000 / PUBLISH_HZ) return;
+    var row = snap();
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPublished = t0;
+    try { room.put(row).catch(function () {}); } catch (e) {}
   }
 
   function ingest(list) {
