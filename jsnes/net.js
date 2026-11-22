@@ -6,12 +6,15 @@
  * (which cart, pause, reset) and, for a dump they dropped, `cart` once.
  * Guests never put() those. Both run the same ROM; the host is pad 1,
  * the first guest is pad 2. A third arrival watches.
+ * Who is here is gifos.people(). Publish only when the pad mask changes.
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 24;
-  var STALE_MS = 4000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'jsnes needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
 
   var api = null;
   var me = { id: null, name: 'P1' };
@@ -27,9 +30,27 @@
   var onRoom = null;
   var onCart = null;
   var pendingCart = null;
+  var roomPeople = [];
+  var roomKey = '';
+  var lastPubSig = '';
 
   function db(n) { return api && api.db ? api.db(n) : null; }
   function now() { return Date.now(); }
+
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'P2';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
 
   function countOthers() {
     var n = 0, id;
@@ -40,22 +61,47 @@
   function pickGuest() {
     var best = null, id;
     for (id in others) {
-      var o = others[id];
-      if (!best || o.seen < best.seen) best = o;
+      if (!best || id < best.id) best = others[id];
     }
     guestId = best ? best.id : null;
     return guestId;
   }
 
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || (owner ? 'P1' : 'P2'); }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        pickGuest();
+        applyRemote();
+        if (onRoom) onRoom(roster());
+      }
+    }, function () {});
+  }
+
   function ingestPads(list) {
-    var t = now(), seen = {}, i, p;
+    var names = peopleNames(), seen = {}, i, p;
     for (i = 0; i < (list || []).length; i++) {
       p = list[i];
       if (!p || !p.id || p.id === me.id) continue;
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
-      others[p.id] = { id: p.id, name: p.name || 'P2', mask: p.mask | 0, seen: t };
+      others[p.id] = { id: p.id, name: names[p.id] || p.name || 'P2', mask: p.mask | 0 };
     }
-    for (i in others) if (!seen[i] || t - others[i].seen > STALE_MS) delete others[i];
+    for (i in others) if (!seen[i] || !names[i]) delete others[i];
     pickGuest();
     applyRemote();
     if (onRoom) onRoom(roster());
@@ -109,19 +155,25 @@
   }
 
   function publish(force) {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     var t = now();
     var mask = root.Emu ? root.Emu.localMask() : 0;
     if (!force && t - lastPub < 1000 / PUBLISH_HZ && mask === lastMask) return;
+    var row = { id: me.id, mask: mask };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
     lastPub = t;
     lastMask = mask;
     var col = db('pads');
     if (!col) return;
-    col.put({ id: me.id, name: me.name, mask: mask, t: t }).catch(function () {});
+    row.name = me.name;
+    row.t = t;
+    col.put(row).catch(function () {});
   }
 
   function publishSession(extra) {
-    if (!api || !me.id || !owner) return;
+    if (!api || !me.id || !owner || !PEOPLE) return;
     var cart = root.Emu && root.Emu.cart();
     var rec = {
       id: 'ses',
@@ -143,7 +195,7 @@
   }
 
   function publishCart(bytes, meta) {
-    if (!api || !me.id || !owner) return;
+    if (!api || !me.id || !owner || !PEOPLE) return;
     var col = db('cart');
     if (!col) return;
     col.put({
@@ -171,16 +223,9 @@
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
-    var infoP = api.info ? api.info().then(function (i) {
-      owner = !!(i && i.owner);
-      return owner;
-    }).catch(function () { owner = true; return true; }) : Promise.resolve(true);
-
-    return infoP.then(function () {
-      return api.me();
-    }).then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || (owner ? 'P1' : 'P2');
+    if (!PEOPLE) return Promise.resolve({ owner: true, others: 0 });
+    return readRoom().then(function () {
+      if (!me.id) return { owner: true, others: 0 };
       var settled = false;
       return new Promise(function (resolve) {
         var done = function () {
@@ -196,6 +241,7 @@
         db('session').subscribe(function (list) {
           ingestSession(list || []);
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () {
       return { owner: true, others: 0 };
@@ -203,7 +249,7 @@
   }
 
   function beforeFrame() {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     publish(false);
     applyRemote();
   }
@@ -219,12 +265,24 @@
     roster: roster,
     me: function () { return me; },
     owner: function () { return owner; },
-    live: function () { return !!api && !!me.id; },
+    live: function () { return !!api && !!me.id && PEOPLE; },
     count: function () { return countOthers() + (me.id ? 1 : 0); },
     others: function () { return countOthers(); },
     guestId: function () { return guestId; },
     onRoom: function (fn) { onRoom = fn; },
     onCart: function (fn) { onCart = fn; },
     pendingCart: function () { return pendingCart; }
+  };
+
+  root['__jsnes'] = {
+    state: function () {
+      return me.id ? { hash: lastHash || '', paused: lastPause ? 1 : 0, resetN: lastReset | 0 } : null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
+    },
+    amHost: function () { return !!me.id && owner && peopleCount() > 1; }
   };
 })(window);

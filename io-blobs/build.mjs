@@ -83,8 +83,8 @@ if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capa
 if (manifest.capabilities.network) {
   throw new Error('IO Blobs has no network path. Socket.IO/Node stay behind.');
 }
-if (manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947 — this app needs nothing newer than the store.');
+if (manifest.minBuild !== 5861) {
+  throw new Error('minBuild must be 5861 — this app needs nothing newer than the store.');
 }
 if (manifest.name === 'Agar.io' || /agar\.?io/i.test(manifest.name)) {
   throw new Error('do not call it Agar.io in the name');

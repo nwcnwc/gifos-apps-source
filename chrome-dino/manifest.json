@@ -3,10 +3,14 @@
   "appId": "chrome-dino",
   "name": "Chrome Dino",
   "shortName": "Dino",
-  "version": "1.0.0",
-  "minBuild": 947,
+  "version": "1.0.1",
+  "minBuild": 5861,
   "entry": "index.html",
-  "accent": [83, 83, 83],
+  "accent": [
+    83,
+    83,
+    83
+  ],
   "capabilities": {
     "db": true,
     "multiplayer": true

@@ -5,12 +5,14 @@
  * join cannot be a one-shot 1.8s window: keep watching, rejoin if we
  * were racing, and a guest (info.owner === false) joins without a tap.
  * The owner/lead row wins a tie so the host's lesson is the one that
- * lands, not whoever published intro-commits first. */
+ * lands, not whoever published intro-commits first.
+ * Who is here is gifos.people(). Publish only when progress changes. */
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 3000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Learn Git Branching needs a newer GifOS to race with friends. Reload the page to update. Solo works on this device.';
 
   var api = null;
   var room = null;
@@ -18,16 +20,17 @@
   var owner = true;
   var on = false;
   var subscribed = false;
-  var hbTimer = 0;
   var round = 1;
   var myLevel = null;
   var usedLevel = null;
   var usedRound = 0;
-  var seenAt = {};
   var lastList = [];
   var solvedAt = 0;
   var roundOver = false;
   var declined = false;
+  var roomPeople = [];
+  var roomKey = '';
+  var lastPubSig = '';
 
   var $ = function (id) { return document.getElementById(id); };
   var now = function () { return Date.now(); };
@@ -37,15 +40,27 @@
     });
   };
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id) return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      if (t - seenAt[p.id].seen > STALE_MS) return;
-      out.push(p);
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
+      out.push(Object.assign({}, p, { name: names[p.id] || p.name || 'Someone' }));
     });
     return out;
   }
@@ -71,20 +86,24 @@
     var g = root.LGBApp;
     return {
       id: me.id,
-      name: me.name,
       levelId: myLevel || (g && g.levelId),
       round: round,
       commands: g ? g.commandCount : 0,
       solved: !!(g && g.solved),
       solvedAt: solvedAt || 0,
-      lead: !!owner,
-      at: now()
+      lead: !!owner
     };
   }
 
   function publish() {
-    if (!on || !room || !me.id) return;
-    room.put(snapshot()).catch(function () {});
+    if (!on || !room || !me.id || !PEOPLE) return;
+    var row = snapshot();
+    var sig = JSON.stringify(row);
+    if (sig === lastPubSig) return;
+    lastPubSig = sig;
+    row.name = me.name;
+    row.at = now();
+    room.put(row).catch(function () {});
   }
 
   function markRacing(v) {
@@ -101,6 +120,7 @@
     myLevel = levelId;
     roundOver = false;
     solvedAt = 0;
+    lastPubSig = '';
     if (root.LGBApp) root.LGBApp.goLevel(levelId, { race: true, fresh: true });
     publish();
   }
@@ -144,7 +164,8 @@
       if (again) again.hidden = false;
     }
     if (status) {
-      if (players.length < 2) status.textContent = 'Waiting for a friend… send the Invite in the bar above.';
+      if (!PEOPLE) status.textContent = NEEDS_NEWER;
+      else if (players.length < 2) status.textContent = 'Waiting for a friend… send the Invite in the bar above.';
       else if (v) {
         status.textContent = (v.winner.id === me.id ? 'You' : (v.winner.name || 'Friend')) +
           ' solved it in ' + (v.winner.commands || 0) + ' commands.';
@@ -164,8 +185,30 @@
     if (again) again.hidden = !v;
   }
 
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        maybeAutoJoin();
+        if (on) paint(lastList);
+      }
+    }, function () {});
+  }
+
   function join(levelId) {
-    if (declined) return;
+    if (declined || !PEOPLE) return;
     var already = on;
     on = true;
     if (owner) markRacing(true);
@@ -175,6 +218,7 @@
     if (!already) {
       usedLevel = null;
       usedRound = 0;
+      lastPubSig = '';
     }
     var ad = adopted(lastList);
     if (!owner && ad && ad.levelId) {
@@ -184,11 +228,10 @@
       usedRound = round;
       publish();
     }
-    if (!hbTimer) hbTimer = setInterval(publish, HB_MS);
   }
 
   function maybeAutoJoin() {
-    if (on || declined) return;
+    if (on || declined || !PEOPLE) return;
     var others = othersOf(lastList);
     var racing = !!(root.LGBApp && root.LGBApp.racing);
     if (!owner || others.length || racing) {
@@ -213,15 +256,9 @@
     init: function () {
       api = root.gifos;
       if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
-      var infoP = api.info
-        ? api.info().then(function (i) { owner = !!(i && i.owner); return owner; })
-            .catch(function () { owner = true; return true; })
-        : Promise.resolve(true);
-      return infoP.then(function () {
-        return api.me ? api.me() : { id: 'local', name: 'You' };
-      }).then(function (id) {
-        me.id = id && id.id ? id.id : 'local';
-        me.name = (id && id.name) || 'You';
+      if (!PEOPLE) return Promise.resolve({ owner: true, others: 0 });
+      return readRoom().then(function () {
+        if (!me.id) return { owner: true, others: 0 };
         room = api.db('players');
         return new Promise(function (resolve) {
           var done = false;
@@ -241,6 +278,7 @@
             ingest(list || []);
             finish();
           });
+          setInterval(readRoom, PEOPLE_MS);
         });
       }).catch(function () { return { owner: true, others: 0 }; });
     },
@@ -251,11 +289,10 @@
       declined = true;
       roundOver = false;
       markRacing(false);
-      if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
       showBar(false);
       if (room && me.id) room.delete(me.id).catch(function () {});
     },
-    live: function () { return on; },
+    live: function () { return on && PEOPLE; },
     owner: function () { return owner; },
     onSolved: function () {
       if (!on) return;
@@ -271,6 +308,7 @@
       usedRound = round;
       roundOver = false;
       solvedAt = 0;
+      lastPubSig = '';
       publish();
     },
     nextRound: function (levelId) {
@@ -282,4 +320,12 @@
   };
 
   root.LGBNet = Net;
+
+  root['__learn-git-branching'] = {
+    state: function () {
+      return on ? { round: usedRound || round | 0, levelId: usedLevel || myLevel || '' } : null;
+    },
+    people: function () { return live(lastList).map(function (p) { return p.id; }); },
+    amHost: function () { return on && owner && peopleCount() > 1; }
+  };
 })(typeof window !== 'undefined' ? window : this);

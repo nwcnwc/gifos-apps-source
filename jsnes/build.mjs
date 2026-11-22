@@ -118,7 +118,7 @@ if (!/no battery chip/i.test(helpMd)) {
 }
 if (!listing.basedOn || listing.basedOn.blessed !== false) throw new Error('basedOn.blessed must be false');
 if (listing.author && /gifos/i.test(listing.author.name)) throw new Error('author is them, not GifOS');
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947');
+if (manifest.minBuild !== 5861) throw new Error('minBuild must be 5861');
 if (!manifest.capabilities || manifest.capabilities.db !== true) throw new Error('capabilities.db');
 if (!manifest.capabilities.multiplayer) throw new Error('capabilities.multiplayer');
 if (manifest.capabilities.network) throw new Error('no network — carts are in the GIF');

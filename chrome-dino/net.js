@@ -6,18 +6,26 @@
  * little ahead or behind on this canvas. Publish is slow (8 Hz) because a
  * subscriber re-downloads the whole collection on every change.
  *
- * Invite is OS chrome. Solo is the original game.
+ * Who is here is gifos.people(). Invite is OS chrome. Solo is the original game.
  */
 (function (root) {
   'use strict';
 
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Chrome Dino needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+
   var PUBLISH_HZ = 8;
-  var STALE_MS = 8000;
 
   var api = null;
   var me = { id: null, name: 'Runner' };
   var others = {};
   var lastPublished = 0;
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var lastPubSig = '';
+
   var seed = 0;
   var overlay = null;
   var octx = null;
@@ -28,6 +36,44 @@
 
   function db(n) { return api.db(n); }
   function now() { return Date.now(); }
+
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Runner';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Runner'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        paintHud();
+      }
+    }, function () {});
+  }
 
   function hashId(s) {
     var h = 2166136261;
@@ -80,14 +126,12 @@
   }
 
   function publish(r, force) {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     var t = now();
     if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
-    lastPublished = t;
     var p = myPose(r || (root.Runner && root.Runner.instance_));
-    db('players').put({
+    var row = {
       id: me.id,
-      name: me.name,
       y: p.y,
       duck: p.duck ? 1 : 0,
       status: p.status,
@@ -96,22 +140,29 @@
       crashed: p.crashed ? 1 : 0,
       distance: p.distance,
       score: p.score,
-      seed: seed || 0,
-      t: t
-    }).catch(function () {});
+      seed: seed || 0
+    };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPublished = t;
+    row.name = me.name;
+    row.t = t;
+    db('players').put(row).catch(function () {});
   }
 
   function ingest(list) {
-    var t = now(), seen = {};
+    var t = now(), seen = {}, names = peopleNames();
     for (var i = 0; i < list.length; i++) {
       var p = list[i];
       if (!p || !p.id || p.id === me.id) continue;
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
       var cur = others[p.id];
       var moved = !cur || cur.distance !== p.distance || cur.y !== p.y || cur.stamp !== p.t;
       others[p.id] = {
         id: p.id,
-        name: p.name || 'Runner',
+        name: names[p.id] || p.name || 'Runner',
         y: p.y == null ? 93 : p.y,
         duck: !!p.duck,
         status: p.status || 'RUNNING',
@@ -126,8 +177,9 @@
         color: cur && cur.color ? cur.color : tintFor(p.id)
       };
     }
+    var names = peopleNames();
     for (var id in others) {
-      if (!seen[id] || now() - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id] || !names[id]) delete others[id];
     }
     paintHud();
   }
@@ -326,10 +378,9 @@
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ others: 0 });
-    var infoP = api.me ? api.me() : Promise.resolve({ id: 'local', name: 'Runner' });
-    return infoP.then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Runner';
+    if (!PEOPLE) return Promise.resolve({ others: 0 });
+    return readRoom().then(function () {
+      if (!me.id) return { others: 0 };
       var settled = false;
       return new Promise(function (resolve) {
         var done = function () {
@@ -342,6 +393,7 @@
           ingest(list || []);
           done();
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () {
       return { others: 0 };
@@ -358,6 +410,19 @@
     others: function () { return others; },
     me: function () { return me; },
     count: function () { return countOthers() + (me.id ? 1 : 0); },
-    live: function () { return !!api && !!me.id; }
+    live: function () { return !!api && !!me.id && PEOPLE; }
   };
+
+  root['__chrome-dino'] = {
+    state: function () {
+      return me.id ? { seed: seed | 0, score: (root.Dino && root.Runner && root.Runner.instance_) ? (root.Dino.scoreOf(root.Runner.instance_) | 0) : 0 } : null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
+    },
+    amHost: function () { return !!me.id && owner && peopleCount() > 1; }
+  };
+
 })(window);

@@ -36,8 +36,11 @@
 (function (root) {
   'use strict';
 
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'IO Blobs needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+
   var PUBLISH_HZ = 6;
-  var STALE_MS = 9000;
   var EAT_RING = 8;
   var FOOD_RING = 56;
   var CLAIM_TTL = 12000;
@@ -55,11 +58,54 @@
   var onRoster = null;
   var onFood = null;
   var lastPublished = 0;
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var lastPubSig = '';
+
   var self = { r: 20, score: 0, k: 0, d: 0, alive: true, spawn: 0, lastKilledBy: null, killAck: {} };
   var started = false;
 
   function db(n) { return api.db(n); }
   function now() { return Date.now(); }
+
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Player'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        if (onRoster) onRoster(roster());
+      }
+    }, function () {});
+  }
 
   function tintFor(id) {
     var h = 0;
@@ -72,9 +118,9 @@
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve(null);
-    return api.me().then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Player';
+    if (!PEOPLE) return Promise.resolve(null);
+    return readRoom().then(function () {
+      if (!me.id) return null;
       var settled = false;
       return new Promise(function (resolve) {
         var done = function (list) { if (!settled) { settled = true; resolve(list || []); } };
@@ -83,12 +129,13 @@
           ingest(list || []);
           done(list || []);
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () { return null; });
   }
 
   function ingest(list) {
-    var t = now(), seen = {}, allFood = {};
+    var t = now(), seen = {}, allFood = {}, names = peopleNames();
     for (var i = 0; i < list.length; i++) {
       var p = list[i];
       if (!p || !p.id) continue;
@@ -96,12 +143,13 @@
         for (var f = 0; f < p.ate.length; f++) allFood[p.ate[f]] = 1;
       }
       if (p.id === me.id) { reconcileSelf(p); continue; }
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
       drainEats(p);
       var cur = others[p.id];
       var moved = !cur || cur.x !== p.x || cur.y !== p.y || cur.r !== p.r || cur.stamp !== p.t;
       others[p.id] = {
-        id: p.id, name: p.name || 'Player',
+        id: p.id, name: names[p.id] || p.name || 'Player',
         x: p.x, y: p.y, r: p.r == null ? 20 : p.r,
         score: p.score || 0, alive: p.alive !== false,
         k: p.k || 0, d: p.d || 0, spawn: p.sp || 0,
@@ -118,7 +166,7 @@
       }
     }
     for (var id in others) {
-      if (!seen[id] || now() - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id] || !names[id]) delete others[id];
     }
     if (onFood) onFood(allFood);
     if (onRoster) onRoster(roster());
@@ -146,7 +194,7 @@
   }
 
   function claimEat(targetId, targetSpawn) {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     pendingEats.push({ to: targetId, n: ++seq, sp: targetSpawn });
     if (pendingEats.length > EAT_RING) pendingEats.shift();
     publish(true);
@@ -166,27 +214,32 @@
   }
 
   function publish(force) {
-    if (!api || !me.id || !root.__IOBLOBS_POSE__) return;
+    if (!api || !me.id || !PEOPLE || !root.__IOBLOBS_POSE__) return;
     var t = now();
     if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
-    lastPublished = t;
     var p = root.__IOBLOBS_POSE__();
     if (!p) return;
-    db('players').put({
-      id: me.id, name: me.name,
+    var row = {
+      id: me.id,
       x: r2(p.x), y: r2(p.y), r: r2(p.r),
       score: self.score | 0, alive: !!self.alive, sp: self.spawn,
       k: self.k, d: self.d,
       lastKilledBy: self.lastKilledBy,
       eats: pendingEats.slice(),
-      ate: pendingFood.slice(),
-      t: t,
-    }).catch(function () { /* a dropped frame of presence is not an error */ });
+      ate: pendingFood.slice()
+    };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPublished = t;
+    row.name = me.name;
+    row.t = t;
+    db('players').put(row).catch(function () { /* a dropped frame of presence is not an error */ });
     started = true;
   }
 
   function tick() {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     publish(false);
   }
 
@@ -235,7 +288,7 @@
     others: function () { return others; },
     me: function () { return me; },
     count: function () { var n = 0; for (var k in others) n++; return n + 1; },
-    live: function () { return !!api && !!me.id; },
+    live: function () { return !!api && !!me.id && PEOPLE; },
     tintFor: tintFor,
     hsv: hsv,
     appliedTotal: function () { return appliedTotal; },
@@ -244,4 +297,17 @@
     onRoster: function (fn) { onRoster = fn; },
     onFood: function (fn) { onFood = fn; },
   };
+
+  root['__io-blobs'] = {
+    state: function () {
+      return me.id ? { score: self.score | 0, r: self.r | 0, alive: !!self.alive } : null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
+    },
+    amHost: function () { return !!me.id && owner && peopleCount() > 1; }
+  };
+
 })(window);
