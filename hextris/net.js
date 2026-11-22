@@ -324,7 +324,7 @@
       } else {
         onRoom(lastList);
       }
-      if (!usedSeed) applySeed(mySeed, round, !!owner);
+      if (!usedSeed) applySeed(mySeed, round, false);
       if (peopleTimer) clearInterval(peopleTimer);
       peopleTimer = setInterval(readRoom, PEOPLE_MS);
       renderMp();
