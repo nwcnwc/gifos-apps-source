@@ -123,10 +123,9 @@
       var mine = null, i;
       for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
       if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
-      if (handed && !on && !declined) {
-        var n = 0, id, names = peopleNames();
-        for (id in names) if (id !== me.id) n++;
-        if (n > 0) enter();
+      if (handed && !declined) {
+        // New owner must host the race after hand-off (P2).
+        if (!on) enter();
       } else if (key !== roomKey) {
         roomKey = key;
         if (on) onRoom(lastList);
@@ -341,12 +340,7 @@
       return live(lastList).map(function (p) { return p.id; });
     },
     amHost: function () {
-      var n = 0, i, p;
-      for (i = 0; i < roomPeople.length; i++) {
-        p = roomPeople[i];
-        if (p && p.id && p.here !== 'gone') n++;
-      }
-      return on && owner && n > 1;
+      return on && owner;
     }
   };
 
