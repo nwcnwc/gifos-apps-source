@@ -351,8 +351,14 @@
     applySeed(mySeed, round);
   }
 
-  function onActuate() {
+  var lastSig = "";
+  function onActuate(user) {
     if (!on) return;
+    var FB = root.FB || {};
+    var sig = [FB.score || 0, FB.lines || 0, FB.over ? 1 : 0, mySeed, round].join("|");
+    // K3: gravity alone must not write. Publish on user input or score/lines/over change.
+    if (!user && sig === lastSig) { renderMp(); return; }
+    lastSig = sig;
     lastPub = 0;
     publish();
     renderMp();

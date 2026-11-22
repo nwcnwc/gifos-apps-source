@@ -148,7 +148,7 @@
     paintNext();
     var bn = $('banner');
     if (bn) { bn.hidden = true; bn.textContent = ''; bn.className = ''; }
-    if (FB.Mp) FB.Mp.onActuate();
+    if (FB.Mp) FB.Mp.onActuate(false);
   };
 
   var origTick = tick;
@@ -161,7 +161,7 @@
       banner('Game over', 'lose');
       inputAllUp();
     }
-    if (FB.Mp) FB.Mp.onActuate();
+    if (FB.Mp) FB.Mp.onActuate(true);
   };
 
   var origKeyPress = keyPress;
@@ -169,7 +169,7 @@
     if (!current || lose || FB.frozen) return;
     origKeyPress(key);
     if (typeof render === 'function') render();
-    if (FB.Mp) FB.Mp.onActuate();
+    if (FB.Mp) FB.Mp.onActuate(true);
   };
 
   var origPlay = playButtonClicked;
