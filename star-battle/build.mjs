@@ -146,8 +146,8 @@ if (!manifest.capabilities.multiplayer) {
 if (manifest.capabilities.network) {
   throw new Error('Star Battle has no network path. Do not declare capabilities.network.');
 }
-if (manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947 — this app needs nothing newer than the store');
+if (manifest.minBuild !== 5861) {
+  throw new Error('minBuild must be 5861 — this app needs nothing newer than the store');
 }
 if (manifest.appId !== 'star-battle') throw new Error('appId must be star-battle');
 if (!manifest.data || !manifest.data.prefs || manifest.data.prefs.visibility !== 'private') {

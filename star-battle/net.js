@@ -15,13 +15,16 @@
  * shot meets a body. The host applies the claim. Fuel is each ship's own.
  *
  * Invite is OS chrome. This file never draws a share button.
+ * Who is here is gifos.people().
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 8;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Star Battle needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var WORLD_HZ = 8;
-  var STALE_MS = 9000;
   var CLAIM_RING = 8;
   var CLAIM_TTL = 12000;
 
@@ -29,9 +32,13 @@
   var me = { id: null, name: 'Pilot' };
   var others = {};
   var owner = true;
+  var roomPeople = [];
+  var roomKey = '';
   var seq = 0;
   var claims = [];
   var lastPublished = 0;
+  var lastPubSig = '';
+  var lastWorldSig = '';
   var lastWorld = 0;
   var onRoster = null;
   var honored = {};
@@ -49,19 +56,49 @@
     return h % 360;
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Pilot';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Pilot'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+      }
+    }, function () {});
+  }
+
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
-    var infoP = api.info ? api.info().then(function (i) {
-      owner = !!(i && i.owner);
-      return owner;
-    }).catch(function () { owner = true; return true; }) : Promise.resolve(true);
-
-    return infoP.then(function () {
-      return api.me();
-    }).then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Pilot';
+    if (!PEOPLE) return Promise.resolve({ owner: true, others: 0 });
+    return readRoom().then(function () {
+      if (!me.id) return { owner: owner, others: 0 };
       var settled = false;
       return new Promise(function (resolve) {
         var done = function () {
@@ -77,6 +114,7 @@
         db('world').subscribe(function (list) {
           ingestWorld(list || []);
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () {
       return { owner: true, others: 0 };
@@ -90,6 +128,7 @@
       var p = list[i];
       if (!p || !p.id) continue;
       if (p.id === me.id) continue;
+      if (!peopleNames()[p.id]) continue;
       seen[p.id] = 1;
       if (p.claims && p.claims.length) {
         for (var c = 0; c < p.claims.length; c++) {
@@ -109,8 +148,9 @@
         prev: cur ? { x: cur.x, y: cur.y, t: cur.t } : null
       };
     }
+    var _names = peopleNames();
     for (var id in others) {
-      if (!seen[id] || now() - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id] || !_names[id]) delete others[id];
     }
     if (owner) honorClaims(pending);
     if (onRoster) onRoster(roster());
@@ -282,7 +322,7 @@
   }
 
   function publish(force) {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     var t = now();
     if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
     lastPublished = t;
@@ -305,7 +345,7 @@
   }
 
   function publishWorld(force) {
-    if (!api || !me.id || !owner) return;
+    if (!api || !me.id || !owner || !PEOPLE) return;
     var play = currentPlay();
     if (!play) return;
     var t = now();
@@ -446,4 +486,26 @@
     importWorld: function (play) { if (worldRec && !owner) importWorld(play, worldRec); },
     onRoster: function (fn) { onRoster = fn; }
   };
+  root['__star-battle'] = {
+    state: function () {
+      return worldRec ? { t: worldRec.t | 0, lv: worldRec.lv | 0 } : null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'sb-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
