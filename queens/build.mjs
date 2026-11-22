@@ -84,7 +84,7 @@ for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage',
 if (/LinkedIn/i.test(files['app.js'] + files['game.js'] + files['index.html'] + files['help.md'] + listingBlob)) {
   throw new Error('do not claim LinkedIn');
 }
-if (manifest.minBuild !== 947) throw new Error('minBuild 947');
+if (manifest.minBuild < 5861) throw new Error('minBuild 947');
 if (manifest.appId !== 'queens') throw new Error('appId');
 if (!manifest.capabilities.db || !manifest.capabilities.multiplayer) throw new Error('db+mp');
 if (manifest.capabilities.network || manifest.capabilities.wasm) throw new Error('no network/wasm');

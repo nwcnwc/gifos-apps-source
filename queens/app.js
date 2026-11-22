@@ -3,6 +3,9 @@
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var LEVELS = window.QUEENS_LEVELS || [];
+  var NEEDS_NEWER = 'Queens needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(typeof gifos !== 'undefined' && gifos && gifos.people);
   var saveDb = null, roomDb = null;
   try {
     if (window.gifos) {
@@ -15,10 +18,13 @@
   var state = { idx: 0, board: null, hist: [], regions: null, level: null };
   var me = { id: 'solo', name: 'you' };
   var others = {};
+  var lastRoomRows = [];
   var filterSize = 0;
   var hideDone = false;
   var saveWarned = false;
   var sharedLevel = null;
+  var roomPeople = [];
+  var owner = false;
 
   function setChip(cls, text) {
     $('chip').className = 'engine-chip' + (cls ? ' ' + cls : '');
@@ -330,16 +336,50 @@
     return 0;
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+  function readRoom() {
+    if (!PEOPLE || typeof gifos === 'undefined' || !gifos) return Promise.resolve();
+    return Promise.all([
+      gifos.people(),
+      gifos.info ? gifos.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'you'; }
+      ingestRoom(lastRoomRows);
+    }, function () {});
+  }
   function publishPuzzle() {
-    if (!roomDb || me.id === 'solo' || !state.level) return;
-    roomDb.put({ id: 'puzzle', level: state.level.id, by: me.id, t: Date.now() })
+    if (!PEOPLE || !roomDb || me.id === 'solo' || !state.level || !owner) return;
+    if (peopleCount() < 2) return;
+    roomDb.put({ id: 'puzzle', level: state.level.id, by: me.id })
       .catch(function () {});
   }
   function publishMe() {
-    if (!roomDb || me.id === 'solo' || !state.level) return;
+    if (!PEOPLE || !roomDb || me.id === 'solo' || !state.level) return;
+    if (peopleCount() < 2) return;
     roomDb.put({
-      id: me.id, name: me.name, level: state.level.id,
-      solved: !!save.done[state.level.id], t: Date.now()
+      id: me.id, level: state.level.id,
+      solved: !!save.done[state.level.id]
     }).catch(function () {});
   }
   function paintRoom() {
@@ -357,6 +397,31 @@
     }
     el.innerHTML = parts.join('');
   }
+  function ingestRoom(list) {
+    lastRoomRows = list || [];
+    var names = peopleNames(), seen = {}, i, p;
+    others = {};
+    for (i = 0; i < lastRoomRows.length; i++) {
+      p = lastRoomRows[i];
+      if (!p || !p.id) continue;
+      if (p.id === 'puzzle') {
+        sharedLevel = p.level;
+        if (p.by !== me.id && p.level && state.level && p.level !== state.level.id &&
+            !$('play').hidden) {
+          openLevel(indexOfId(p.level), { follow: true, keep: true });
+        }
+        continue;
+      }
+      if (p.id === me.id) continue;
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) continue;
+      seen[p.id] = 1;
+      others[p.id] = Object.assign({}, p, { name: names[p.id] || p.name || 'Player' });
+    }
+    if (state.level) paintRoom();
+    if (Object.keys(others).length) {
+      setChip('play', Object.keys(others).length + 1 + ' in room');
+    }
+  }
   function esc(s) {
     return String(s).replace(/[&<>]/g, function (ch) {
       return ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : '&gt;';
@@ -364,32 +429,11 @@
   }
 
   function bootRoom() {
-    if (!roomDb || !window.gifos || !gifos.me) return;
-    gifos.me().then(function (who) {
-      if (who && who.id) me = who;
-      roomDb.subscribe(function (list) {
-        var seen = {}, i, p;
-        for (i = 0; i < (list || []).length; i++) {
-          p = list[i];
-          if (!p || !p.id) continue;
-          if (p.id === 'puzzle') {
-            sharedLevel = p.level;
-            if (p.by !== me.id && p.level && state.level && p.level !== state.level.id &&
-                !$('play').hidden) {
-              openLevel(indexOfId(p.level), { follow: true, keep: true });
-            }
-            continue;
-          }
-          if (p.id === me.id) continue;
-          seen[p.id] = 1;
-          others[p.id] = p;
-        }
-        Object.keys(others).forEach(function (id) { if (!seen[id]) delete others[id]; });
-        if (state.level) paintRoom();
-        if (Object.keys(others).length) {
-          setChip('play', Object.keys(others).length + 1 + ' in room');
-        }
-      });
+    if (!roomDb || !PEOPLE) return;
+    readRoom().then(function () {
+      roomDb.subscribe(function (list) { ingestRoom(list || []); });
+      setInterval(readRoom, PEOPLE_MS);
+      publishMe();
     }).catch(function () {});
   }
 
@@ -425,5 +469,27 @@
       setChip('err', 'Couldn’t load save');
     }).then(function () { bootRoom(); });
   }
+  window['__queens'] = {
+    state: function () {
+      return sharedLevel ? { level: sharedLevel } : (state.level ? { level: state.level.id } : null);
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'queens-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
+
   boot();
 })();

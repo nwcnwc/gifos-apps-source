@@ -189,11 +189,17 @@ function shell(opts) {
   });
   const net = { calls: [] };
   const puts = []; const roomPuts = []; let sub = null; let back = null; const gifosCalls = [];
+  const meRow = opts.me || { id: 'solo', name: 'you' };
+  const peopleRows = opts.people || [
+    { id: meRow.id, name: meRow.name || 'you', me: true, here: 'here' },
+  ];
   const gifos = {
     db: (name) => name === 'save'
       ? { put: (r) => { puts.push(JSON.parse(JSON.stringify(r))); return Promise.resolve(); }, get: () => Promise.resolve(opts.saved || null) }
       : { put: (r) => { roomPuts.push(r); return Promise.resolve(); }, subscribe: (fn) => { sub = fn; } },
-    me: () => Promise.resolve(opts.me || { id: 'solo' }),
+    me: () => Promise.resolve(meRow),
+    people: () => Promise.resolve(peopleRows.map((p) => Object.assign({}, p))),
+    info: () => Promise.resolve({ owner: opts.owner !== false }),
     onBack: (fn) => { back = fn; },
   };
   // Anything else an app could call on gifos (invite, share, open…) is recorded.
@@ -253,8 +259,16 @@ function shell(opts) {
     check('a saved board of the wrong size is not restored', S.cells().length === LEVELS[0].size * LEVELS[0].size && S.cells().every((c) => !/ [qx]\b/.test(c.className)));
   }
   {
-    // In a room: a guest follows the host's puzzle.
-    const S = shell({ me: { id: 'guest-1', name: 'Guest' } });
+    // In a room: a guest follows the host's puzzle (people()/owner).
+    const S = shell({
+      me: { id: 'guest-1', name: 'Guest' },
+      owner: false,
+      people: [
+        { id: 'host-1', name: 'Host', me: false, here: 'here' },
+        { id: 'guest-1', name: 'Guest', me: true, here: 'here' },
+      ],
+    });
+    await flush();
     await flush();
     check('the room is subscribed', typeof S.sub() === 'function');
     const target = LEVELS[70];

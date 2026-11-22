@@ -1,14 +1,19 @@
 // Pass the pad — a sheet, not a shared scribble.
 //
 // Each player writes their signature on THEIR own row. Nobody writes anybody
-// else's row. There is no host-owned board: the sheet is just those rows.
-// Invite is OS chrome. This file never draws an Invite button.
+// else's row. Who is here is gifos.people(). Invite is OS chrome.
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 3000;
+  var NEEDS_NEWER = 'Signature Pad needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
   var PUB_MS = 140;
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var roomRead = false;
+  var declined = false;
   var MAX_GROUPS = 40;
   var MAX_POINTS = 800;
 
@@ -17,10 +22,8 @@
   var me = { id: null, name: 'You' };
   var on = false;
   var subscribed = false;
-  var hbTimer = 0;
   var pubTimer = 0;
   var lastList = [];
-  var seenAt = {};
   var lastPacked = '';
 
   var $ = function (id) { return document.getElementById(id); };
@@ -31,16 +34,20 @@
     });
   };
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id) return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      var rec = seenAt[p.id];
-      if (t - rec.seen > STALE_MS) return;
-      out.push(p);
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
+      out.push(Object.assign({}, p, { name: names[p.id] || p.name || 'Friend' }));
     });
     return out;
   }
@@ -104,7 +111,7 @@
   }
 
   function publish() {
-    if (!on || !room || !me.id) return;
+    if (!on || !room || !me.id || !PEOPLE) return;
     var row = snapshot();
     var key = JSON.stringify({ e: row.empty, n: row.strokes.length, ink: row.ink, w: row.w, h: row.h, last: row.strokes.length ? row.strokes[row.strokes.length - 1] : 0 });
     lastPacked = key;
@@ -200,11 +207,6 @@
     render();
   }
 
-  function beat() {
-    if (!on) return;
-    publish();
-    render();
-  }
 
   function onChanged() {
     if (!on) return;
@@ -255,26 +257,78 @@
     if (root.Pad && root.Pad.downloadPng) root.Pad.downloadPng(c.toDataURL('image/png'), 'signature-sheet.png');
   }
 
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      var handed = !owner && !!info.owner && roomRead;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (handed && !on && !declined) {
+        var n = 0, id, names = peopleNames();
+        for (id in names) if (id !== me.id) n++;
+        if (n > 0) enter();
+      } else if (key !== roomKey) {
+        roomKey = key;
+        if (on) onRoom(lastList);
+        else maybeEnterFromPeople();
+      }
+    }, function () {});
+  }
+  function maybeEnterFromPeople() {
+    if (on || declined || !PEOPLE) return;
+    var names = peopleNames(), id, n = 0;
+    for (id in names) { if (id !== me.id) n++; }
+    if (n > 0) enter();
+  }
+  function watch() {
+    api = root.gifos;
+    if (!api || !api.db || !PEOPLE) return;
+    room = room || api.db('room');
+    readRoom().then(function () {
+      if (subscribed) return;
+      subscribed = true;
+      room.subscribe(function (list) {
+        lastList = list || [];
+        if (on) { onRoom(lastList); return; }
+        if (declined) return;
+        maybeEnterFromPeople();
+      });
+      setInterval(readRoom, PEOPLE_MS);
+      maybeEnterFromPeople();
+    }).catch(function () {});
+  }
+
   function enter() {
     api = root.gifos;
     if (!api || !api.db) {
       $('friend-bar').hidden = false;
-      $('friend-status').textContent = 'Passing the pad needs a GifOS room.';
+      if ($('friend-status')) $('friend-status').textContent = 'Sharing needs a GifOS room.';
       return;
     }
-    room = api.db('room');
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
+    if (!PEOPLE) {
+      $('friend-bar').hidden = false;
+      if ($('friend-status')) $('friend-status').textContent = NEEDS_NEWER;
+      return;
+    }
+    if (on) return;
+    declined = false;
+    room = room || api.db('room');
+    readRoom().then(function () {
+      if (!me.id) return;
       on = true;
-      seenAt = {};
-      lastPacked = '';
-      if (root.Pad.flushSave) root.Pad.flushSave();
-      root.Pad.mp = true;
       document.body.classList.add('together');
       $('friend-bar').hidden = false;
-      $('sheet').hidden = false;
-      $('your-label').textContent = 'You';
+      if ($('shareBtn')) $('shareBtn').hidden = true;
       if (!subscribed) {
         subscribed = true;
         room.subscribe(onRoom);
@@ -282,26 +336,17 @@
         onRoom(lastList);
       }
       publish();
-      beat();
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(beat, HB_MS);
-      if (root.Pad.resize) root.Pad.resize();
     }).catch(function () {});
   }
 
   function leave() {
     on = false;
-    root.Pad.mp = false;
+    declined = true;
     document.body.classList.remove('together');
     $('friend-bar').hidden = true;
-    $('sheet').hidden = true;
-    $('sheet-list').innerHTML = '';
-    $('your-label').textContent = 'Sign above';
-    if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
+    if ($('shareBtn')) $('shareBtn').hidden = false;
     if (pubTimer) { clearTimeout(pubTimer); pubTimer = 0; }
     if (room && me.id) room.delete(me.id).catch(function () {});
-    if (root.Pad.restoreSave) root.Pad.restoreSave();
-    if (root.Pad.resize) root.Pad.resize();
   }
 
   root.Pad = root.Pad || {};
@@ -313,6 +358,31 @@
     isOn: function () { return on; }
   };
 
+  root['__signature-pad'] = {
+    state: function () {
+      return on ? { n: live(lastList).length } : null;
+    },
+    people: function () { return live(lastList).map(function (p) { return p.id; }); },
+    amHost: function () {
+      var n = 0, i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') n++;
+      }
+      return on && owner && n > 1;
+    }
+  };
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'sig-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watch);
+    else watch();
+  }
   $('shareBtn').addEventListener('click', function (e) { e.preventDefault(); enter(); });
   $('leaveBtn').addEventListener('click', function (e) { e.preventDefault(); leave(); });
 })(window);

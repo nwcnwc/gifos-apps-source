@@ -3,17 +3,25 @@
   "appId": "queens",
   "name": "Queens",
   "shortName": "Queens",
-  "version": "1.1",
-  "minBuild": 947,
+  "version": "1.2",
+  "minBuild": 5861,
   "description": "Place N queens so none share a row, a column, a region, or a diagonal touch.",
   "entry": "index.html",
-  "accent": [94, 79, 162],
+  "accent": [
+    94,
+    79,
+    162
+  ],
   "capabilities": {
     "db": true,
     "multiplayer": true
   },
   "data": {
-    "save": { "visibility": "private" },
-    "room": { "visibility": "read-write" }
+    "save": {
+      "visibility": "private"
+    },
+    "room": {
+      "visibility": "read-write"
+    }
   }
 }
