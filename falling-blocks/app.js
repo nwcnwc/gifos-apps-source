@@ -161,7 +161,7 @@
       banner('Game over', 'lose');
       inputAllUp();
     }
-    if (FB.Mp) FB.Mp.onActuate(true);
+    if (FB.Mp) FB.Mp.onActuate(false);
   };
 
   var origKeyPress = keyPress;
