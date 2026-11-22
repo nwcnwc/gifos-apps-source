@@ -38,3 +38,5 @@ In a race the first click is **not** guaranteed safe — reshuffling would give 
 ## What is saved
 
 Your last board size, mine count, and emoji set stay **inside this app** on this device. The board you were mid-clearing is not saved. Race times live only while the room is open.
+
+Who is here comes from gifos.people(). The app owner hosts; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

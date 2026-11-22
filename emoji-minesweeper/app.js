@@ -241,9 +241,9 @@
         onRoster: function (list) {
           var rec = window.MineNet.race();
           var others = window.MineNet.others();
-          // Lowest id deals once, when a second person arrives and no board
-          // has been dealt yet. New Game still lets anyone deal (restart()).
-          if (others > 0 && !rec && !autoDealt && isManager(list)) { autoDealt = true; dealRace(); }
+          // App owner deals once, when a second person arrives and no board
+          // has been dealt yet. New Game also goes through the owner (deal).
+          if (others > 0 && !rec && !autoDealt && window.MineNet.owner()) { autoDealt = true; dealRace(); }
           else if (rec && !raceMode) enterRace(rec);
           renderRace(list);
         }
