@@ -2,16 +2,18 @@
 // write means the meeting host is leading; this file does not decide that.
 (function () {
   'use strict';
+  var PEOPLE = !!(window.gifos && window.gifos.people);
+  var PEOPLE_MS = 2000;
+  var NEEDS_NEWER = 'Survey needs a newer GifOS to share with friends. Reload the page to update. Solo works on this device.';
   var S = window.SurveyLogic;
   var $ = function (id) { return document.getElementById(id); };
   var HOST_LINE = 'The host is leading this app, so only they can change the survey.';
 
-  var surveyDb = null, voteDb = null, presDb = null;
+  var surveyDb = null, voteDb = null;
   try {
     if (window.gifos && gifos.db) {
       surveyDb = gifos.db('survey');
       voteDb = gifos.db('votes');
-      presDb = gifos.db('presence');
     }
   } catch (e) {}
 
@@ -46,10 +48,6 @@
     return n === 1 ? '1 vote' : n + ' votes';
   }
 
-  function beat() {
-    if (!presDb || !myId()) return;
-    presDb.put({ id: 'p:' + me.id, name: me.name || '', since: since, ts: Date.now() }).catch(function () {});
-  }
 
   function readDraft() {
     var title = ($('d-title') && $('d-title').value) || '';
@@ -496,21 +494,64 @@
     render();
   }
 
+
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+  function readRoom() {
+    if (!PEOPLE || !window.gifos) return Promise.resolve();
+    return Promise.all([
+      gifos.people(),
+      gifos.info ? gifos.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || ''; }
+      roomKey = key;
+    }, function () {});
+  }
+
+  window['__survey'] = {
+    state: function () {
+      return survey ? { epoch: survey.epoch | 0, open: survey.open ? 1 : 0 } : null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
+    },
+    amHost: function () { return owner && peopleCount() > 1; }
+  };
+
   function boot() {
     render();
     var hello = function (m) {
       me = { id: (m && m.id) || 'local', name: (m && m.name) || '' };
-      beat();
       if (survey) { painted = ''; render(); }
     };
     if (window.gifos && gifos.me) gifos.me().then(hello, function () { hello(null); });
     if (window.gifos && gifos.onIdentity) gifos.onIdentity(function (m) { if (m && m.id) hello(m); });
+    if (PEOPLE) { readRoom(); setInterval(readRoom, PEOPLE_MS); }
     if (surveyDb) surveyDb.subscribe(onSurveyRows);
     if (voteDb) voteDb.subscribe(onVoteRows);
-    setInterval(beat, 3000);
-    window.addEventListener('pagehide', function () {
-      if (presDb && myId()) presDb.delete('p:' + me.id).catch(function () {});
-    });
   }
   if (S) boot();
 })();

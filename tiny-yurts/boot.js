@@ -3,9 +3,14 @@
  * Invite is OS chrome. Best score is private. gifos.db hydrates into the
  * localStorage stub; the title highscore is painted on after that. The jam
  * itself is a static script so the packer inlines it.
+ * Who is here is gifos.people(). Publish score only when it changes.
  */
 (function (root) {
   'use strict';
+
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Tiny Yurts needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
 
   var api = typeof gifos !== 'undefined' ? gifos : null;
   var saveDb = null, playersDb = null;
@@ -21,6 +26,25 @@
   var others = {};
   var started = false;
   var lastScore = 0;
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var lastPubSig = '';
+
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
 
   function currentScore() {
     var v = root.localStorage && root.localStorage.getItem('Tiny Yurts');
@@ -40,17 +64,24 @@
   }
 
   function publish() {
-    if (!started || !playersDb || !me.id || me.id === 'local') return;
-    playersDb.put({
-      id: me.id, name: me.name, score: currentScore(), t: Date.now()
-    }).catch(function () {});
+    if (!started || !playersDb || !me.id || me.id === 'local' || !PEOPLE) return;
+    var row = { id: me.id, score: currentScore() };
+    var sig = JSON.stringify(row);
+    if (sig === lastPubSig) return;
+    lastPubSig = sig;
+    row.name = me.name;
+    row.t = Date.now();
+    playersDb.put(row).catch(function () {});
   }
 
   function paintRoster() {
-    var list = [{ id: me.id, name: me.name, mine: true, score: currentScore() }];
+    var names = peopleNames();
+    var list = [];
+    if (me.id && names[me.id]) list.push({ id: me.id, name: me.name, mine: true, score: currentScore() });
     Object.keys(others).forEach(function (id) {
+      if (!names[id]) return;
       var p = others[id];
-      list.push({ id: p.id, name: p.name || 'Player', mine: false, score: p.score || 0 });
+      list.push({ id: p.id, name: names[id] || p.name || 'Player', mine: false, score: p.score || 0 });
     });
     if (list.length < 2) { rosterEl.hidden = true; return; }
     list.sort(function (a, b) { return b.score - a.score; });
@@ -85,10 +116,6 @@
     if (row.grid) root._tyMem['Tiny Yurtsg'] = String(row.grid);
   }
 
-  /* Portrait used to crop the valley: the jam SVG is slice + maxHeight 68vw,
-     so on a 390×844 phone the board is a 265px strip and the left/right farms
-     fall off the screen. Meet + a height that fits the 208:112 viewBox keeps
-     every cell under a finger. Landscape keeps the original slice fill. */
   function fitBoard() {
     var svgs = document.querySelectorAll('svg');
     var board = null;
@@ -151,34 +178,71 @@
     });
   }
 
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        paintRoster();
+      }
+    }, function () {});
+  }
+
   function bootNet() {
-    if (!api || !playersDb) return;
-    api.me().then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
-      if (me.id === 'local') return;
+    if (!api || !playersDb || !PEOPLE) return;
+    readRoom().then(function () {
+      if (!me.id || me.id === 'local') return;
       started = true;
       playersDb.subscribe(function (list) {
-        var seen = {};
+        var names = peopleNames(), seen = {};
         (list || []).forEach(function (p) {
           if (!p || !p.id || p.id === me.id) return;
+          if (!names[p.id]) return;
           seen[p.id] = 1;
-          others[p.id] = p;
+          others[p.id] = Object.assign({}, p, { name: names[p.id] || p.name });
         });
-        Object.keys(others).forEach(function (id) { if (!seen[id]) delete others[id]; });
+        Object.keys(others).forEach(function (id) { if (!seen[id] || !names[id]) delete others[id]; });
         paintRoster();
       });
       publish();
+      setInterval(readRoom, PEOPLE_MS);
     }).catch(function () {});
   }
 
-  /* vendor/game.js is a static <script> so the packer inlines it. A dynamic
-     src= fetch from this iframe has nowhere to go (about:srcdoc). The jam
-     already ran and read localStorage; we paint the saved highscore over the
-     title and fit the valley to the phone. */
   fitBoard();
   root.addEventListener('resize', fitBoard);
   if (root.visualViewport) root.visualViewport.addEventListener('resize', fitBoard);
+
+  root['__tiny-yurts'] = {
+    state: function () { return started ? { score: currentScore() | 0 } : null; },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
+    },
+    amHost: function () { return started && owner && peopleCount() > 1; }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'ty-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 
   if (!saveDb) { bootNet(); return; }
   saveDb.get('prefs').then(function (row) {

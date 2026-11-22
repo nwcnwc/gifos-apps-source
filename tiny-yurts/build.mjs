@@ -41,7 +41,7 @@ const gameBuf = readFileSync(join(dir, 'vendor', 'game.js'));
 const gameHex = createHash('sha256').update(gameBuf).digest('hex');
 if (gameHex !== GAME_SHA256) throw new Error('vendor/game.js sha256 ' + gameHex + ' ≠ pin ' + GAME_SHA256);
 
-if (manifest.minBuild !== 947) throw new Error('minBuild');
+if (manifest.minBuild !== 5861) throw new Error('minBuild');
 if (manifest.appId !== 'tiny-yurts') throw new Error('appId');
 if (!manifest.capabilities.db || !manifest.capabilities.multiplayer) throw new Error('db+mp');
 if (manifest.capabilities.network) throw new Error('no network');

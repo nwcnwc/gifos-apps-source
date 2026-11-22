@@ -876,28 +876,41 @@
   function playerClosed() { overlays.pop(); }
 
   // ---------------------------------------------------------- presence
-  // A tiny read-write collection so an invite is VISIBLE: everyone puts a
-  // heartbeat row, everyone renders everyone else's. Kept lean - a few tens
-  // of bytes per participant - because subscribers re-download a collection
-  // on every change.
-  const PRESENCE_FRESH_MS = 2 * 60 * 1000;
+  // Who is here is gifos.people(). No heartbeat collection.
+  const PEOPLE = !!(window.gifos && window.gifos.people);
+  const PEOPLE_MS = 2000;
+  let roomPeople = [];
+  let roomOwner = false;
+
+  function paintPresence() {
+    const chip = $('presence');
+    if (!chip) return;
+    if (!PEOPLE) { chip.hidden = true; return; }
+    const others = (roomPeople || []).filter((p) => p && p.id && p.here !== 'gone' && !(state.me && p.id === state.me.id));
+    if (!others.length) { chip.hidden = true; return; }
+    chip.textContent = '● ' + others.map((r) => r.name || 'someone').join(', ') + (others.length === 1 ? ' is here' : ' are here');
+    chip.hidden = false;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !window.gifos) return Promise.resolve();
+    return Promise.all([
+      gifos.people(),
+      gifos.info ? gifos.info() : Promise.resolve({})
+    ]).then(function (r) {
+      roomPeople = (r[0] || []).filter(function (p) { return p && p.id; });
+      roomOwner = !!(r[1] && r[1].owner);
+      var mine = null, i;
+      for (i = 0; i < roomPeople.length; i++) if (roomPeople[i].me) mine = roomPeople[i];
+      if (mine) state.me = { id: mine.id, name: mine.name || 'someone' };
+      paintPresence();
+    }, function () {});
+  }
 
   function startPresence() {
-    if (!SIO.store.inGifOS() || !state.me) return;
-    const beat = () => SIO.store.db('presence')
-      .put({ id: 'p/' + state.me.id, name: state.me.name || 'someone', when: Date.now() })
-      .catch(() => { /* a missed heartbeat is invisible, not an error */ });
-    beat();
-    setInterval(beat, 45 * 1000);
-    SIO.store.db('presence').subscribe((rows) => {
-      const now = Date.now();
-      const others = (rows || []).filter((r) =>
-        r && r.id !== 'p/' + state.me.id && now - (r.when || 0) < PRESENCE_FRESH_MS);
-      const chip = $('presence');
-      if (!others.length) { chip.hidden = true; return; }
-      chip.textContent = '● ' + others.map((r) => r.name).join(', ') + (others.length === 1 ? ' is here' : ' are here');
-      chip.hidden = false;
-    });
+    if (!SIO.store.inGifOS() || !PEOPLE) return;
+    readRoom();
+    setInterval(readRoom, PEOPLE_MS);
   }
 
   // --------------------------------------------------------------- init
@@ -952,6 +965,16 @@
     switchTab('sentences');
     if (window.gifos && window.gifos.onBack) window.gifos.onBack(backPressed);
     startPresence();
+
+  window['__sound-it-out'] = {
+    state: function () { return state.me ? { words: (state.sightWords || '').length } : null; },
+    people: function () { return (roomPeople || []).filter(function (p) { return p && p.id && p.here !== 'gone'; }).map(function (p) { return p.id; }); },
+    amHost: function () {
+      var n = (roomPeople || []).filter(function (p) { return p && p.id && p.here !== 'gone'; }).length;
+      return roomOwner && n > 1;
+    }
+  };
+
     // Live for everyone connected: a sentence added at one end, or a word
     // recorded at the other, appears without a reload. Debounced - the two
     // subscriptions fire together on connect.

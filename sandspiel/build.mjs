@@ -80,7 +80,7 @@ for (const s of SCRIPTS) if (!html.includes('src="' + s + '"')) throw new Error(
 if (/type=["']module["']/.test(html)) throw new Error('module');
 if (/https?:\/\//i.test(html.replace(/<!--[\s\S]*?-->/g, ''))) throw new Error('url');
 if (/<button\b[^>]*>\s*Invite\s*</i.test(html) || /id=["']invite/i.test(html)) throw new Error('Invite');
-if (manifest.minBuild !== 947) throw new Error('minBuild');
+if (manifest.minBuild !== 5861) throw new Error('minBuild');
 if (!manifest.capabilities.db || !manifest.capabilities.multiplayer || !manifest.capabilities.wasm) throw new Error('caps');
 if (manifest.capabilities.network) throw new Error('network');
 if (manifest.capabilities.fullscreen) throw new Error('fullscreen');

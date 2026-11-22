@@ -68,9 +68,9 @@ if (manifest.capabilities.wasm) throw new Error('do not declare wasm');
 if (manifest.capabilities.network) throw new Error('survey has no network path');
 if (manifest.capabilities.pointer) throw new Error('do not declare pointer');
 if (manifest.capabilities.stage) throw new Error('do not declare stage');
-if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 947) throw new Error('minBuild must be 947');
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 5861) throw new Error('minBuild must be 5861');
 if (manifest.appId !== 'survey') throw new Error('appId must be survey');
-for (const name of ['survey', 'votes', 'presence']) {
+for (const name of ['survey', 'votes']) {
   if (!manifest.data || !manifest.data[name] || manifest.data[name].visibility !== 'read-write') {
     throw new Error('manifest.data.' + name + ' must be read-write');
   }
@@ -105,8 +105,11 @@ if (!html.includes('Start survey') && !files['app.js'].includes('Start survey'))
 if (!files['app.js'].includes('Save my answers') || !files['app.js'].includes('Anonymous votes')) {
   throw new Error('vote and anonymous controls are missing');
 }
-if (!files['app.js'].includes("gifos.db('survey')") || !files['app.js'].includes("gifos.db('votes')") || !files['app.js'].includes("gifos.db('presence')")) {
-  throw new Error('app.js must open survey, votes and presence');
+if (!files['app.js'].includes("gifos.db('survey')") || !files['app.js'].includes("gifos.db('votes')")) {
+  throw new Error('app.js must open survey and votes');
+}
+if (!files['app.js'].includes('gifos.people') && !files['app.js'].includes('PEOPLE')) {
+  throw new Error('app.js must use gifos.people()');
 }
 const banned = /\b(hasAdminRoom|amAdmin|isHost|openFloor|open-floor|adminRoom|canIRunApp)\b/;
 if (banned.test(files['app.js']) || banned.test(files['logic.js'])) {

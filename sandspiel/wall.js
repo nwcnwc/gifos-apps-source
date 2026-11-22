@@ -1,25 +1,26 @@
 /*
- * Meeting wall — lean cards + presence in room (hot, subscribed).
+ * Meeting wall — lean cards in room (hot, subscribed).
  * Full boards in their own collection, loaded with get(), never subscribed.
- * Each player writes only THEIR presence row. Cards are shared.
+ * Who is here is gifos.people(). Cards are shared. No presence heartbeat.
  * Invite is OS chrome. This file never draws a share sheet.
  */
 (function (root) {
   'use strict';
 
   var S = root.Sandspiel;
-  var STALE_MS = 9000;
-  var HB_MS = 3000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Sandspiel needs a newer GifOS to share the wall. Reload the page to update. Solo works on this device.';
   var api = null;
   var room = null;
   var boards = null;
   var me = { id: null, name: 'You' };
   var on = false;
   var subscribed = false;
-  var hbTimer = 0;
   var lastList = [];
-  var seenAt = {};
-  var lastPub = 0;
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
 
   var $ = function (id) { return document.getElementById(id); };
   var now = function () { return Date.now(); };
@@ -29,16 +30,26 @@
     });
   };
 
-  function liveHere(list, t) {
-    t = t || now();
-    var out = [];
-    (list || []).forEach(function (p) {
-      if (!p || !p.id || p.kind !== 'here') return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      if (t - seenAt[p.id].seen > STALE_MS) return;
-      out.push(p);
-    });
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function liveHere() {
+    var names = peopleNames(), out = [], id;
+    for (id in names) {
+      out.push({ id: id, name: names[id], kind: 'here' });
+    }
     return out;
   }
 
@@ -47,17 +58,9 @@
       .sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
   }
 
-  function publishHere() {
-    if (!on || !room || !me.id) return;
-    var t = now();
-    if (t - lastPub < 80) return;
-    lastPub = t;
-    room.put({ id: me.id, kind: 'here', name: me.name, at: t }).catch(function () {});
-  }
-
   function renderMp() {
     if (!on) return;
-    var players = liveHere(lastList);
+    var players = liveHere();
     var status = $('friend-status');
     var scores = $('friend-scores');
     var html = '';
@@ -71,7 +74,9 @@
     if (scores) scores.innerHTML = html || '<li><span class="name">Just you so far</span></li>';
     var others = players.filter(function (p) { return p.id !== me.id; });
     if (status) {
-      if (!others.length) {
+      if (!PEOPLE) {
+        status.textContent = NEEDS_NEWER;
+      } else if (!others.length) {
         status.textContent = 'Waiting for a friend… Invite sends the link. Put a board on the wall while you wait.';
       } else if (others.length === 1) {
         status.textContent = (others[0].name || 'Friend') + ' is on the wall. Put a board up — they see the card.';
@@ -123,7 +128,7 @@
   }
 
   function putOnWall() {
-    if (!on || !room || !boards || !root.SandApp || !me.id) return;
+    if (!on || !room || !boards || !root.SandApp || !me.id || !PEOPLE) return;
     var title = ($('wallTitle').value || '').trim() || 'Board';
     var id = 'b_' + String(me.id).slice(0, 8) + '_' + now().toString(36);
     var packed = root.SandApp.pack();
@@ -158,6 +163,27 @@
     renderMp();
   }
 
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        if (on) renderMp();
+      }
+    }, function () {});
+  }
+
   function enter() {
     api = root.gifos;
     if (!api || !api.db) {
@@ -166,12 +192,17 @@
       if (s) s.textContent = 'Play together needs a GifOS room.';
       return true;
     }
+    if (!PEOPLE) {
+      $('friend-bar').hidden = false;
+      var s2 = $('friend-status');
+      if (s2) s2.textContent = NEEDS_NEWER;
+      return true;
+    }
     if (on) return true;
     room = api.db('room');
     boards = api.db('boards');
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
+    readRoom().then(function () {
+      if (!me.id) return;
       on = true;
       document.body.classList.add('friend');
       $('friend-bar').hidden = false;
@@ -182,14 +213,8 @@
       } else {
         onRoom(lastList);
       }
-      lastPub = 0;
-      publishHere();
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(function () {
-        lastPub = 0;
-        publishHere();
-        renderMp();
-      }, HB_MS);
+      renderMp();
+      setInterval(readRoom, PEOPLE_MS);
     }).catch(function () {});
     return true;
   }
@@ -199,19 +224,23 @@
     document.body.classList.remove('friend');
     $('friend-bar').hidden = true;
     $('shareBtn').hidden = false;
-    if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
-    if (room && me.id) room.delete(me.id).catch(function () {});
   }
 
   $('shareBtn').addEventListener('click', function (e) { e.preventDefault(); enter(); });
   $('leaveBtn').addEventListener('click', function (e) { e.preventDefault(); leave(); });
   $('putBtn').addEventListener('click', function (e) { e.preventDefault(); putOnWall(); });
 
-  if (root.gifos && root.gifos.info) {
+  if (PEOPLE && root.gifos && root.gifos.info) {
     root.gifos.info().then(function (i) {
       if (!on && i && i.owner === false) enter();
     }).catch(function () {});
   }
 
   root.SandWall = { enter: enter, leave: leave, busy: function () { return on; } };
+
+  root['__sandspiel'] = {
+    state: function () { return on ? { cards: cardsOf(lastList).length } : null; },
+    people: function () { return liveHere().map(function (p) { return p.id; }); },
+    amHost: function () { return on && owner && peopleCount() > 1; }
+  };
 })(window);
