@@ -117,8 +117,8 @@ for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage']
 }
 const lead = (listing.description || '').slice(0, 280);
 if (!/in a GIF/i.test(lead)) throw new Error('listing must lead with in a GIF');
-if (!/no (jam site|install|game server|server)/i.test(lead)) {
-  throw new Error('listing must lead with no jam site / no server');
+if (!/extra soldiers|invite/i.test(lead)) {
+  throw new Error('listing must lead with invite / extra soldiers');
 }
 if (!/close it|still there|your copy/i.test(lead)) {
   throw new Error('listing must say the save in ordinary words (close it / still there / your copy)');
@@ -139,8 +139,8 @@ if (!manifest.capabilities.multiplayer) {
 if (manifest.capabilities.network) {
   throw new Error('Underrun has no network path. Do not declare capabilities.network.');
 }
-if (manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947 — this app needs nothing newer than the store');
+if (manifest.minBuild !== 5861) {
+  throw new Error('minBuild must be 5861 — this app needs nothing newer than the store');
 }
 if (manifest.appId !== 'underrun') throw new Error('appId must be underrun');
 

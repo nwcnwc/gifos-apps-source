@@ -16,18 +16,24 @@
  * walk into comes back on your floor too.
  *
  * Invite is OS chrome. This file never draws a share button.
+ * Who is here is gifos.people(). Publish only when pose/claims change.
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 8;
-  var STALE_MS = 9000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Underrun needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var SHOT_RING = 8;
   var CLAIM_TTL = 20000;
 
   var api = null;
   var me = { id: null, name: 'Soldier' };
   var others = {};
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
   var seq = 0;
   var shots = [];
   var cpuClaims = [];
@@ -35,6 +41,7 @@
   var seenCpu = {};
   var honoring = false;
   var lastPublished = 0;
+  var lastPubSig = '';
   var onRoster = null;
   var onLevel = null;
   var kills = 0;
@@ -43,12 +50,50 @@
   function now() { return Date.now(); }
   function r1(n) { return Math.round(n * 10) / 10; }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Soldier';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Soldier'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        if (onRoster) onRoster(roster());
+      }
+    }, function () {});
+  }
+
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ others: 0 });
-    return api.me().then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Soldier';
+    if (!PEOPLE) return Promise.resolve({ others: 0 });
+    return readRoom().then(function () {
+      if (!me.id) return { others: 0 };
       var settled = false;
       return new Promise(function (resolve) {
         var done = function () {
@@ -61,6 +106,7 @@
           ingest(list || []);
           done();
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () {
       return { others: 0 };
@@ -68,28 +114,28 @@
   }
 
   function ingest(list) {
-    var t = now(), seen = {};
+    var t = now(), seen = {}, names = peopleNames();
     var bestLv = 0;
     for (var i = 0; i < list.length; i++) {
       var p = list[i];
       if (!p || !p.id) continue;
       if (p.lv > bestLv) bestLv = p.lv | 0;
       if (p.id === me.id) continue;
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
       drainShots(p);
       drainCpu(p);
       var cur = others[p.id];
-      var moved = !cur || cur.x !== p.x || cur.z !== p.z || cur.stamp !== p.t;
       others[p.id] = {
-        id: p.id, name: p.name || 'Soldier',
+        id: p.id, name: names[p.id] || p.name || 'Soldier',
         x: p.x, z: p.z, s: p.s | 0, h: p.h | 0, lv: p.lv | 0,
         kills: p.kills | 0,
-        stamp: p.t, seen: moved ? t : cur.seen, t: t,
+        stamp: p.t, t: t,
         prev: cur ? { x: cur.x, z: cur.z, t: cur.t } : null
       };
     }
     for (var id in others) {
-      if (!seen[id] || now() - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id] || !names[id]) delete others[id];
     }
     if (onLevel && bestLv > 0) onLevel(bestLv);
     if (onRoster) onRoster(roster());
@@ -148,14 +194,14 @@
   }
 
   function shot(angle, x, z) {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     shots.push({ n: ++seq, a: r1(angle), x: r1(x), z: r1(z) });
     if (shots.length > SHOT_RING) shots.shift();
     publish(true);
   }
 
   function claimCpu(x, z) {
-    if (!api || !me.id || honoring) return;
+    if (!api || !me.id || !PEOPLE || honoring) return;
     var key = (x | 0) + ',' + (z | 0);
     if (seenCpu[key]) return;
     seenCpu[key] = now();
@@ -167,25 +213,29 @@
   function addKill() { kills++; }
 
   function publish(force) {
-    if (!api || !me.id || !entity_player) return;
+    if (!api || !me.id || !PEOPLE || !entity_player) return;
     var t = now();
     if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
-    lastPublished = t;
-    db('players').put({
-      id: me.id, name: me.name,
+    var row = {
+      id: me.id,
       x: r1(entity_player.x), z: r1(entity_player.z),
       s: entity_player.s | 0,
       h: entity_player._dead ? 0 : (entity_player.h | 0),
       lv: current_level | 0,
       kills: kills,
       shots: shots.slice(),
-      cpus: cpuClaims.slice(),
-      t: t
-    }).catch(function () {});
+      cpus: cpuClaims.slice()
+    };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPublished = t;
+    row.t = t;
+    db('players').put(row).catch(function () {});
   }
 
   function tick() {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     publish(false);
   }
 
@@ -256,8 +306,29 @@
     others: function () { return others; },
     me: function () { return me; },
     count: function () { return countOthers() + (me.id ? 1 : 0); },
-    live: function () { return !!api && !!me.id; },
+    live: function () { return PEOPLE && !!me.id; },
     onRoster: function (fn) { onRoster = fn; },
     onLevel: function (fn) { onLevel = fn; }
   };
+
+  root['__underrun'] = {
+    state: function () { return null; },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'underrun-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
