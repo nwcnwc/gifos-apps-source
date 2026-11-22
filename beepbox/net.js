@@ -136,51 +136,66 @@
     room.put(row).catch(function () {});
   }
 
+  var ingesting = false;
   function ingest(list) {
-    lastList = list || [];
-    var people = playersHere(lastList);
-    var others = 0, i;
-    for (i = 0; i < people.length; i++) if (people[i].id !== me.id) others++;
-    var became = others > 0;
-    if (became && !on) {
-      on = true;
-      if (getJson) frozen = getJson();
-    }
-    paintJam(people);
-    if (!on) return;
+    // put() notifies subscribers sync — never re-enter or the host adopt loops the stack.
+    if (ingesting) { lastList = list || []; return; }
+    ingesting = true;
+    try {
+      lastList = list || [];
+      var people = playersHere(lastList);
+      var others = 0, i;
+      for (i = 0; i < people.length; i++) if (people[i].id !== me.id) others++;
+      var became = others > 0;
+      if (became && !on) {
+        on = true;
+        if (getJson) frozen = getJson();
+      }
+      paintJam(people);
+      if (!on) return;
 
-    var canonical = songOf(lastList);
-    if (canonical && legalSong(canonical.json)) {
-      var packed = pack(canonical.json);
-      if (packed && packed !== lastPacked) {
-        lastPacked = packed;
-        lastSong = canonical;
-        if (applyJson) {
-          applying = true;
-          try { applyJson(canonical.json); } finally { applying = false; }
-          coolUntil = now() + 800;
-          // Absorb fromJson/toJson drift so a later getJson does not look like an edit.
-          if (getJson) {
-            var after = pack(getJson());
-            if (after) lastPacked = after;
+      var canonical = songOf(lastList);
+      if (canonical && legalSong(canonical.json)) {
+        var packed = pack(canonical.json);
+        if (packed && packed !== lastPacked) {
+          lastPacked = packed;
+          lastSong = canonical;
+          if (applyJson) {
+            applying = true;
+            try { applyJson(canonical.json); } finally { applying = false; }
+            coolUntil = now() + 800;
+            // Absorb fromJson/toJson drift so a later getJson does not look like an edit.
+            if (getJson) {
+              var after = pack(getJson());
+              if (after) lastPacked = after;
+            }
           }
         }
       }
-    }
 
-    if (isHost()) {
-      var newest = null;
-      for (i = 0; i < people.length; i++) {
-        var p = people[i];
-        if (!legalSong(p.json)) continue;
-        if (!newest || (p.n | 0) > (newest.n | 0)) newest = p;
+      if (isHost()) {
+        var newest = null;
+        for (i = 0; i < people.length; i++) {
+          var p = people[i];
+          if (!legalSong(p.json)) continue;
+          if (!newest || (p.n | 0) > (newest.n | 0)) newest = p;
+        }
+        if (newest) {
+          var np = pack(newest.json);
+          var cp = canonical ? pack(canonical.json) : '';
+          // Only adopt a guest song that differs from the wire canonical — and
+          // defer the put so subscribe cannot re-enter this stack frame.
+          if (np && np !== cp) {
+            var adopt = newest.json;
+            var adoptSeq = ((lastSong && lastSong.seq) || 0) + 1;
+            setTimeout(function () { publishSong(adopt, adoptSeq); }, 0);
+          }
+        } else if (getJson && !canonical) {
+          setTimeout(function () { publishSong(getJson(), 1); }, 0);
+        }
       }
-      if (newest) {
-        var np = pack(newest.json);
-        if (np && np !== lastPacked) publishSong(newest.json, (lastSong && lastSong.seq) || 0);
-      } else if (getJson && !canonical) {
-        publishSong(getJson(), 1);
-      }
+    } finally {
+      ingesting = false;
     }
   }
 
