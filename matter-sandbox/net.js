@@ -308,7 +308,7 @@
     }
   };
 
-  if (!PEOPLE) {
+  if (!PEOPLE && typeof document !== 'undefined' && document.createElement) {
     var _n = document.createElement('p');
     _n.id = 'ms-needs';
     _n.textContent = NEEDS_NEWER;
