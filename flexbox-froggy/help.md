@@ -30,3 +30,5 @@ On your own it is the original game. A friend who joins this pond shares the CSS
 ## What is saved
 
 The level you are on, the CSS you typed, which levels you have solved, and your settings. Close it, come back, the frogs are where you left them.
+
+Who is here comes from gifos.people(). The app owner hosts; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

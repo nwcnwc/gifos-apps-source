@@ -30,7 +30,7 @@ the English originals.
 | `db` | Level, answers, solved, settings in a private `save`. Pond-mates in `players`. |
 | `multiplayer` | The room. Invite is OS chrome. |
 
-`minBuild` is **947**.
+`minBuild` is **5861**.
 
 ## Building
 
@@ -43,3 +43,5 @@ node apps/flexbox-froggy/build.mjs
 Code MIT, Thomas Park. Images CC BY 3.0, Thomas Park. Fredoka One OFL.
 Notices ride inside the GIF as `COPYING-flexboxfroggy.txt`,
 `COPYING-images.txt`, and `COPYING-fredokaone.txt`.
+
+Who is here comes from gifos.people(). The app owner hosts; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

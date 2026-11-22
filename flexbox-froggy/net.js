@@ -1,13 +1,17 @@
 /*
  * Shared pond. Each player writes only THEIR row in `players`.
  * Highest seq wins — whoever typed last, the frogs hop on both screens.
- * Presence frogs along the water are the "two frogs in the same pond".
+ * Who is here is gifos.people() — the frogs along the water are the room.
  */
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 1800;
+  var NEEDS_NEWER = 'Flexbox Froggy needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var roomRead = false;
   var TYPING_MS = 450;
 
   var api = null;
@@ -17,10 +21,9 @@
   var seq = 0;
   var lastAdopted = 0;
   var lastType = 0;
-  var hbTimer = 0;
+  var peopleTimer = 0;
   var onMates = null;
   var lastList = [];
-  var seenAt = {};
   var colors = ['green', 'yellow', 'red'];
 
   function now() { return Date.now(); }
@@ -32,14 +35,20 @@
     return colors[h % colors.length];
   }
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Frog';
+    }
+    return m;
+  }
+
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id) return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      if (t - seenAt[p.id].seen > STALE_MS) return;
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
       out.push(p);
     });
     return out;
@@ -52,18 +61,16 @@
     if (el) code = el.value;
     return {
       id: me.id,
-      name: me.name,
       color: tint(me.id || 'x'),
       level: g ? g.level : 0,
       code: code,
       seq: seq,
-      winning: !!(g && g.winning),
-      at: now()
+      winning: !!(g && g.winning)
     };
   }
 
   function publish() {
-    if (!api || !me.id) return;
+    if (!PEOPLE || !api || !me.id) return;
     db('players').put(snapshot()).catch(function () {});
   }
 
@@ -120,6 +127,7 @@
 
   function roster() {
     var players = live(lastList);
+    var names = peopleNames();
     var out = [];
     var seen = {};
     players.forEach(function (p) {
@@ -127,13 +135,13 @@
       seen[p.id] = 1;
       out.push({
         id: p.id,
-        name: p.name || 'Frog',
+        name: names[p.id] || p.name || 'Frog',
         me: p.id === me.id,
         color: p.color || tint(p.id)
       });
     });
-    if (me.id && !seen[me.id]) {
-      out.unshift({ id: me.id, name: me.name, me: true, color: tint(me.id) });
+    if (me.id && names[me.id] && !seen[me.id]) {
+      out.unshift({ id: me.id, name: names[me.id] || me.name, me: true, color: tint(me.id) });
     }
     return out;
   }
@@ -178,22 +186,47 @@
     });
   }
 
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      var wasOwner = owner;
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Frog'; }
+      if (!wasOwner && owner && roomRead) {
+        // New owner rejoins the shared pond after hand-off (P2).
+        bump('join');
+      }
+      if (key !== roomKey) {
+        roomKey = key;
+        ingest(lastList);
+      }
+    }, function () {});
+  }
+
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
-    var infoP = api.info
-      ? api.info().then(function (i) { owner = !!(i && i.owner); return owner; })
-          .catch(function () { owner = true; return true; })
-      : Promise.resolve(true);
-    return infoP.then(function () { return api.me(); }).then(function (id) {
-      me.id = (id && id.id) ? id.id : 'local';
-      me.name = (id && id.name) || 'Frog';
+    if (!PEOPLE) {
+      return Promise.resolve({ owner: true, others: 0, needsNewer: true });
+    }
+    return readRoom().then(function () {
+      if (!me.id) me.id = 'local';
       var settled = false;
       return new Promise(function (resolve) {
         var done = function () {
           if (settled) return;
           settled = true;
-          resolve({ owner: owner, others: roster().length - 1 });
+          resolve({ owner: owner, others: Math.max(0, roster().length - 1) });
         };
         setTimeout(done, 2200);
         db('players').subscribe(function (list) {
@@ -201,7 +234,8 @@
           done();
         });
         bump('join');
-        hbTimer = setInterval(function () { publish(); }, HB_MS);
+        if (peopleTimer) clearInterval(peopleTimer);
+        peopleTimer = setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () {
       return { owner: true, others: 0 };
@@ -215,8 +249,37 @@
     roster: roster,
     me: function () { return me; },
     owner: function () { return owner; },
-    live: function () { return !!api && !!me.id; },
+    live: function () { return !!api && !!me.id && PEOPLE; },
     count: function () { return roster().length; },
     onMates: function (fn) { onMates = fn; }
   };
+
+  root['__flexbox-froggy'] = {
+    state: function () {
+      // Level only — code/seq race on every keystroke (K8).
+      var players = live(lastList);
+      var leader = pickLeader(players);
+      if (!leader) return null;
+      return { level: leader.level | 0 };
+    },
+    people: function () {
+      return roster().map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      var n = 0, i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') n++;
+      }
+      return PEOPLE && owner && n > 1;
+    }
+  };
+
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'ff-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
