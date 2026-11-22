@@ -13,23 +13,30 @@
  *      another player's health — each ship applies its own damage.
  *
  * Invite is OS chrome. This file never draws a share button.
+ * Who is here is gifos.people(). The app owner prefers sim host.
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 6;
-  var STALE_MS = 9000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Radius Raid needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var HIT_RING = 10;
   var CLAIM_TTL = 12000;
 
   var api = null;
   var me = { id: null, name: 'Pilot' };
   var others = {};
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
   var seq = 0;
   var pendingHits = [];
   var pendingGrabs = [];
   var applied = {};
   var lastPublished = 0;
+  var lastPubSig = '';
   var playing = false;
   var sim = false;
   var lastHostId = null;
@@ -45,12 +52,50 @@
     return 'hsl(' + hue + ', 85%, 62%)';
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Pilot';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Pilot'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        elect();
+      }
+    }, function () {});
+  }
+
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve(null);
-    return api.me().then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Pilot';
+    if (!PEOPLE) return Promise.resolve(null);
+    return readRoom().then(function () {
+      if (!me.id) return null;
       var settled = false;
       return new Promise(function (resolve) {
         var done = function (list) { if (!settled) { settled = true; resolve(list || []); } };
@@ -59,45 +104,49 @@
           ingest(list || []);
           done(list || []);
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () { return null; });
   }
 
   function ingest(list) {
-    var t = now(), seen = {};
+    var t = now(), seen = {}, names = peopleNames();
     for (var i = 0; i < list.length; i++) {
       var p = list[i];
       if (!p || !p.id) continue;
       if (p.id === me.id) continue;
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
       drainClaims(p);
       var cur = others[p.id];
-      var moved = !cur || cur.x !== p.x || cur.y !== p.y || cur.stamp !== p.t;
       others[p.id] = {
-        id: p.id, name: p.name || 'Pilot',
+        id: p.id, name: names[p.id] || p.name || 'Pilot',
         x: p.x, y: p.y, dir: p.dir || 0, life: p.life == null ? 1 : p.life,
         fire: !!p.fire, score: p.sc || 0, playing: !!p.playing, sim: !!p.sim,
         en: p.en, pu: p.pu, lv: p.lv, kk: p.kk, kt: p.kt, tk: p.tk,
-        stamp: p.t, seen: moved ? t : cur.seen, t: t, fill: tintFor(p.id),
+        stamp: p.t, t: t, fill: tintFor(p.id),
         prev: cur ? { x: cur.x, y: cur.y, dir: cur.dir, t: cur.t } : null
       };
     }
     for (var id in others) {
-      if (!seen[id] || now() - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id] || !names[id]) delete others[id];
     }
     elect();
   }
 
   function elect() {
+    // Prefer the app owner when they are sim+playing; else lowest id.
     var hostId = null;
+    if (owner && playing && sim) hostId = me.id;
     for (var id in others) {
       var o = others[id];
       if (!o.sim || !o.playing) continue;
+      if (owner && id === me.id) { hostId = me.id; break; }
       if (!hostId || id < hostId) hostId = id;
     }
-    if (playing && sim) {
-      if (!hostId || me.id < hostId) hostId = me.id;
-    }
+    if (!hostId && playing && sim) hostId = me.id;
+    if (playing && sim && owner) hostId = me.id;
+    else if (playing && sim && (!hostId || me.id < hostId)) hostId = me.id;
     lastHostId = hostId;
   }
 
@@ -158,14 +207,14 @@
   }
 
   function claimHit(index, dmg) {
-    if (!api || !me.id || !isGuest()) return;
+    if (!api || !me.id || !PEOPLE || !isGuest()) return;
     pendingHits.push({ i: index, d: dmg, n: ++seq });
     if (pendingHits.length > HIT_RING) pendingHits.shift();
     publish(true);
   }
 
   function claimGrab(x, y) {
-    if (!api || !me.id || !isGuest()) return;
+    if (!api || !me.id || !PEOPLE || !isGuest()) return;
     pendingGrabs.push({ x: r1(x), y: r1(y), n: ++seq });
     if (pendingGrabs.length > HIT_RING) pendingGrabs.shift();
     publish(true);
@@ -276,16 +325,14 @@
   }
 
   function publish(force) {
-    if (!api || !me.id || !root.$ || !$.hero) return;
+    if (!api || !me.id || !PEOPLE || !root.$ || !$.hero) return;
     var t = now();
     if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
-    lastPublished = t;
     var row = {
-      id: me.id, name: me.name,
+      id: me.id,
       x: r1($.hero.x), y: r1($.hero.y), dir: r1($.hero.direction || 0),
       life: r1($.hero.life), fire: $.hero.weapon && $.hero.weapon.fireFlag > 0 ? 1 : 0,
-      sc: $.score | 0, playing: playing ? 1 : 0, sim: sim && playing ? 1 : 0,
-      t: t
+      sc: $.score | 0, playing: playing ? 1 : 0, sim: sim && playing ? 1 : 0
     };
     if (sim && playing) {
       row.en = packEnemies();
@@ -297,11 +344,16 @@
     }
     if (pendingHits.length) row.hits = pendingHits.slice();
     if (pendingGrabs.length) row.grabs = pendingGrabs.slice();
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPublished = t;
+    row.t = t;
     db('players').put(row).catch(function () {});
   }
 
   function tick() {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     elect();
     if (playing) publish(false);
   }
@@ -369,9 +421,9 @@
     poseOf: poseOf,
     others: function () { return others; },
     me: function () { return me; },
-    live: function () { return !!api && !!me.id; },
+    live: function () { return PEOPLE && !!me.id; },
     inRoom: function () {
-      if (!api || !me.id) return false;
+      if (!api || !me.id || !PEOPLE) return false;
       for (var id in others) return true;
       return false;
     },
@@ -388,4 +440,29 @@
       return n;
     }
   };
+
+  root['__radius-raid'] = {
+    state: function () {
+      // Sim host publishes enemies on their player row; guests agree on null
+      // for shared world (no separate world doc).
+      return null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'rr-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
