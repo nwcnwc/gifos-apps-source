@@ -181,18 +181,16 @@
 
   function noteShared(w) {
     if (!w) return;
-    sharedSnap = {
-      month: w.month | 0,
-      pop: w.pop | 0,
-      money: w.money | 0,
-      v: w.v | 0,
-      speed: w.speed | 0
-    };
+    sharedSnap = { act: w.act | 0 };
+  }
+
+  function bumpAct() {
+    world.act = (world.act || 0) + 1;
   }
 
   function persistWorld(w) {
     world = w;
-    if (!cityDb || !PEOPLE) return;
+    if (!cityDb || !PEOPLE || !owner) return;
     // sharedSnap updates only via city subscribe/get so every copy agrees (K8)
     cityDb.put(C.dump(w)).catch(function () {});
   }
@@ -234,6 +232,7 @@
         x: x, y: y, tool: tool, by: me.id, at: Date.now()
       }).catch(function (err) { flash(String(err && err.message || err)); });
     } else {
+      bumpAct();
       persistWorld(world);
     }
   }
@@ -285,6 +284,7 @@
       var v = this.value | 0;
       world = C.cloneWorld(world);
       world.tax = v;
+      if (owner) bumpAct();
       persistWorld(world);
       openBudget();
     });
@@ -343,6 +343,7 @@
     b.addEventListener('click', function () {
       world = C.cloneWorld(world);
       world.speed = b.dataset.sp | 0;
+      if (owner) bumpAct();
       persistWorld(world);
       hud();
     });
@@ -416,6 +417,7 @@
       e.preventDefault();
       world = C.cloneWorld(world);
       world.speed = world.speed ? 0 : 1;
+      if (owner) bumpAct();
       persistWorld(world);
     }
     var map = { r: 'road', h: 'homes', s: 'shops', w: 'works', p: 'plant', u: 'pump', b: 'bulldoze', i: 'inspect', v: 'pan' };
@@ -543,6 +545,7 @@
         if (launch && launch.village && owner && world.month === 0 && world.pop === 0) {
           world = C.village(7);
           world.speed = 1;
+          bumpAct();
           persistWorld(world);
           hideCoach();
         }
@@ -554,9 +557,9 @@
   window.CiviclockApp = { coverShot: coverShot, world: function () { return world; }, setWorld: persistWorld };
   window['__civiclock'] = {
     state: function () {
-      // Speed only — host months keep ticking, so month/v never settle across copies (K8).
+      // Action seq only — host month ticks must not race K8.
       if (!sharedSnap) return null;
-      return { speed: sharedSnap.speed | 0 };
+      return { act: sharedSnap.act | 0 };
     },
     people: function () {
       var names = peopleNames(), out = [], id;

@@ -36,8 +36,10 @@ Playing alone is the original toy. The last field stays on this device.
 
 Want a friend looking at the same flow? Press **Play together**, then **Invite** in the bar above the app, and send the link. You both start from this recipe. When anyone presses **Apply** or picks a named field, everyone gets the new flow.
 
+Who is here comes from the room (gifos.people()). The app owner hosts the shared field; GifOS hands that on when they leave. An older GifOS shows a line that Field Play needs a newer build — solo still works.
+
 **← Solo** puts you back on the original toy with the field you left. Back closes the recipe sheet first, then leaves a shared square.
- Who is here comes from gifos.people(). The app owner hosts the shared field; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.
+
 
 ## What is saved
 
