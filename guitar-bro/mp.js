@@ -113,10 +113,12 @@
     return s;
   }
 
-  function publish() {
+  function publish(force) {
     if (!PEOPLE || !on || !room || !me.id) return;
     var t = now();
-    if (t - lastPub < 80) return;
+    // Idle join/adopt: at most one put per 2s. Real score hits use force.
+    if (!force && t - lastPub < 2000) return;
+    if (force && t - lastPub < 80) return;
     lastPub = t;
     room.put(snapshot()).catch(function () {});
   }
@@ -213,14 +215,15 @@
     if (!on) return;
     var ad = adopted(lastList);
     if (ad && (!used || ad.round !== used.round || !sameChart(ad, used))) {
+      var first = !used;
       applyChart(ad, ad.round, ad.by === me.id);
-      lastPub = 0;
-      publish();
+      if (first) { lastPub = 0; publish(); }
     }
     render();
   }
 
   function startRace() {
+    if (on) return;
     on = true;
     document.body.classList.add('friend');
     $('friend-bar').hidden = false;
@@ -345,7 +348,9 @@
     var key = g ? String(g.score|0) + ':' + String(g.hits|0) + ':' + String(!!g.done) : '';
     if (key && key === lastScorePub) { render(); return; }
     lastScorePub = key;
-    publish();
+    // Skip idle 0:0:false spam from game.onChange while waiting.
+    if (key === '0:0:false') { render(); return; }
+    publish(true);
     render();
   }
 
