@@ -29,6 +29,7 @@
     var usedRound = 0;
   var lastList = [];
   var lastPub = 0;
+  var lastPubSig = '';
 
   var $ = function (id) { return document.getElementById(id); };
   var now = function () { return Date.now(); };
@@ -97,8 +98,12 @@
     if (!on || !room || !me.id || !PEOPLE) return;
     var t = now();
     if (t - lastPub < 80) return;
+    var row = snapshot();
+    var sig = JSON.stringify(row);
+    if (sig === lastPubSig) return;
+    lastPubSig = sig;
     lastPub = t;
-    room.put(snapshot()).catch(function () {});
+    room.put(row).catch(function () {});
   }
 
   function readRoom() {
@@ -282,6 +287,12 @@
     busy: function () { return on; }
   };
 
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
   root['__hydra'] = {
     state: function () {
       var ad = adopted(lastList);
@@ -289,15 +300,12 @@
       return on ? { round: (usedRound || round || 0) | 0 } : null;
     },
     people: function () {
-      return live(lastList).map(function (p) { return p.id; });
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
     },
     amHost: function () {
-      var n = 0, i, p;
-      for (i = 0; i < roomPeople.length; i++) {
-        p = roomPeople[i];
-        if (p && p.id && p.here !== 'gone') n++;
-      }
-      return on && owner && n > 1;
+      return PEOPLE && owner && peopleCount() > 1;
     }
   };
 
