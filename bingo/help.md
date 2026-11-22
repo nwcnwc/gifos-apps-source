@@ -1,6 +1,6 @@
 # Bingo
 
-American **75-ball**. The host calls numbers. You have one 5×5 card. Daub the numbers that come up. A **row**, a **column**, a **diagonal**, or the **four corners** is bingo. The first honest claim takes the round.
+American **75-ball**. The app owner calls numbers (they can hand the ball to a friend in the lobby). You have one 5×5 card. Daub the numbers that come up. A **row**, a **column**, a **diagonal**, or the **four corners** is bingo. The first honest claim takes the round.
 
 Columns: **B** 1–15, **I** 16–30, **N** 31–45, **G** 46–60, **O** 61–75. The centre is **FREE** and already daubed.
 

@@ -88,8 +88,8 @@ if (manifest.capabilities.wasm) {
 if (manifest.capabilities.network) {
   throw new Error('bingo has no network path. The Node hall stays behind.');
 }
-if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947');
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild < 5861) {
+  throw new Error('minBuild must be >= 5861 — gifos.people()');
 }
 if (!manifest.data || !manifest.data.card || manifest.data.card.visibility !== 'private') {
   throw new Error('manifest.data.card must be private — the daubs never leave this tab');
