@@ -28,7 +28,7 @@ build.mjs       packs the GIF; checks songs and a 440 Hz A
 
 | capability | why |
 |---|---|
-| `db` | Solo prefs (private) and the room’s live scores (read-write). Needs nothing newer than the App Store itself, so `minBuild` is **947**. |
+| `db` | Solo prefs (private) and the room’s live scores (read-write). Needs nothing newer than the App Store itself, so `minBuild` is **5861**. |
 | `multiplayer` | The room. Invite is OS chrome — this app never draws its own share sheet. |
 | `microphone` | Listen asks GifOS for a short clip and names the note. Tap still works with the mic off. |
 
@@ -60,3 +60,5 @@ a separate, signed step.
 
 Guitar Bro is MIT, Anatoli Makarevich, 2017. The notice is packed **inside
 the GIF** as `COPYING-guitar-bro.txt`.
+
+Who is here comes from gifos.people(). The app owner hosts the chart; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

@@ -42,3 +42,5 @@ Press **Play a friend**, then **Invite** in the **bar above the app**. You both 
 Your last song, string, BPM, and mode stay in the file. Scores do not.
 
 Unofficial port of [Guitar Bro](https://github.com/makaroni4/guitar_bro) by Anatoli Makarevich.
+
+Who is here comes from gifos.people(). The app owner hosts the chart; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

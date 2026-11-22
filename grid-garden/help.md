@@ -32,3 +32,5 @@ This file keeps the current level, the CSS you typed on each bed, and which leve
 ## Credit
 
 Unofficial port of [Grid Garden](https://cssgridgarden.com) by Thomas Park. Code MIT; garden art CC BY 3.0.
+
+Who is here comes from gifos.people(). The app owner hosts the shared plot; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

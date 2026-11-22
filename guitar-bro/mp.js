@@ -2,25 +2,31 @@
 //
 // Shared (round, song, string, bpm, mode, seed) so both people play the same
 // chart. Each player publishes score + hits on THEIR row. Nobody writes
-// anybody else's. Highest score when the song ends wins. Invite is OS chrome.
+// anybody else's. Highest score when the song ends wins. Who is here is
+// gifos.people(); the app owner hosts the chart. Invite is OS chrome.
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 2000;
+  var NEEDS_NEWER = 'Guitar Bro needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var roomRead = false;
 
   var api = null;
   var room = null;
   var me = { id: null, name: 'You' };
   var on = false;
   var subscribed = false;
-  var hbTimer = 0;
+  var peopleTimer = 0;
   var round = 1;
   var used = null;
   var lastList = [];
-  var seenAt = {};
   var roundOver = false;
   var declined = false;
+  var lastPub = 0;
 
   var $ = function (id) { return document.getElementById(id); };
   var now = function () { return Date.now(); };
@@ -30,14 +36,29 @@
     });
   };
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id) return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      if (t - seenAt[p.id].seen > STALE_MS) return;
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
       out.push(p);
     });
     return out;
@@ -50,8 +71,14 @@
     players.forEach(function (p) { if ((p.round || 1) > maxR) maxR = p.round || 1; });
     var cand = players.filter(function (p) { return (p.round || 1) === maxR && p.songName; });
     if (!cand.length) return null;
-    cand.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
-    var p = cand[0];
+    var i, p = null;
+    if (owner && me.id) {
+      for (i = 0; i < cand.length; i++) if (cand[i].id === me.id) { p = cand[i]; break; }
+    }
+    if (!p) {
+      cand.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
+      p = cand[0];
+    }
     return {
       round: maxR,
       songName: p.songName,
@@ -82,14 +109,15 @@
     var g = root.GB;
     var s = g ? g.snapshot() : {};
     s.id = me.id;
-    s.name = me.name;
     s.round = round;
-    s.at = now();
     return s;
   }
 
   function publish() {
-    if (!on || !room || !me.id) return;
+    if (!PEOPLE || !on || !room || !me.id) return;
+    var t = now();
+    if (t - lastPub < 80) return;
+    lastPub = t;
     room.put(snapshot()).catch(function () {});
   }
 
@@ -119,6 +147,7 @@
     if (root.GBApp && root.GBApp.syncMenu) root.GBApp.syncMenu(ch);
     if (root.GBApp && root.GBApp.hideMenu) root.GBApp.hideMenu();
     if (root.GBApp && root.GBApp.setRace) root.GBApp.setRace(true);
+    lastPub = 0;
     publish();
   }
 
@@ -130,7 +159,7 @@
     var allDone = players.every(function (p) { return p.done; });
     if (!allDone && finished.length < 2) return null;
     var ranked = players.slice().sort(function (a, b) {
-      return (b.score || 0) - (a.score || 0) || (a.at || 0) - (b.at || 0);
+      return (b.score || 0) - (a.score || 0) || String(a.id).localeCompare(String(b.id));
     });
     return { winner: ranked[0], allDone: allDone };
   }
@@ -138,6 +167,7 @@
   function render() {
     if (!on) return;
     var players = live(lastList);
+    var names = peopleNames();
     var v = verdict(players);
     var status = $('friend-status');
     var scores = $('friend-scores');
@@ -151,8 +181,9 @@
       var tag = (p.score || 0) + ' · ' + (p.hits || 0) + ' hit' + ((p.hits || 0) === 1 ? '' : 's');
       if (p.died) tag += ' · out';
       else if (p.done) tag += ' · done';
+      var nm = names[p.id] || p.name || 'Player';
       html += '<li class="' + (mine ? 'me' : '') + (v && v.winner && v.winner.id === p.id ? ' win' : '') + '">' +
-        '<span class="name">' + (mine ? 'You' : esc(p.name || 'Player')) + '</span>' +
+        '<span class="name">' + (mine ? 'You' : esc(nm)) + '</span>' +
         '<span class="meta">' + tag + '</span></li>';
     });
     scores.innerHTML = html || '<li><span class="name">Just you so far</span></li>';
@@ -161,7 +192,7 @@
     if (v && v.allDone) {
       roundOver = true;
       var mineWin = v.winner.id === me.id;
-      var who = mineWin ? 'You' : (v.winner.name || 'They');
+      var who = mineWin ? 'You' : (names[v.winner.id] || v.winner.name || 'They');
       status.textContent = who + ' won with ' + (v.winner.score || 0) + '.';
       again.hidden = false;
     } else {
@@ -173,7 +204,7 @@
         status.textContent = 'You finished. Waiting for the others.';
       } else {
         status.textContent = others.length === 1
-          ? ((others[0].name || 'Friend') + ' is on ' + (others[0].score || 0) + '.')
+          ? ((names[others[0].id] || others[0].name || 'Friend') + ' is on ' + (others[0].score || 0) + '.')
           : (others.length + ' playing. Highest score wins.');
       }
     }
@@ -189,19 +220,12 @@
     render();
   }
 
-  function beat() {
-    if (!on) return;
-    publish();
-    render();
-  }
-
   function startRace() {
     on = true;
     document.body.classList.add('friend');
     $('friend-bar').hidden = false;
     $('friendBtn').hidden = true;
     roundOver = false;
-    seenAt = {};
     var g = root.GB;
     var ch = (root.GBApp && root.GBApp.chart) ? root.GBApp.chart() : (g ? chartOf(g) : null);
     if (!ch) ch = { songName: 'Random notes', stringId: '1', bpm: 30, mode: 'survival', seed: 1 };
@@ -209,9 +233,40 @@
     round = 1;
     used = null;
     applyChart(ch, round, true);
-    beat();
-    if (hbTimer) clearInterval(hbTimer);
-    hbTimer = setInterval(beat, HB_MS);
+    render();
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      var handed = !owner && !!info.owner && roomRead;
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (handed && !declined) {
+        // New owner must host the race after hand-off (P2).
+        if (!on) startRace();
+        else publish();
+      } else if (key !== roomKey) {
+        roomKey = key;
+        if (on) onRoom(lastList);
+        else maybeEnterFromPeople();
+      }
+    }, function () {});
+  }
+
+  function maybeEnterFromPeople() {
+    if (on || declined || !PEOPLE) return;
+    if (peopleCount() > 1) startRace();
   }
 
   function enter() {
@@ -221,14 +276,14 @@
       $('friend-status').textContent = 'Play a friend needs a GifOS room.';
       return;
     }
+    if (!PEOPLE) {
+      $('friend-bar').hidden = false;
+      $('friend-status').textContent = NEEDS_NEWER;
+      return;
+    }
     room = room || api.db('players');
-    var who = (me.id && me.id !== 'local')
-      ? Promise.resolve(me)
-      : (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' }));
-    who.then(function (id) {
-      if (id && id.id) { me.id = id.id; me.name = id.name || 'You'; }
-      else if (!me.id) { me.id = 'local'; me.name = 'You'; }
-      declined = false;
+    declined = false;
+    readRoom().then(function () {
       watch();
       startRace();
     }).catch(function () {});
@@ -236,23 +291,23 @@
 
   function watch() {
     api = root.gifos;
-    if (!api || !api.db) return;
+    if (!api || !api.db || !PEOPLE) return;
     room = room || api.db('players');
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || me.id || 'local';
-      me.name = (id && id.name) || me.name || 'You';
+    readRoom().then(function () {
       if (subscribed) return;
       subscribed = true;
       room.subscribe(function (list) {
         lastList = list || [];
         if (!on) {
           if (declined) return;
-          var others = live(lastList).filter(function (p) { return p.id && p.id !== me.id; });
-          if (others.length) startRace();
+          maybeEnterFromPeople();
         } else {
           onRoom(lastList);
         }
       });
+      if (peopleTimer) clearInterval(peopleTimer);
+      peopleTimer = setInterval(readRoom, PEOPLE_MS);
+      maybeEnterFromPeople();
     }).catch(function () {});
   }
 
@@ -264,7 +319,6 @@
     $('friend-bar').hidden = true;
     $('friendBtn').hidden = false;
     $('againBtn').hidden = true;
-    if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
     if (room && me.id) room.delete(me.id).catch(function () {});
     if (root.GB) root.GB.stop();
     if (root.GBApp && root.GBApp.setRace) root.GBApp.setRace(false);
@@ -295,7 +349,30 @@
     get on() { return on; }
   };
 
+  root['__guitar-bro'] = {
+    state: function () {
+      var ad = adopted(lastList);
+      if (ad) return { round: ad.round | 0, seed: ad.seed >>> 0 };
+      return on ? { round: (used && used.round ? used.round : round) | 0 } : null;
+    },
+    people: function () {
+      return live(lastList).map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      return on && owner && peopleCount() > 1;
+    }
+  };
+
   $('friendBtn').addEventListener('click', function (e) { e.preventDefault(); enter(); });
   $('leaveBtn').addEventListener('click', function (e) { e.preventDefault(); leave(); });
   $('againBtn').addEventListener('click', function (e) { e.preventDefault(); playAgain(); });
+
+  watch();
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'gb-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
