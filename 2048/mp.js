@@ -6,24 +6,30 @@
 // first, highest score among the stuck boards takes it.
 //
 // Invite is OS chrome. This file only tells the player to press Invite.
+// Who is here is gifos.people(); the app owner hosts the shared seed.
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 3000;
+  var NEEDS_NEWER = '2048 needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
 
   var api = null;
   var room = null;
   var me = { id: null, name: 'You' };
+  var owner = false;
+  var roomPeople = [];
+  var roomKey = '';
+  var auto = false;
+  var roomRead = false;
+  var peopleTimer = 0;
   var on = false;
   var subscribed = false;
-  var hbTimer = 0;
   var mySeed = 0;
   var round = 1;
   var usedSeed = null;
   var usedRound = 0;
   var lastList = [];
-  var seenAt = {};
   var roundOver = false;
 
   var $ = function (id) { return document.getElementById(id); };
@@ -63,30 +69,32 @@
     return m;
   }
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
-    (list || []).forEach(function (p) {
-      if (!p || !p.id) return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      var rec = seenAt[p.id];
-      if (t - rec.seen > STALE_MS) return;
-      out.push(p);
-    });
+  function playersHere(list) {
+    var names = {}, out = [], seen = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) names[roomPeople[i].id] = roomPeople[i].name;
+    for (i = 0; i < (list || []).length; i++) {
+      p = list[i];
+      if (!p || !p.id || !Object.prototype.hasOwnProperty.call(names, p.id) || seen[p.id]) continue;
+      seen[p.id] = true;
+      out.push(Object.assign({}, p, { name: names[p.id] || '' }));
+    }
     return out;
   }
 
-  // Authority for (round, seed): the highest round anyone has published, then
-  // the lexicographically smallest id on that round. Deterministic, and it
-  // never needs a shared row — each player only ever puts their own id.
+  // Authority for (round, seed): the owner prefers its own seed on the highest
+  // round; otherwise the lexicographically smallest id on that round.
   function adopted(list) {
-    var players = live(list);
+    var players = playersHere(list);
     if (!players.length) return null;
     var maxR = 0;
     players.forEach(function (p) { if ((p.round || 1) > maxR) maxR = p.round || 1; });
     var cand = players.filter(function (p) { return (p.round || 1) === maxR && p.seed != null; });
     if (!cand.length) return null;
+    var i, own;
+    if (owner) {
+      for (i = 0; i < cand.length; i++) if (cand[i].id === me.id) own = cand[i];
+      if (own) return { round: maxR, seed: own.seed, by: own.id };
+    }
     cand.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
     return { round: maxR, seed: cand[0].seed, by: cand[0].id };
   }
@@ -95,7 +103,6 @@
     var g = root.G2048 && root.G2048.game;
     return {
       id: me.id,
-      name: me.name,
       seed: mySeed,
       round: round,
       score: g ? g.score : 0,
@@ -160,7 +167,7 @@
 
   function render() {
     if (!on) return;
-    var players = live(lastList);
+    var players = playersHere(lastList);
     var v = verdict(players);
     var status = $('friend-status');
     var scores = $('friend-scores');
@@ -218,8 +225,8 @@
       } else if (g && g.won) {
         status.textContent = 'You reached 2048.';
       } else if (others.length === 1) {
-        // A gap is the one thing two printed scores do not tell you.
         var lead = ((mineRow ? mineRow.score : g ? g.score : 0) || 0) - (others[0].score || 0);
+        // A gap is the one thing two printed scores do not tell you.
         status.textContent = lead > 0 ? 'You’re ' + fmt(lead) + ' ahead.'
           : lead < 0 ? 'You’re ' + fmt(-lead) + ' behind.'
           : 'Dead even.';
@@ -240,46 +247,42 @@
     render();
   }
 
-  function beat() {
-    if (!on) return;
+  function doEnter() {
+    api = root.gifos;
+    if (!api || !api.db || !me.id) return;
+    room = api.db('room');
+    on = true;
+    root.G2048.mp = true;
+    document.body.classList.add('friend');
+    $('friend-bar').hidden = false;
+    $('friendBtn').hidden = true;
+    mySeed = newSeed();
+    round = 1;
+    usedSeed = null;
+    usedRound = 0;
+    roundOver = false;
+    if (!subscribed) {
+      subscribed = true;
+      room.subscribe(onRoom);
+    } else {
+      onRoom(lastList);
+    }
+    if (!usedSeed) applySeed(mySeed, round);
     publish();
     render();
   }
 
   function enter() {
-    api = root.gifos;
-    if (!api || !api.db) {
+    if (!PEOPLE) {
       var s = $('friend-status');
       $('friend-bar').hidden = false;
-      if (s) s.textContent = 'Play a friend needs a GifOS room.';
+      if (s) s.textContent = NEEDS_NEWER;
       return;
     }
-    room = api.db('room');
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
-      on = true;
-      root.G2048.mp = true;
-      document.body.classList.add('friend');
-      $('friend-bar').hidden = false;
-      $('friendBtn').hidden = true;
-      mySeed = newSeed();
-      round = 1;
-      usedSeed = null;
-      usedRound = 0;
-      roundOver = false;
-      seenAt = {};
-      if (!subscribed) {
-        subscribed = true;
-        room.subscribe(onRoom);
-      } else {
-        onRoom(lastList);
-      }
-      if (!usedSeed) applySeed(mySeed, round);
-      beat();
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(beat, HB_MS);
-    }).catch(function () {});
+    readRoom().then(function () {
+      if (!me.id) return;
+      doEnter();
+    });
   }
 
   function leave() {
@@ -292,7 +295,6 @@
     $('friend-bar').hidden = true;
     $('friendBtn').hidden = false;
     $('againBtn').hidden = true;
-    if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
     if (room && me.id) room.delete(me.id).catch(function () {});
     overlay('');
     var g = root.G2048.game;
@@ -324,6 +326,30 @@
     return true;
   }
 
+  function readRoom() {
+    if (!PEOPLE || !root.gifos) return Promise.resolve();
+    return Promise.all([
+      root.gifos.people(),
+      root.gifos.info ? root.gifos.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      var changed = key !== roomKey;
+      roomKey = key;
+      roomPeople = ppl;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      var handed = !owner && !!info.owner && roomRead;
+      owner = !!info.owner;
+      roomRead = true;
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      // Opened with others, or handed the app when the owner left: race together.
+      if ((handed || !auto) && !on && ppl.length > 1) { auto = true; doEnter(); }
+      else if (changed && on) render();
+    }, function () {});
+  }
+
   root.G2048 = root.G2048 || {};
   root.G2048.Mp = {
     enter: enter,
@@ -334,7 +360,31 @@
     mulberry32: mulberry32
   };
 
-  $('friendBtn').addEventListener('click', function (e) { e.preventDefault(); enter(); });
-  $('leaveBtn').addEventListener('click', function (e) { e.preventDefault(); leave(); });
-  $('againBtn').addEventListener('click', function (e) { e.preventDefault(); playAgain(); });
+  window['__2048'] = {
+    state: function () {
+      var ad = adopted(lastList);
+      return ad ? { round: ad.round, seed: ad.seed, by: ad.by } : null;
+    },
+    people: function () { return on ? playersHere(lastList).map(function (p) { return p.id; }) : []; },
+    amHost: function () { return on && owner; }
+  };
+
+  var fbtn = $('friendBtn');
+  if (fbtn) fbtn.addEventListener('click', function (e) { e.preventDefault(); enter(); });
+  var lbtn = $('leaveBtn');
+  if (lbtn) lbtn.addEventListener('click', function (e) { e.preventDefault(); leave(); });
+  var abtn = $('againBtn');
+  if (abtn) abtn.addEventListener('click', function (e) { e.preventDefault(); playAgain(); });
+
+  if (!PEOPLE) {
+    var bar = $('friend-bar');
+    var fb = $('friendBtn');
+    var st = $('friend-status');
+    if (bar) bar.hidden = false;
+    if (st) st.textContent = NEEDS_NEWER;
+    if (fb) fb.disabled = true;
+  } else {
+    readRoom();
+    peopleTimer = setInterval(readRoom, PEOPLE_MS);
+  }
 })(window);

@@ -22,7 +22,7 @@ Combat is a row of buttons. Eat meat. Use medicine. If you die you wake back in 
 
 ## A shared fire
 
-Press **Invite** in the bar above the app. Whoever opens the link sits at **your** fire. They can stoke, gather, and build. You keep the clock. Their copy of the village is the same one.
+Press **Invite** in the bar above the app. Whoever opens the link sits at the same fire. They can stoke, gather, and build. Who is here comes from the room; the person who shared the app keeps the clock, and GifOS hands that on when they leave. An older GifOS shows one plain line — solo still works, nothing is shared.
 
 ## What is saved
 

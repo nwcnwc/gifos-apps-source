@@ -87,17 +87,30 @@ function fakeApi(opts) {
   const subs = {};
   const rows = (c) => (cols[c] = cols[c] || {});
   const fire = (c) => (subs[c] || []).forEach((cb) => cb(Object.keys(rows(c)).map((k) => rows(c)[k])));
+  const ppl = (opts.people || [{ id: opts.id, name: opts.name, here: 'here' }]).map((p) => Object.assign({}, p, {
+    me: p.id === opts.id,
+  }));
+  const ensurePerson = (rec) => {
+    if (!rec || !rec.id || rec.id === 'world' || rec.id === 'host') return;
+    if (ppl.some((x) => x.id === rec.id)) return;
+    ppl.push({ id: rec.id, name: rec.name || 'Player', here: 'here', me: rec.id === opts.id });
+  };
   return {
     api: {
       me: () => Promise.resolve({ id: opts.id, name: opts.name }),
       info: () => Promise.resolve({ owner: !!opts.owner }),
+      people: () => Promise.resolve(ppl.slice()),
       db: (c) => ({
-        put(rec) { rows(c)[rec.id] = rec; fire(c); return Promise.resolve(rec); },
+        put(rec) { rows(c)[rec.id] = rec; if (c === 'players') ensurePerson(rec); fire(c); return Promise.resolve(rec); },
         get(k) { return Promise.resolve(rows(c)[k] || null); },
         subscribe(cb) { (subs[c] = subs[c] || []).push(cb); cb(Object.keys(rows(c)).map((k) => rows(c)[k])); },
       }),
     },
-    push(c, rec) { rows(c)[rec.id] = rec; fire(c); },
+    push(c, rec) {
+      rows(c)[rec.id] = rec;
+      if (c === 'players') ensurePerson(rec);
+      fire(c);
+    },
     last(c, id) { return rows(c)[id] || null; },
   };
 }
@@ -176,6 +189,8 @@ function load(room, opts) {
     matchMedia: () => ({ matches: !!opts.coarse, addListener() {}, addEventListener() {} }),
     addEventListener(t, f) { (winL[t] = winL[t] || []).push(f); },
     setTimeout: (fn) => { fn(); return 0; },
+    setInterval: (fn) => { (sandbox._peopleTimers = sandbox._peopleTimers || []).push(fn); return 1; },
+    clearInterval() {},
     setImmediate,
     ResizeObserver: undefined,
     gifos: undefined,
@@ -204,12 +219,16 @@ function load(room, opts) {
     'boot.js',
   ].map((f) => fs.readFileSync(path.join(APP, f), 'utf8'));
   vm.runInContext(files.join('\n;\n'), sandbox, { filename: 'aim-and-shoot.js' });
+  const refreshRoom = () => {
+    (sandbox._peopleTimers || []).forEach((fn) => { try { fn(); } catch (e) {} });
+  };
   return {
     sandbox,
     net,
     byId,
     body,
     images,
+    refreshRoom,
     back: () => (backFn ? backFn() : undefined),
     winFire: (t, ev) => (winL[t] || []).slice().forEach((f) => f(Object.assign({ type: t, preventDefault() {} }, ev || {}))),
     docFire: (t, ev) => (doc._l[t] || []).slice().forEach((f) => f(Object.assign({ type: t, preventDefault() {} }, ev || {}))),
@@ -366,9 +385,9 @@ check('GuiControls.js is still packed (upstream)', scripts.indexOf('vendor/GuiCo
 check('help.md is a real page (a title and some sections)', /^# \S/.test(help.trim()) && help.trim().length >= 300);
 check('author is Victor Ribeiro, porter is GifOS',
   listing.author.name === 'Victor Ribeiro' && listing.porter.name === 'GifOS' && listing.basedOn.blessed === false);
-check('db + multiplayer, no network, minBuild 947',
+check('db + multiplayer, no network, minBuild 5861',
   manifest.capabilities.db && manifest.capabilities.multiplayer &&
-  !manifest.capabilities.network && manifest.minBuild === 947);
+  !manifest.capabilities.network && manifest.minBuild === 5861);
 
 // ---- CSS as rules: selector -> declarations (structure, not substrings) -----
 // Rules inside an @media block carry that block's prelude in `media`.
@@ -479,7 +498,7 @@ function finish() {
 // two vms are a host and a guest, wired through one fake collection.
 (async () => {
   await shellChecks();
-  const H = load({ id: 'host-1', name: 'Nathan', owner: true });
+  const H = load({ id: 'host-1', name: 'Riley', owner: true });
   await flush();
   const HA = H.sandbox.AAS;
   HA.startPlay();
@@ -492,6 +511,7 @@ function finish() {
     id: 'ada', name: 'Ada', t: 1,
     mv: { r: true }, mx: 0, my: 0, lx: 400, ly: 200, fire: false,
   });
+  H.refreshRoom();
   await flush();
   for (let i = 0; i < 40; i++) { HA.player.health = 99; H.tick(16); }
 
@@ -616,24 +636,25 @@ function finish() {
   // The other half: a host still on the title art, with somebody in the room,
   // says so — so the guest can name who it is waiting for, and the host can
   // see that anyone is waiting at all.
-  const H2 = load({ id: 'host-2', name: 'Nathan', owner: true });
+  const H2 = load({ id: 'host-2', name: 'Riley', owner: true });
   await flush();
   const H2A = H2.sandbox.AAS;
   H2.net.push('players', { id: 'cid', name: 'Cid', t: 1, mv: {}, lx: 10, ly: 10 });
+  H2.refreshRoom();
   await flush();
-  const bea = H2.net.last('world', 'host');
-  check('a host on the title art tells the room it is there',
-    !!bea && bea.state === 'title' && bea.name === 'Nathan', bea);
+  // No idle host beacon: who is here is gifos.people(), not a heartbeat write.
+  check('a host on the title art does not heartbeat a host beacon row',
+    H2.net.last('world', 'host') === null, H2.net.last('world', 'host'));
   check('the host screen names who is waiting, and what to press',
     /Cid is waiting/.test(H2.sandbox.document.getElementById('status').textContent),
     H2.sandbox.document.getElementById('status').textContent);
   H2A.startPlay();
   for (let i = 0; i < 20; i++) { H2A.player.health = 99; H2.tick(200); }
   H2.net.push('players', { id: 'cid', name: 'Cid', t: 2, mv: {}, lx: 10, ly: 10 });
+  H2.refreshRoom();
   await flush();
-  check('and stops beaconing the moment it is playing — the snapshot says it all',
-    H2.net.last('world', 'host').t === bea.t,
-    { now: H2.net.last('world', 'host').t, was: bea.t });
+  check('still no host beacon while playing — the world snapshot is the signal',
+    H2.net.last('world', 'host') === null, H2.net.last('world', 'host'));
 
   finish();
 })().catch((err) => {
