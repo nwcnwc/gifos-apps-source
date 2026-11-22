@@ -28,3 +28,5 @@ The **chapter you were on**, how far you got, and whether sound is off. Close it
 ## Credits and footnotes
 
 The last chapter has links to Nicky Case's other work, the book this is based on, and **footnotes**. The footnotes open here, as a page you can scroll. The original is dedicated to the public domain.
+
+Who is here comes from gifos.people(). The app owner hosts; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

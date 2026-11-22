@@ -172,7 +172,7 @@ if (/<sharing\b/i.test(html)) throw new Error('sharing widget is OS Invite');
 if (/>\s*Invite\s*</.test(html) || /id=["']invite/i.test(html)) throw new Error('Invite is OS chrome');
 if (/js\/lib\/sharing\.js/.test(html)) throw new Error('do not load sharing.js');
 
-if (manifest.minBuild !== 2154) throw new Error('minBuild 2154 — capabilities.links (assets already need 1206)');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861');
 if (manifest.appId !== 'evolution-of-trust') throw new Error('appId');
 if (!manifest.capabilities || manifest.capabilities.db !== true) throw new Error('db');
 if (!manifest.capabilities.multiplayer) throw new Error('multiplayer');
@@ -180,7 +180,6 @@ if (!manifest.capabilities.links) throw new Error('links — credits open ncase.
 if (manifest.capabilities.network) throw new Error('no network');
 if (!manifest.data.progress || manifest.data.progress.visibility !== 'private') throw new Error('progress private');
 if (!manifest.data.play || manifest.data.play.visibility !== 'read-only') throw new Error('play read-only');
-if (!manifest.data.watchers || manifest.data.watchers.visibility !== 'read-write') throw new Error('watchers');
 
 if (!listing.basedOn || listing.basedOn.blessed !== false) throw new Error('blessed');
 if (listing.basedOn.name !== 'The Evolution of Trust') throw new Error('basedOn.name');
