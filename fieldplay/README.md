@@ -46,3 +46,7 @@ is owned elsewhere.
 Field Play is MIT, Andrei Kashcha, 2017–2026. The particle technique
 follows Mapbox webgl-wind (ISC, Vladimir Agafonkin). Notices ride
 **inside the GIF**.
+
+## With friends
+
+Who is here comes from gifos.people(). The app owner hosts the shared field; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

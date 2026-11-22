@@ -55,7 +55,7 @@ function pin(rel, want) {
 const engineBuf = pin('vendor/fieldplay.js', ENGINE_SHA);
 const presetBuf = pin('vendor/presets.js', PRESET_SHA);
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861');
 if (manifest.appId !== 'fieldplay') throw new Error('appId must be fieldplay');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
