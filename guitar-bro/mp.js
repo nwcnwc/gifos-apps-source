@@ -217,7 +217,7 @@
     if (ad && (!used || ad.round !== used.round || !sameChart(ad, used))) {
       var first = !used;
       applyChart(ad, ad.round, ad.by === me.id);
-      if (first) { lastPub = 0; publish(); }
+      if (first) publish();
     }
     render();
   }
@@ -260,7 +260,7 @@
       if (handed && !declined) {
         // New owner must host the race after hand-off (P2).
         if (!on) startRace();
-        else { lastPub = 0; publish(); }
+        else { publish(); }
       } else if (key !== roomKey) {
         roomKey = key;
         if (on) onRoom(lastList);
@@ -341,15 +341,16 @@
     publish();
   }
 
-  var lastScorePub = '';
+  var lastHitsPub = -1;
   function onPlayed() {
     if (!on) return;
     var g = root.GB;
-    var key = g ? String(g.score|0) + ':' + String(g.hits|0) + ':' + String(!!g.done) : '';
-    if (key && key === lastScorePub) { render(); return; }
-    lastScorePub = key;
-    // Skip idle 0:0:false spam from game.onChange while waiting.
-    if (key === '0:0:false') { render(); return; }
+    var hits = g ? (g.hits | 0) : 0;
+    var done = !!(g && g.done);
+    // game.onChange fires often; only room-put on a real hit or song end (K3).
+    if (hits <= lastHitsPub && !done) { render(); return; }
+    if (hits === lastHitsPub && done) { /* allow one done put */ }
+    lastHitsPub = hits;
     publish(true);
     render();
   }
