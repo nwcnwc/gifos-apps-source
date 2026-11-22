@@ -8,7 +8,7 @@ and hash-pinned. Looks like the 1984 duck-shooting game — unofficial, same
 class as Floppy Bird / Eagle Defense. Do not ship a trademarked name, logo, or
 original console CHR; the sprites are the MIT port's.
 
-`minBuild` is **947**. No wasm, no network. Fetch of the spritesheet is
+`minBuild` is **5861**. No wasm, no network. Fetch of the spritesheet is
 intercepted and served from inlined bytes. Best score is hooked out of the
 vendored `score` setter; replay returns to the gate instead of assigning
 `window.location`. Invite writes a pond board of bests (`room`, read-write).
@@ -17,3 +17,5 @@ vendored `score` setter; replay returns to the gate instead of assigning
 DUCKHUNT_SRC=/path/to/DuckHunt-JS node apps/duck-hunt/vendor.mjs   # only to move the pin
 node apps/duck-hunt/build.mjs
 ```
+
+Who is here comes from gifos.people(). The app owner hosts; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.
