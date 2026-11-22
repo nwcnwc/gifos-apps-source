@@ -35,3 +35,5 @@ Switch Race / Share between words (the person who opened the room sets it). You 
 A solo game in progress, plus your win/loss record, stay in the file. Close it and come back: the same word and the letters you already tried are still there. A live match is the room, not the file.
 
 Unofficial port of [Vanilla Javascript Hangman Game](https://github.com/simonjsuh/Vanilla-Javascript-Hangman-Game) by simonjsuh.
+
+Who is here comes from gifos.people(). The app owner hosts the match; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.
