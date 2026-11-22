@@ -27,7 +27,7 @@ vendor/COPYING-*.txt       AGPL-3.0 notice, packed inside the GIF
 
 | capability | why |
 |---|---|
-| `db` | Last patch (private) and the room’s recipe (read-write). Needs nothing newer than the App Store itself, so `minBuild` is **947**. |
+| `db` | Last patch (private) and the room’s recipe (read-write). Needs nothing newer than the App Store itself, so `minBuild` is **5861**. |
 | `multiplayer` | The jam. Invite is OS chrome — this app never draws its own share sheet. |
 | `launch.patch` | A shared URL can open a named patch (`?run=hydra&go.patch=kaleid`). |
 
@@ -59,3 +59,5 @@ Do not run `scripts/build-app-catalog.mjs` from this change — `index.json` is 
 
 Hydra and hydra-synth are AGPL-3.0, Olivia Jack. The notice is packed
 **inside the GIF** as `COPYING.txt`.
+
+Who is here comes from gifos.people(). The app owner hosts the patch; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

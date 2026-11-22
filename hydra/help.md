@@ -35,3 +35,5 @@ Want a friend on the same picture? Press **Jam together** (if you do not already
 ## What is saved
 
 The last patch lives in this file. Close it, come back, the picture is still that recipe. A live jam is the room for that invite, not a second save.
+
+Who is here comes from gifos.people(). The app owner hosts the patch; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

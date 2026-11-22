@@ -1,30 +1,35 @@
 /*
  * Jam together — one hydra patch string, everyone looking at it.
  * Each player publishes the patch on THEIR own row. Nobody writes
- * anybody else's row. Everyone adopts the recipe of the lowest-id
- * player on the current round.
+ * anybody else's row. Everyone adopts the app owner's recipe on the
+ * current round (else lowest id). Who is here is gifos.people().
  * Invite is OS chrome. This file never draws a share sheet.
  */
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 3000;
-  var MAX = (root.HydraSketch && root.HydraSketch.MAX) || 14000;
+  var NEEDS_NEWER = 'Hydra needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var roomRead = false;
+  var MAX = 8000;
+
   var api = null;
   var room = null;
   var me = { id: null, name: 'You' };
   var on = false;
   var subscribed = false;
   var declined = false;
-  var hbTimer = 0;
   var myCode = '';
-  var round = 1;
+    var round = 1;
   var usedCode = null;
-  var usedRound = 0;
+    var usedRound = 0;
   var lastList = [];
-  var seenAt = {};
   var lastPub = 0;
+
   var $ = function (id) { return document.getElementById(id); };
   var now = function () { return Date.now(); };
   var esc = function (s) {
@@ -33,15 +38,27 @@
     });
   };
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id) return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      if (t - seenAt[p.id].seen > STALE_MS) return;
-      out.push(p);
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
+      out.push({
+        id: p.id,
+        name: names[p.id] || p.name || 'Friend',
+        code: p.code,
+        seed: p.seed,
+        round: p.round
+      });
     });
     return out;
   }
@@ -53,28 +70,79 @@
     players.forEach(function (p) { if ((p.round || 1) > maxR) maxR = p.round || 1; });
     var cand = players.filter(function (p) { return (p.round || 1) === maxR && p.code != null; });
     if (!cand.length) return null;
-    cand.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
-    var a = cand[0];
-    return { round: maxR, code: String(a.code).slice(0, MAX), by: a.id };
+    var i, a = null;
+    if (owner && me.id) {
+      for (i = 0; i < cand.length; i++) if (cand[i].id === me.id) { a = cand[i]; break; }
+    }
+    if (!a) {
+      cand.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
+      a = cand[0];
+    }
+    return {
+      round: maxR,
+      code: String(a.code).slice(0, MAX),
+      by: a.id
+    };
   }
 
   function snapshot() {
-    return { id: me.id, name: me.name, code: myCode, round: round, at: now() };
+    return {
+      id: me.id,
+      code: myCode,
+      round: round
+    };
   }
 
   function publish() {
-    if (!on || !room || !me.id) return;
+    if (!on || !room || !me.id || !PEOPLE) return;
     var t = now();
     if (t - lastPub < 80) return;
     lastPub = t;
     room.put(snapshot()).catch(function () {});
   }
 
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      var handed = !owner && !!info.owner && roomRead;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (handed && !on && !declined) {
+        var n = 0, id, names = peopleNames();
+        for (id in names) if (id !== me.id) n++;
+        if (n > 0) enter();
+      } else if (key !== roomKey) {
+        roomKey = key;
+        if (on) onRoom(lastList);
+        else maybeEnterFromPeople();
+      }
+    }, function () {});
+  }
+
+  function maybeEnterFromPeople() {
+    if (on || declined || !PEOPLE) return;
+    var names = peopleNames(), id, n = 0;
+    for (id in names) { if (id !== me.id) n++; }
+    if (n > 0) enter();
+  }
+
   function applyWorld(ad) {
     usedCode = ad.code;
     usedRound = ad.round;
     round = ad.round;
-    if (ad.by !== me.id) myCode = ad.code;
+    if (ad.by !== me.id) {
+      myCode = ad.code;
+    }
     if (root.HydraApp) root.HydraApp.applyPatch(ad.code, true);
     lastPub = 0;
     publish();
@@ -91,17 +159,19 @@
       var mine = p.id === me.id;
       html += '<li class="' + (mine ? 'me' : '') + '">' +
         '<span class="name">' + (mine ? 'You' : esc(p.name || 'Friend')) + '</span>' +
-        '<span class="meta">' + (mine ? 'jamming' : 'in the jam') + '</span></li>';
+        '<span class="meta">' + (mine ? 'sharing' : 'looking') + '</span>' +
+        '</li>';
     });
     if (scores) scores.innerHTML = html || '<li><span class="name">Just you so far</span></li>';
+
     var others = players.filter(function (p) { return p.id !== me.id; });
     if (!status) return;
     if (!others.length) {
-      status.textContent = 'Waiting for a friend… Invite sends the link. You can still edit the patch.';
+      status.textContent = 'Waiting for a friend… press Invite (GifOS menu) to send the link. You can sketch in the meantime — they start from this patch.';
     } else if (others.length === 1) {
-      status.textContent = (others[0].name || 'Friend') + ' is on the same synth. Run a patch — they see it.';
+      status.textContent = (others[0].name || 'Friend') + ' is looking. Eval a patch — they see it.';
     } else {
-      status.textContent = others.length + ' friends on this synth. Run a patch — everyone sees it.';
+      status.textContent = others.length + ' friends looking. Eval a patch — everyone sees it.';
     }
   }
 
@@ -109,26 +179,28 @@
     lastList = list || [];
     if (!on) return;
     var ad = adopted(lastList);
-    if (ad && (ad.code !== usedCode || ad.round !== usedRound)) applyWorld(ad);
+    if (ad && (ad.code !== usedCode || ad.round !== usedRound)) {
+      applyWorld(ad);
+    }
     renderMp();
   }
 
   function watch() {
     api = root.gifos;
     if (!api || !api.db) return;
+    if (!PEOPLE) return;
     room = room || api.db('room');
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || me.id || 'local';
-      me.name = (id && id.name) || me.name || 'You';
+    readRoom().then(function () {
       if (subscribed) return;
       subscribed = true;
       room.subscribe(function (list) {
         lastList = list || [];
         if (on) { onRoom(lastList); return; }
         if (declined) return;
-        var others = live(lastList).filter(function (p) { return p.id && p.id !== me.id; });
-        if (others.length) enter();
+        maybeEnterFromPeople();
       });
+      setInterval(readRoom, PEOPLE_MS);
+      maybeEnterFromPeople();
     }).catch(function () {});
   }
 
@@ -137,37 +209,41 @@
     if (!api || !api.db) {
       $('friend-bar').hidden = false;
       var s = $('friend-status');
-      if (s) s.textContent = 'Jam together needs a GifOS room.';
+      if (s) s.textContent = 'Share the pattern needs a GifOS room.';
+      return true;
+    }
+    if (!PEOPLE) {
+      $('friend-bar').hidden = false;
+      var s2 = $('friend-status');
+      if (s2) s2.textContent = NEEDS_NEWER;
       return true;
     }
     if (on) return true;
     declined = false;
     room = room || api.db('room');
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
+    readRoom().then(function () {
+      if (!me.id) return;
       on = true;
       document.body.classList.add('friend');
       $('friend-bar').hidden = false;
       $('shareBtn').hidden = true;
       var cur = root.HydraApp ? root.HydraApp.current() : { code: '' };
       myCode = cur.code;
-      round = 1;
+            round = 1;
       usedCode = null;
-      usedRound = 0;
-      seenAt = {};
+            usedRound = 0;
       if (!subscribed) {
         subscribed = true;
         room.subscribe(onRoom);
       } else {
         onRoom(lastList);
       }
-      if (!usedCode) applyWorld({ code: myCode, round: round, by: me.id });
-      lastPub = 0;
-      publish();
-      renderMp();
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(function () { lastPub = 0; publish(); renderMp(); }, HB_MS);
+      if (!usedCode) applyWorld({
+        code: myCode,
+        round: round,
+        by: me.id
+      });
+      else publish();
     }).catch(function () {});
     return true;
   }
@@ -178,27 +254,62 @@
     document.body.classList.remove('friend');
     $('friend-bar').hidden = true;
     $('shareBtn').hidden = false;
-    if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
     if (room && me.id) room.delete(me.id).catch(function () {});
   }
 
-  function onApply(code) {
+  function onApply(code, seed) {
     if (!on) return false;
     myCode = String(code || '').slice(0, MAX);
     round = (usedRound || round || 1) + 1;
-    applyWorld({ code: myCode, round: round, by: me.id });
+    applyWorld({
+      code: myCode,
+      round: round,
+      by: me.id
+    });
     if (root.HydraApp) root.HydraApp.persist();
     return true;
+  }
+
+  function onShuffle(code, seed) {
+    return onApply(code, seed);
   }
 
   root.HydraMp = {
     enter: enter,
     leave: leave,
     onApply: onApply,
+    onShuffle: onShuffle,
     busy: function () { return on; }
+  };
+
+  root['__hydra'] = {
+    state: function () {
+      var ad = adopted(lastList);
+      if (ad) return { round: ad.round | 0 };
+      return on ? { round: (usedRound || round || 0) | 0 } : null;
+    },
+    people: function () {
+      return live(lastList).map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      var n = 0, i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') n++;
+      }
+      return on && owner && n > 1;
+    }
   };
 
   $('shareBtn').addEventListener('click', function (e) { e.preventDefault(); enter(); });
   $('leaveBtn').addEventListener('click', function (e) { e.preventDefault(); leave(); });
+
   watch();
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'hy-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);

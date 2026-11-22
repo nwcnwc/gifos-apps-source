@@ -126,8 +126,8 @@ if (!manifest.data || !manifest.data.save || manifest.data.save.visibility !== '
 if (!manifest.data.room || manifest.data.room.visibility !== 'read-write') {
   throw new Error('manifest.data.room must be read-write');
 }
-if (manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947 — this app needs nothing newer than the store');
+if (manifest.minBuild < 5861) {
+  throw new Error('minBuild must be >= 5861');
 }
 if (manifest.capabilities.network) throw new Error('hydra has no network path');
 if (listing.basedOn?.name !== 'Hydra') throw new Error('listing.basedOn.name must be Hydra');
