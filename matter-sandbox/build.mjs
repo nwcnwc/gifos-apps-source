@@ -99,8 +99,6 @@ if (!manifest.data.players || manifest.data.players.visibility !== 'read-write')
   throw new Error('manifest.data.players must be read-write');
 }
 if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861');
-  throw new Error('minBuild must be 947 — this app needs nothing newer than the store');
-}
 if (manifest.capabilities.network) throw new Error('matter-sandbox has no network path');
 if (listing.basedOn?.name !== 'matter.js') {
   throw new Error('listing.basedOn.name must be matter.js');
