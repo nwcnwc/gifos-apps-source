@@ -3,11 +3,15 @@
   "appId": "periodic-table",
   "name": "Periodic Table",
   "shortName": "Table",
-  "version": "1.0",
-  "minBuild": 947,
+  "version": "1.1",
+  "minBuild": 5861,
   "description": "All 118 on this device. Tap an element, filter by family, quiz yourself, or race a friend from one link.",
   "entry": "index.html",
-  "accent": [232, 180, 60],
+  "accent": [
+    232,
+    180,
+    60
+  ],
   "capabilities": {
     "db": true,
     "multiplayer": true
@@ -15,11 +19,15 @@
   "launch": {
     "el": {
       "label": "Open on an element",
-      "detail": "A name, symbol or number — Gold, Au or 79."
+      "detail": "A name, symbol or number \u2014 Gold, Au or 79."
     }
   },
   "data": {
-    "save": { "visibility": "private" },
-    "room": { "visibility": "read-write" }
+    "save": {
+      "visibility": "private"
+    },
+    "room": {
+      "visibility": "read-write"
+    }
   }
 }

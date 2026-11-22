@@ -85,8 +85,8 @@ if (manifest.capabilities.network) {
 if (manifest.capabilities.pointer) {
   throw new Error('do not declare pointer');
 }
-if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947');
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild < 5861) {
+  throw new Error('minBuild must be >= 5861');
 }
 if (!manifest.data || !manifest.data.save || manifest.data.save.visibility !== 'private') {
   throw new Error('manifest.data.save must be private');

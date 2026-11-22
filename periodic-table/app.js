@@ -270,17 +270,54 @@
   }).join('');
 
   // ---- multiplayer: same seed, race to N. Each writes ONLY their own row.
-  // Host (lowest live id) writes the shared quiz row.
-  var PRES_TTL = 9000, HB_MS = 3000, END_HOLD = 4000;
-  var mp = { on: false, id: null, name: 'You', row: null, quiz: null, people: [], hb: 0, sub: false };
+  // App owner writes the shared quiz row. Who is here is gifos.people().
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(typeof gifos !== 'undefined' && gifos && gifos.people);
+  var NEEDS_NEWER = 'Periodic Table needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var END_HOLD = 4000;
+  var mp = { on: false, id: null, name: 'You', row: null, quiz: null, people: [], roomPeople: [], owner: false, roomRead: false, sub: false, peopleTimer: 0 };
   var _items = [];
   var fLocked = false;
 
-  function isHost(people) {
-    if (!people.length) return true;
-    var m = people[0].id, i;
-    for (i = 0; i < people.length; i++) if (people[i].id < m) m = people[i].id;
-    return mp.id === m;
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < mp.roomPeople.length; i++) {
+      p = mp.roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < mp.roomPeople.length; i++) {
+      p = mp.roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+  function isHost() {
+    return PEOPLE && mp.owner;
+  }
+  function readRoom() {
+    if (!PEOPLE || typeof gifos === 'undefined' || !gifos) return Promise.resolve();
+    return Promise.all([
+      gifos.people(),
+      gifos.info ? gifos.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var wasOwner = mp.owner;
+      mp.roomPeople = ppl;
+      mp.owner = !!info.owner;
+      mp.roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { mp.id = mine.id; mp.name = mine.name || 'You'; }
+      if (!wasOwner && mp.owner && mp.on && peopleCount() > 1 && !mp.quiz) {
+        putQuiz(freshQuiz(mp.id));
+      }
+      if (mp.on) mpRefresh();
+    }, function () {});
   }
   function freshQuiz(hostId) {
     return {
@@ -289,9 +326,10 @@
     };
   }
   function putMe(extra) {
-    if (!roomDb || !mp.id) return;
+    if (!PEOPLE || !roomDb || !mp.id) return;
+    if (peopleCount() < 2 && !(extra && Object.keys(extra).length)) return;
     var row = {
-      id: mp.id, name: mp.name, at: nowMs(),
+      id: mp.id,
       seq: mp.quiz ? mp.quiz.seq : 0,
       q: mp.row && mp.row.q ? mp.row.q : 0,
       correct: mp.row && mp.row.correct ? mp.row.correct : 0,
@@ -310,7 +348,11 @@
     mp.row = row;
     roomDb.put(row).catch(function () {});
   }
-  function putQuiz(q) { mp.quiz = q; roomDb.put(q).catch(function () {}); }
+  function putQuiz(q) {
+    if (!PEOPLE || !roomDb || !mp.owner) return;
+    mp.quiz = q;
+    roomDb.put(q).catch(function () {});
+  }
 
   function mpEnter() {
     if (!roomDb) {
@@ -318,23 +360,28 @@
       $('fStatus').className = 'statusline warn';
       return;
     }
+    if (!PEOPLE) {
+      $('fStatus').textContent = NEEDS_NEWER;
+      $('fStatus').className = 'statusline warn';
+      return;
+    }
     if (mp.on) { mpRender(); return; }
-    (window.gifos ? gifos.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (me) {
-      mp.id = me.id; mp.name = me.name || 'You'; mp.on = true; mp.row = null; mp.quiz = null;
+    readRoom().then(function () {
+      mp.on = true; mp.row = null; mp.quiz = null;
       fLocked = false;
       if (!mp.sub) {
         mp.sub = true;
         roomDb.subscribe(function (items) { _items = items || []; mpRefresh(); });
       }
-      putMe();
-      if (mp.hb) clearInterval(mp.hb);
-      mp.hb = setInterval(function () { if (mp.on) putMe(); }, HB_MS);
+      putMe({ q: 0 });
+      if (mp.peopleTimer) clearInterval(mp.peopleTimer);
+      mp.peopleTimer = setInterval(readRoom, PEOPLE_MS);
       mpRender();
     });
   }
   function mpLeave() {
     mp.on = false;
-    if (mp.hb) clearInterval(mp.hb); mp.hb = 0;
+    if (mp.peopleTimer) clearInterval(mp.peopleTimer); mp.peopleTimer = 0;
     if (roomDb && mp.id) roomDb.delete(mp.id).catch(function () {});
     mp.row = null; mp.quiz = null;
   }
@@ -345,16 +392,18 @@
 
   function mpRefresh() {
     if (!mp.on) return;
-    var t = nowMs();
+    var names = peopleNames();
     var people = [], quiz = null, i, it;
     for (i = 0; i < _items.length; i++) {
       it = _items[i];
       if (!it || !it.id) continue;
       if (it.id === 'quiz') { quiz = it; continue; }
-      if (it.at && t - it.at < PRES_TTL) people.push(it);
+      if (!Object.prototype.hasOwnProperty.call(names, it.id)) continue;
+      it = Object.assign({}, it, { name: names[it.id] || it.name || 'Friend' });
+      people.push(it);
     }
-    if (!people.some(function (p) { return p.id === mp.id; })) {
-      people.push(mp.row || { id: mp.id, name: mp.name, at: t });
+    if (mp.id && names[mp.id] && !people.some(function (p) { return p.id === mp.id; })) {
+      people.push(mp.row || { id: mp.id, name: mp.name });
     }
     mp.people = people;
     mp.quiz = quiz;
@@ -362,11 +411,11 @@
       for (i = 0; i < people.length; i++) if (people[i].id === mp.id) mp.row = people[i];
     }
     if (!quiz) {
-      if (isHost(people)) putQuiz(freshQuiz(mp.id));
+      if (isHost()) putQuiz(freshQuiz(mp.id));
       mpRender();
       return;
     }
-    if (isHost(people)) {
+    if (isHost()) {
       var next = mpReconcile(quiz, people);
       if (next) { putQuiz(next); return; }
     }
@@ -533,4 +582,18 @@
   if (window.gifos && gifos.launch) {
     gifos.launch().then(openFromLaunch).catch(function () {});
   }
+
+  window['__periodic-table'] = {
+    state: function () {
+      if (!mp.quiz) return null;
+      return { seq: mp.quiz.seq | 0, seed: mp.quiz.seed | 0 };
+    },
+    people: function () {
+      return (mp.people || []).map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      return PEOPLE && mp.owner && peopleCount() > 1;
+    }
+  };
+
 })();
