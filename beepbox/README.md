@@ -34,7 +34,7 @@ vendor.mjs                    rebuild vendor/ from the pin (needs net)
 
 | capability | why |
 |---|---|
-| `db` | The song (private) and the room's shared copy (read-write). `minBuild` is **947**. |
+| `db` | The song (private) and the room's shared copy (read-write). `minBuild` is **5861**. |
 | `multiplayer` | The room. Invite is OS chrome — this app never draws that button. |
 
 No `network`. WAV / MIDI / JSON export stay local. MP3 is refused (upstream

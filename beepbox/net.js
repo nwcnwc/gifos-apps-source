@@ -1,29 +1,32 @@
 /*
  * Invite jams the same song.
  *
- * Each player writes the song JSON on THEIR own row. The host (lowest
- * present id) copies a legal song onto the `song` row. Nobody writes
- * anybody else's row. Solo work stays in gifos.db('songs') — this file
- * never touches that collection except to freeze a copy on enter.
+ * Each player writes the song JSON on THEIR own row. The host (app owner)
+ * copies a legal song onto the `song` row. Nobody writes anybody else's row.
+ * Who is here is gifos.people(). Solo work stays in gifos.db('songs').
  * Invite is OS chrome. This file never draws an Invite button.
  */
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 2500;
+  var NEEDS_NEWER = 'BeepBox needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
   var PUB_MS = 280;
 
   var api = null;
   var room = null;
   var me = { id: null, name: 'You' };
+  var owner = false;
   var on = false;
   var lastList = [];
-  var seenAt = {};
+  var roomPeople = [];
+  var roomKey = '';
+  var roomRead = false;
   var lastSong = null;
+  var applying = false;
   var lastPacked = '';
   var myN = 0;
-  var hbTimer = 0;
   var pubTimer = 0;
   var jamEl = null;
   var getJson = null;
@@ -43,26 +46,50 @@
     try { return JSON.stringify(j); } catch (e) { return ''; }
   }
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
-    (list || []).forEach(function (p) {
-      if (!p || !p.id || p.id === 'song') return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      if (t - seenAt[p.id].seen > STALE_MS) return;
-      out.push(p);
-    });
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      var changed = key !== roomKey;
+      roomKey = key;
+      roomPeople = ppl;
+      var handed = !owner && !!info.owner && roomRead;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (handed && ppl.length > 1) {
+        on = true;
+        if (getJson) frozen = getJson();
+      }
+      if (changed && on) ingest(lastList);
+    }, function () {});
+  }
+
+  function playersHere(list) {
+    var names = {}, out = [], seen = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      if (roomPeople[i] && roomPeople[i].id && roomPeople[i].here !== 'gone') {
+        names[roomPeople[i].id] = roomPeople[i].name;
+      }
+    }
+    for (i = 0; i < (list || []).length; i++) {
+      p = list[i];
+      if (!p || !p.id || p.id === 'song') continue;
+      if (!Object.prototype.hasOwnProperty.call(names, p.id) || seen[p.id]) continue;
+      seen[p.id] = true;
+      out.push(Object.assign({}, p, { name: names[p.id] || 'Player' }));
+    }
     return out;
   }
 
-  function isHost(people) {
-    people = people || live(lastList);
-    if (!people.length) return true;
-    var m = people[0].id, i;
-    for (i = 0; i < people.length; i++) if (people[i].id < m) m = people[i].id;
-    return me.id === m;
-  }
+  function isHost() { return on && owner; }
 
   function songOf(list) {
     var i;
@@ -85,9 +112,7 @@
     var j = getJson ? getJson() : null;
     return {
       id: me.id,
-      name: me.name,
       n: myN,
-      at: now(),
       json: legalSong(j) ? j : null
     };
   }
@@ -98,13 +123,12 @@
   }
 
   function publishSong(json, seq) {
-    if (!on || !room || !me.id) return;
+    if (!on || !room || !me.id || !owner) return;
     if (!legalSong(json)) return;
     var row = {
       id: 'song',
       host: me.id,
       seq: seq || ((lastSong && lastSong.seq) || 0) + 1,
-      at: now(),
       json: json
     };
     lastSong = row;
@@ -112,52 +136,70 @@
     room.put(row).catch(function () {});
   }
 
+  var ingesting = false;
   function ingest(list) {
-    lastList = list || [];
-    var people = live(lastList);
-    var others = 0, i;
-    for (i = 0; i < people.length; i++) if (people[i].id !== me.id) others++;
-    var became = others > 0;
-    if (became && !on) {
-      on = true;
-      if (getJson) frozen = getJson();
-    }
-    if (!became && on && others === 0 && people.length <= 1) {
-      /* stay on while we are the only one still in the room — host keeps the song */
-    }
-    paintJam(people);
-    if (!on) return;
-
-    var canonical = songOf(lastList);
-    if (canonical && legalSong(canonical.json)) {
-      var packed = pack(canonical.json);
-      if (packed && packed !== lastPacked) {
-        lastPacked = packed;
-        lastSong = canonical;
-        if (applyJson) applyJson(canonical.json);
+    // put() notifies subscribers sync — never re-enter or the host adopt loops the stack.
+    if (ingesting) { lastList = list || []; return; }
+    ingesting = true;
+    try {
+      lastList = list || [];
+      var people = playersHere(lastList);
+      var others = 0, i;
+      for (i = 0; i < people.length; i++) if (people[i].id !== me.id) others++;
+      var became = others > 0;
+      if (became && !on) {
+        on = true;
+        if (getJson) frozen = getJson();
       }
-    }
+      paintJam(people);
+      if (!on) return;
 
-    if (isHost(people)) {
-      var newest = null;
-      for (i = 0; i < people.length; i++) {
-        var p = people[i];
-        if (!legalSong(p.json)) continue;
-        if (!newest || (p.n | 0) > (newest.n | 0) || ((p.n | 0) === (newest.n | 0) && p.at > newest.at)) {
-          newest = p;
+      var canonical = songOf(lastList);
+      if (canonical && legalSong(canonical.json)) {
+        var packed = pack(canonical.json);
+        if (packed && packed !== lastPacked) {
+          lastPacked = packed;
+          lastSong = canonical;
+          if (applyJson) {
+            applying = true;
+            try { applyJson(canonical.json); } finally { applying = false; }
+            coolUntil = now() + 800;
+            // Absorb fromJson/toJson drift so a later getJson does not look like an edit.
+            if (getJson) {
+              var after = pack(getJson());
+              if (after) lastPacked = after;
+            }
+          }
         }
       }
-      if (newest) {
-        var np = pack(newest.json);
-        if (np && np !== lastPacked) publishSong(newest.json, (lastSong && lastSong.seq) || 0);
-      } else if (getJson && !canonical) {
-        publishSong(getJson(), 1);
+
+      if (isHost()) {
+        var newest = null;
+        for (i = 0; i < people.length; i++) {
+          var p = people[i];
+          if (!legalSong(p.json)) continue;
+          if (!newest || (p.n | 0) > (newest.n | 0)) newest = p;
+        }
+        if (newest) {
+          var np = pack(newest.json);
+          var cp = canonical ? pack(canonical.json) : '';
+          // Only adopt a guest song that differs from the wire canonical — and
+          // defer the put so subscribe cannot re-enter this stack frame.
+          if (np && np !== cp) {
+            publishSong(newest.json, ((lastSong && lastSong.seq) || 0) + 1);
+          }
+        } else if (getJson && !canonical) {
+          publishSong(getJson(), 1);
+        }
       }
+    } finally {
+      ingesting = false;
     }
   }
 
+  var coolUntil = 0;
   function noteLocalChange() {
-    if (!on || !me.id) return;
+    if (applying || !on || !me.id || now() < coolUntil) return;
     myN += 1;
     publish();
     if (isHost()) {
@@ -172,42 +214,31 @@
     jamEl = document.getElementById('jam');
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
+    if (!PEOPLE) return Promise.resolve({ owner: true, others: 0 });
 
-    var owner = true;
-    var infoP = api.info ? api.info().then(function (i) {
-      owner = !!(i && i.owner);
-      return owner;
-    }).catch(function () { owner = true; return true; }) : Promise.resolve(true);
-
-    return infoP.then(function () { return api.me(); }).then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'You';
+    return readRoom().then(function () {
+      if (!me.id) return { owner: owner, others: 0 };
       room = api.db('room');
       var settled = false;
       return new Promise(function (resolve) {
         var done = function () {
           if (settled) return;
           settled = true;
-          resolve({ owner: owner, others: live(lastList).length });
+          resolve({ owner: owner, others: playersHere(lastList).length });
         };
         setTimeout(done, 2200);
         room.subscribe(function (list) {
           ingest(list || []);
           done();
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).then(function (roomInfo) {
       on = true;
-      publish();
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(function () { publish(); }, HB_MS);
-      if (pubTimer) clearInterval(pubTimer);
-      pubTimer = setInterval(function () {
-        if (!on) return;
-        var j = getJson && getJson();
-        var p = pack(j);
-        if (p && p !== lastPacked && isHost()) publishSong(j);
-      }, PUB_MS);
+      // No publish on boot or on a timer — fromJson/toJson drifts; a host
+      // interval that re-published drift fought remote applies into a stack overflow.
+      // Song publishes come only from noteLocalChange (real editor edits).
+      if (pubTimer) { clearInterval(pubTimer); pubTimer = 0; }
       return roomInfo;
     }).catch(function () { return { owner: true, others: 0 }; });
   }
@@ -215,6 +246,25 @@
   root.BeepNet = {
     init: init,
     noteLocalChange: noteLocalChange,
-    live: function () { return on && live(lastList).length > 1; }
+    live: function () { return on && playersHere(lastList).length > 1; }
   };
+
+  root['__beepbox'] = {
+    // Song row seq only — host id races across hand-off before republish.
+    state: function () {
+      var s = songOf(lastList);
+      return s ? { seq: s.seq | 0 } : null;
+    },
+    people: function () {
+      return on ? playersHere(lastList).map(function (p) { return p.id; }) : [];
+    },
+    amHost: function () { return isHost(); }
+  };
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'bb-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);

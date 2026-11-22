@@ -13,6 +13,7 @@
   var saveTimer = 0;
   var lastPacked = '';
   var applying = false;
+  var coolUntil = 0; // after a remote apply, ignore notifier/hash noise
   var started = false;
 
   function pack(j) {
@@ -24,18 +25,24 @@
     try { return editor.doc.song.toJsonObject(); } catch (e1) { return null; }
   }
 
-  function applySong(json, asNew) {
+  function applySong(json, asNew, silent) {
     if (!json || !editor || !editor.doc || !editor.doc.song) return;
     var p = pack(json);
     if (p && p === lastPacked) return;
     applying = true;
     try {
       editor.doc.song.fromJsonObject(json);
-      if (editor.doc.notifier && editor.doc.notifier.changed) editor.doc.notifier.changed();
+      // Remote jam applies stay silent — notifier.changed() re-entered publish forever.
+      if (!silent && editor.doc.notifier && editor.doc.notifier.changed) editor.doc.notifier.changed();
       if (asNew && editor.doc.goBackToStart) editor.doc.goBackToStart();
-      lastPacked = p;
+      // Round-trip form — fromJson/toJson drifts; using the wire pack made
+      // persist() think every apply was a local edit and re-publish forever.
+      lastPacked = pack(songJson()) || p;
+      // fromJson can fire notifier/hashchange after this returns — cool down.
+      coolUntil = Date.now() + 800;
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; }
       if (songsDb) {
-        songsDb.put({ id: 'current', json: json, at: Date.now() }).catch(function () {});
+        songsDb.put({ id: 'current', json: songJson() || json, at: Date.now() }).catch(function () {});
       }
     } catch (e2) {
       try { console.warn('BeepBox: could not apply song', e2); } catch (e3) {}
@@ -43,7 +50,7 @@
     applying = false;
   }
 
-  function persist() {
+  function persistLocal() {
     if (applying) return;
     var json = songJson();
     var p = pack(json);
@@ -52,11 +59,16 @@
     if (songsDb) {
       songsDb.put({ id: 'current', json: json, at: Date.now() }).catch(function () {});
     }
+  }
+
+  function persist() {
+    persistLocal();
+    if (applying || Date.now() < coolUntil) return;
     if (root.BeepNet && root.BeepNet.noteLocalChange) root.BeepNet.noteLocalChange();
   }
 
   function scheduleSave() {
-    if (applying) return;
+    if (applying || Date.now() < coolUntil) return;
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(persist, 400);
   }
@@ -154,7 +166,7 @@
     if (root.BeepNet) {
       root.BeepNet.init({
         getJson: songJson,
-        applyJson: function (j) { applySong(j, false); }
+        applyJson: function (j) { applySong(j, false, true); }
       });
     }
 
@@ -169,7 +181,7 @@
       if (document.visibilityState === 'hidden') { persist(); flushPrefs(); }
     });
     setInterval(flushPrefs, 8000);
-    setInterval(persist, 2500);
+    setInterval(persistLocal, 2500);
   }
 
   function boot() {

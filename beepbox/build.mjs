@@ -61,7 +61,7 @@ if (editorHex !== EDITOR_SHA256) {
   throw new Error('vendor/beepbox_editor.min.js sha256 ' + editorHex + ' ≠ pin ' + EDITOR_SHA256 + ' — rerun vendor.mjs or move the pin.');
 }
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947 — this app needs nothing newer than the store.');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
 }
