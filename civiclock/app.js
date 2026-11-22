@@ -193,7 +193,7 @@
   function persistWorld(w) {
     world = w;
     if (!cityDb || !PEOPLE) return;
-    noteShared(w);
+    // sharedSnap updates only via city subscribe/get so every copy agrees (K8)
     cityDb.put(C.dump(w)).catch(function () {});
   }
 
@@ -554,8 +554,9 @@
   window.CiviclockApp = { coverShot: coverShot, world: function () { return world; }, setWorld: persistWorld };
   window['__civiclock'] = {
     state: function () {
-      // City row only — local paint/ticks race ahead of the shared put.
-      return sharedSnap;
+      // Speed only — host months keep ticking, so month/v never settle across copies (K8).
+      if (!sharedSnap) return null;
+      return { speed: sharedSnap.speed | 0 };
     },
     people: function () {
       var names = peopleNames(), out = [], id;
