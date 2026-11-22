@@ -1,13 +1,14 @@
 // Share the map: coop place towers.
 //
-// Each player writes placements on THEIR own row. The host (lowest present
-// id) applies legal ones onto the map row. Nobody writes anybody else's row.
-// Invite is OS chrome. This file never draws an Invite button.
+// Each player writes placements on THEIR own row. The app owner applies legal
+// ones onto the map row. Nobody writes anybody else's row. Who is here is
+// gifos.people(). Invite is OS chrome. This file never draws an Invite button.
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 3000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Tower Defense needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var PUB_MS = 120;
   var TYPES = { wall: 1, cannon: 1, LMG: 1, HMG: 1, laser_gun: 1 };
 
@@ -16,14 +17,17 @@
   var me = { id: null, name: 'You' };
   var on = false;
   var subscribed = false;
-  var hbTimer = 0;
   var pubTimer = 0;
   var lastList = [];
-  var seenAt = {};
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
   var myN = 0;
   var pending = [];
   var lastPacked = '';
   var lastMap = null;
+  var lastPubSig = '';
+  var peopleTimer = 0;
 
   var $ = function (id) { return document.getElementById(id); };
   var now = function () { return Date.now(); };
@@ -33,26 +37,35 @@
     });
   };
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id || p.id === 'map') return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      var rec = seenAt[p.id];
-      if (t - rec.seen > STALE_MS) return;
-      out.push(p);
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
+      out.push(Object.assign({}, p, { name: names[p.id] || p.name || 'Player' }));
     });
     return out;
   }
-  function isHost(people) {
-    people = people || live(lastList);
-    if (!people.length) return true;
-    var m = people[0].id;
-    for (var i = 0; i < people.length; i++) if (people[i].id < m) m = people[i].id;
-    return me.id === m;
+
+  function isHost() {
+    return owner;
   }
+
   function mapOf(list) {
     for (var i = 0; i < (list || []).length; i++) {
       if (list[i] && list[i].id === 'map') return list[i];
@@ -146,8 +159,7 @@
       id: me.id,
       name: me.name,
       n: myN,
-      pending: pending.slice(),
-      at: now()
+      pending: pending.slice()
     };
     if (extra) {
       if (extra.pending) row.pending = extra.pending;
@@ -156,8 +168,13 @@
     return row;
   }
   function publish() {
-    if (!on || !room || !me.id) return;
-    room.put(snapshot()).catch(function () {});
+    if (!on || !room || !me.id || !PEOPLE) return;
+    var row = snapshot();
+    var sig = JSON.stringify(row);
+    if (sig === lastPubSig) return;
+    lastPubSig = sig;
+    row.at = now();
+    room.put(row).catch(function () {});
   }
   function schedulePublish() {
     if (pubTimer) return;
@@ -182,7 +199,7 @@
     };
   }
 
-  function placeOnHost(mx, my, type, owner) {
+  function placeOnHost(mx, my, type, ownerId) {
     var map = mainMap();
     if (!map || !map.getGrid) return false;
     if (!legalCell(mx, my) || !legalType(type)) return false;
@@ -190,7 +207,7 @@
     if (!g || g.building) return false;
     if (g.checkBlock && g.checkBlock()) return false;
     g.addBuilding(type);
-    if (g.building) g.building.owner = owner || '';
+    if (g.building) g.building.owner = ownerId || '';
     return true;
   }
   function upgradeOnHost(mx, my) {
@@ -315,12 +332,12 @@
     var people = live(lastList);
     var city = mapOf(lastList);
     if (!city) {
-      if (isHost(people)) putMap(freshMap(me.id));
+      if (isHost()) putMap(freshMap(me.id));
       render();
       return;
     }
     lastMap = city;
-    if (isHost(people)) {
+    if (isHost()) {
       var next = reconcile(city, people);
       if (next) {
         putMap(next);
@@ -338,10 +355,25 @@
     render();
   }
 
-  function beat() {
-    if (!on) return;
-    publish();
-    render();
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        if (on) onRoom(lastList);
+      }
+    }, function () {});
   }
 
   function enter() {
@@ -351,14 +383,18 @@
       $('friend-status').textContent = 'Sharing needs a GifOS room.';
       return;
     }
+    if (!PEOPLE) {
+      $('friend-bar').hidden = false;
+      $('friend-status').textContent = NEEDS_NEWER;
+      return;
+    }
     room = api.db('room');
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
+    readRoom().then(function () {
+      if (!me.id) return;
       on = true;
       pending = [];
       myN = 0;
-      seenAt = {};
+      lastPubSig = '';
       lastPacked = '';
       lastMap = null;
       document.body.classList.add('together');
@@ -370,9 +406,9 @@
         onRoom(lastList);
       }
       publish();
-      beat();
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(beat, HB_MS);
+      render();
+      if (peopleTimer) clearInterval(peopleTimer);
+      peopleTimer = setInterval(readRoom, PEOPLE_MS);
     }).catch(function () {});
   }
 
@@ -381,7 +417,7 @@
     pending = [];
     document.body.classList.remove('together');
     $('friend-bar').hidden = true;
-    if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
+    if (peopleTimer) { clearInterval(peopleTimer); peopleTimer = 0; }
     if (pubTimer) { clearTimeout(pubTimer); pubTimer = 0; }
     if (room && me.id) room.delete(me.id).catch(function () {});
   }
@@ -390,7 +426,10 @@
     if (!on) return;
     myN += 1;
     pending = [];
-    room.put(snapshot({ wipe: myN, pending: [] })).catch(function () {});
+    lastPubSig = '';
+    var row = snapshot({ wipe: myN, pending: [] });
+    row.at = now();
+    room.put(row).catch(function () {});
     lastPacked = '';
   }
 
@@ -418,6 +457,31 @@
     wipe: wipe,
     isOn: function () { return on; }
   };
+
+  root['__tower-defense'] = {
+    state: function () {
+      var city = lastMap || mapOf(lastList);
+      if (!city) return null;
+      return {
+        seq: city.seq | 0,
+        buildings: (city.buildings && city.buildings.length) || 0
+      };
+    },
+    people: function () {
+      return live(lastList).map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      return on && PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'td-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 
   $('shareBtn').addEventListener('click', function (e) { e.preventDefault(); enter(); });
   $('leaveBtn').addEventListener('click', function (e) { e.preventDefault(); leave(); });

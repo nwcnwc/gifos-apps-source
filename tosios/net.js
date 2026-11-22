@@ -27,12 +27,16 @@
  *
  * A claim is deduped on (shooter id, sequence), because a row is re-delivered
  * on every unrelated change and a hit must land exactly once.
+ *
+ * Who is here is gifos.people(). Publish only when pose/claims change.
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 6;
-  var STALE_MS = 9000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'TOSIOS needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var HIT_RING = 8;
   var SHOT_RING = 6;
   var CLAIM_TTL = 12000;
@@ -40,6 +44,9 @@
   var api = null;
   var me = { id: null, name: 'Player' };
   var others = {};
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
   var seq = 0;
   var shotSeq = 0;
   var pendingHits = [];
@@ -53,6 +60,7 @@
   var onShot = null;
   var onTook = null;
   var lastPublished = 0;
+  var lastPubSig = '';
   var self = { lives: 3, k: 0, d: 0, alive: true, spawn: 0, lastKilledBy: null, killAck: {}, took: [] };
   var started = false;
 
@@ -67,12 +75,49 @@
 
   var r2 = function (n) { return Math.round(n * 100) / 100; };
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Player'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+      }
+    }, function () {});
+  }
+
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve(null);
-    return api.me().then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Player';
+    if (!PEOPLE) return Promise.resolve(null);
+    return readRoom().then(function () {
+      if (!me.id) return null;
       var settled = false;
       return new Promise(function (resolve) {
         var done = function (list) { if (!settled) { settled = true; resolve(list || []); } };
@@ -81,12 +126,13 @@
           ingest(list || []);
           done(list || []);
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () { return null; });
   }
 
   function ingest(list) {
-    var t = now(), seen = {}, allTook = {};
+    var t = now(), seen = {}, allTook = {}, names = peopleNames();
     for (var i = 0; i < list.length; i++) {
       var p = list[i];
       if (!p || !p.id) continue;
@@ -94,18 +140,18 @@
         for (var f = 0; f < p.took.length; f++) allTook[p.took[f]] = 1;
       }
       if (p.id === me.id) { reconcileSelf(p); continue; }
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
       drainClaims(p);
       drainShots(p);
       var cur = others[p.id];
-      var moved = !cur || cur.x !== p.x || cur.y !== p.y || cur.stamp !== p.t;
       others[p.id] = {
-        id: p.id, name: p.name || 'Player',
+        id: p.id, name: names[p.id] || p.name || 'Player',
         x: p.x, y: p.y, rot: p.rot || 0,
         mv: p.mv || 0, alive: p.alive !== false,
         lives: p.lives == null ? 3 : p.lives,
         k: p.k || 0, d: p.d || 0, spawn: p.sp || 0,
-        stamp: p.t, seen: moved ? t : cur.seen, t: t, hue: tintFor(p.id),
+        stamp: p.t, t: t, hue: tintFor(p.id),
         prev: cur ? { x: cur.x, y: cur.y, rot: cur.rot, t: cur.t } : null,
       };
       if (p.lastKilledBy && p.lastKilledBy.by === me.id) {
@@ -118,7 +164,7 @@
       }
     }
     for (var id in others) {
-      if (!seen[id] || now() - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id] || !names[id]) delete others[id];
     }
     if (onTook) onTook(allTook);
     if (onRoster) onRoster(roster());
@@ -160,13 +206,14 @@
   }
 
   function claimHit(targetId, targetSpawn) {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     pendingHits.push({ to: targetId, d: 1, n: ++seq, sp: targetSpawn });
     if (pendingHits.length > HIT_RING) pendingHits.shift();
     publish(true);
   }
 
   function noteShot(x, y, a) {
+    if (!PEOPLE) return;
     pendingShots.push({ x: r2(x), y: r2(y), a: r2(a), n: ++shotSeq });
     if (pendingShots.length > SHOT_RING) pendingShots.shift();
     publish(true);
@@ -180,13 +227,12 @@
   }
 
   function publish(force) {
-    if (!api || !me.id || !root.__TOSIOS_POSE__) return;
+    if (!api || !me.id || !PEOPLE || !root.__TOSIOS_POSE__) return;
     var t = now();
     if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
-    lastPublished = t;
     var p = root.__TOSIOS_POSE__();
     if (!p) return;
-    db('players').put({
+    var row = {
       id: me.id, name: me.name,
       x: r2(p.x), y: r2(p.y), rot: r2(p.rot),
       mv: r2(p.speed || 0),
@@ -195,14 +241,19 @@
       lastKilledBy: self.lastKilledBy,
       hits: pendingHits.slice(),
       shots: pendingShots.slice(),
-      took: self.took.slice(),
-      t: t,
-    }).catch(function () { /* a dropped frame of presence is not an error */ });
+      took: self.took.slice()
+    };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPublished = t;
+    row.t = t;
+    db('players').put(row).catch(function () { /* a dropped frame of presence is not an error */ });
     started = true;
   }
 
   function tick() {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     publish(false);
   }
 
@@ -220,10 +271,11 @@
   }
 
   function roster() {
+    var names = peopleNames();
     var list = [{ id: me.id, name: me.name, k: self.k, d: self.d, lives: self.lives, alive: self.alive, me: true }];
     for (var id in others) {
       list.push({
-        id: id, name: others[id].name, k: others[id].k, d: others[id].d,
+        id: id, name: names[id] || others[id].name, k: others[id].k, d: others[id].d,
         lives: others[id].lives, alive: others[id].alive, me: false,
       });
     }
@@ -238,6 +290,12 @@
     return 'rgb(' + ((m[0] * 255) | 0) + ',' + ((m[1] * 255) | 0) + ',' + ((m[2] * 255) | 0) + ')';
   }
 
+  function countOthers() {
+    var n = 0;
+    for (var k in others) n++;
+    return n;
+  }
+
   root.Net = {
     init: init,
     tick: tick,
@@ -249,8 +307,8 @@
     roster: roster,
     others: function () { return others; },
     me: function () { return me; },
-    count: function () { var n = 0; for (var k in others) n++; return n + 1; },
-    live: function () { return !!api && !!me.id; },
+    count: function () { return countOthers() + (me.id ? 1 : 0); },
+    live: function () { return PEOPLE && !!me.id; },
     tintFor: tintFor,
     hsv: hsv,
     appliedTotal: function () { return appliedTotal; },
@@ -260,4 +318,25 @@
     onShot: function (fn) { onShot = fn; },
     onTook: function (fn) { onTook = fn; },
   };
+
+  root['__tosios'] = {
+    state: function () { return null; },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'tosios-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);

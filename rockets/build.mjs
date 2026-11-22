@@ -110,8 +110,8 @@ if (manifest.capabilities.network) {
 if (manifest.capabilities.pointer) {
   throw new Error('do not declare pointer-lock — this is a stick / WASD game');
 }
-if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947');
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 5861) {
+  throw new Error('minBuild must be 5861');
 }
 if (!manifest.data || !manifest.data.prefs || manifest.data.prefs.visibility !== 'private') {
   throw new Error('manifest.data.prefs must be private');

@@ -2,14 +2,12 @@
  * Racer — netplay.
  *
  * There is no game server. Each player owns exactly one row in `players` and
- * only ever writes that row — position, speed, lap, finish time. The app
- * owner writes the `race` record (read-only for guests) to start a countdown.
+ * only ever writes that row — position, speed, lap, finish time. The app owner
+ * writes the `race` record (read-only for guests) to start a countdown.
  * The board is assembled by READING everyone else's row, never by writing it.
- * Who is here is gifos.people().
  *
- * A subscriber re-downloads the whole collection on every change, so publish
- * is 6 Hz with interpolation, not a high tick. Comfortable for a handful of
- * friends on a link; not a claim about competitive netcode.
+ * Who is here is gifos.people(). A subscriber re-downloads the whole collection
+ * on every change, so publish is 6 Hz with interpolation, only when pose changes.
  */
 (function (root) {
   'use strict';
@@ -28,12 +26,11 @@
   var raceRec = null;
   var myFinish = null;
   var myRaceAt = 0;
-  var acc = 0;
+  var lastPublished = 0;
   var lastPubSig = '';
   var onRace = null;
   var onRoster = null;
-  var isHost = false;
-  var started = false;
+  var owner = false;
 
   function db(n) {
     try { return api && api.db ? api.db(n) : null; } catch (e) { return null; }
@@ -47,6 +44,7 @@
   }
 
   function r2(n) { return Math.round(n * 100) / 100; }
+  function now() { return Date.now(); }
 
   function peopleNames() {
     var m = {}, i, p;
@@ -73,7 +71,7 @@
       var info = r[1] || {};
       var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
       roomPeople = ppl;
-      isHost = !!info.owner;
+      owner = !!info.owner;
       var mine = null, i;
       for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
       if (mine) { me.id = mine.id; me.name = mine.name || 'Driver'; }
@@ -89,40 +87,37 @@
   function init() {
     api = root.gifos;
     if (!api || !api.db) {
-      isHost = true;
       return Promise.resolve({ host: true, others: 0 });
     }
     if (!PEOPLE) {
-      isHost = true;
       return Promise.resolve({ host: true, others: 0 });
     }
     return readRoom().then(function () {
-      if (!me.id) return { host: isHost, others: 0 };
+      if (!me.id) return { host: owner, others: 0 };
       var p = db('players');
       var r = db('race');
       if (p) p.subscribe(function (list) { ingestPlayers(list || []); });
       if (r) r.subscribe(function (list) { ingestRace(list || []); });
       setInterval(readRoom, PEOPLE_MS);
-      return { host: isHost, others: Math.max(0, peopleCount() - 1) };
+      return { host: owner, others: Math.max(0, count() - 1) };
     }).catch(function () {
-      isHost = true;
       return { host: true, others: 0 };
     });
   }
 
   function ingestPlayers(list) {
-    var names = peopleNames(), seen = {}, i, p, cur;
-    for (i = 0; i < list.length; i++) {
-      p = list[i];
+    var t = now(), seen = {}, names = peopleNames();
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
       if (!p || !p.id || p.id === me.id) continue;
       if (!names[p.id]) continue;
       seen[p.id] = 1;
-      cur = others[p.id];
+      var cur = others[p.id];
       others[p.id] = {
         id: p.id, name: names[p.id] || p.name || 'Driver',
         x: p.x, z: p.z, spd: p.spd || 0,
         lap: p.lap || 0, fin: p.fin || 0, raceAt: p.raceAt || 0,
-        stamp: p.t, t: Date.now(), hue: tintFor(p.id),
+        stamp: p.t, t: t, hue: tintFor(p.id),
         prev: cur ? { x: cur.x, z: cur.z, spd: cur.spd, t: cur.t } : null
       };
     }
@@ -148,15 +143,12 @@
 
   function publish(st, force) {
     var p = db('players');
-    if (!p || !me.id || !PEOPLE) return;
-    var now = Date.now();
-    if (!force) {
-      acc += st && st.dt ? st.dt : 0;
-      if (acc < 1 / PUBLISH_HZ) return;
-      acc = 0;
-    }
+    if (!p || !me.id || !PEOPLE || !st) return;
+    var t = now();
+    if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
     var row = {
       id: me.id,
+      name: me.name,
       x: r2(st.x),
       z: Math.round(st.z),
       spd: Math.round(st.speed),
@@ -167,19 +159,22 @@
     var sig = JSON.stringify(row);
     if (!force && sig === lastPubSig) return;
     lastPubSig = sig;
-    row.t = now;
+    lastPublished = t;
+    row.t = t;
     p.put(row).catch(function () {});
   }
 
   function ghosts() {
     if (!root.Racer) return [];
-    var now = Date.now(), out = [], tl = (root.Racer.state().trackLength) || 1;
+    var t = now(), out = [], tl = (root.Racer.state().trackLength) || 1;
+    var names = peopleNames();
     for (var id in others) {
       var o = others[id];
+      if (!names[id]) continue;
       var x = o.x, z = o.z, spd = o.spd;
       if (o.prev) {
         var span = Math.max(1, o.t - o.prev.t);
-        var k = Math.min(1.4, (now - o.t) / span);
+        var k = Math.min(1.4, (t - o.t) / span);
         x = o.x + (o.x - o.prev.x) * k;
         var dz = o.z - o.prev.z;
         if (dz >  tl / 2) dz -= tl;
@@ -202,7 +197,9 @@
   }
 
   function count() {
-    return peopleCount() || (me.id ? 1 : 0);
+    var n = 0;
+    for (var id in others) n++;
+    return n + (me.id ? 1 : 0);
   }
 
   function roster() {
@@ -215,19 +212,20 @@
     if (st) list[0].lap = st.lap;
     for (var id in others) {
       var o = others[id];
-      list.push({ id: o.id, name: names[o.id] || o.name, mine: false, fin: o.fin || 0, lap: o.lap || 0, raceAt: o.raceAt || 0 });
+      if (!names[id]) continue;
+      list.push({ id: o.id, name: o.name, mine: false, fin: o.fin || 0, lap: o.lap || 0, raceAt: o.raceAt || 0 });
     }
     return list;
   }
 
   function startRace() {
-    if (!isHost) return Promise.resolve(false);
+    if (!PEOPLE || !owner) return Promise.resolve(false);
     var r = db('race');
-    var startedAt = Date.now() + COUNTDOWN_MS;
+    var startedAt = now() + COUNTDOWN_MS;
     myFinish = null;
     myRaceAt = startedAt;
     var rec = { id: 'race', startedAt: startedAt, by: me.name, byId: me.id, nLaps: 1 };
-    if (!r || !PEOPLE) {
+    if (!r) {
       raceRec = rec;
       if (onRace) onRace(raceState());
       return Promise.resolve(true);
@@ -240,16 +238,15 @@
     if (myFinish) return;
     myFinish = Math.round(ms);
     var st = root.Racer ? root.Racer.state() : { x: 0, z: 0, speed: 0, lap: 1 };
-    st.dt = 1;
     publish(st, true);
     if (onRoster) onRoster(roster());
   }
 
   function raceState() {
     if (!raceRec || !raceRec.startedAt) return null;
-    var now = Date.now();
-    var countdown = Math.max(0, raceRec.startedAt - now);
-    var elapsed = Math.max(0, now - raceRec.startedAt);
+    var t = now();
+    var countdown = Math.max(0, raceRec.startedAt - t);
+    var elapsed = Math.max(0, t - raceRec.startedAt);
     var board = [];
     var people = roster();
     for (var i = 0; i < people.length; i++) {
@@ -278,7 +275,7 @@
     startRace: startRace,
     markFinished: markFinished,
     raceState: raceState,
-    isHost: function () { return isHost; },
+    isHost: function () { return owner; },
     me: function () { return me; },
     onRace: function (cb) { onRace = cb; },
     onRoster: function (cb) { onRoster = cb; }
@@ -286,16 +283,16 @@
 
   root['__racer'] = {
     state: function () {
-      if (!raceRec) return PEOPLE && me.id ? { startedAt: 0 } : null;
-      return { startedAt: raceRec.startedAt | 0, nLaps: raceRec.nLaps | 0 };
+      return raceRec && raceRec.startedAt ? { startedAt: raceRec.startedAt | 0 } : null;
     },
     people: function () {
       var names = peopleNames(), out = [], id;
-      for (id in names) out.push(id);
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
       return out;
     },
     amHost: function () {
-      return PEOPLE && isHost && peopleCount() > 1;
+      return PEOPLE && owner && peopleCount() > 1;
     }
   };
 

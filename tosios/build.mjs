@@ -69,8 +69,8 @@ if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capa
 if (manifest.capabilities.network) {
   throw new Error('TOSIOS has no network path. Colyseus/Docker/Node stay behind.');
 }
-if (manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947 — this app needs nothing newer than the store.');
+if (manifest.minBuild !== 5861) {
+  throw new Error('minBuild must be 5861 — this app needs nothing newer than the store.');
 }
 for (const [n, s] of Object.entries(files)) {
   if (!n.endsWith('.js')) continue;

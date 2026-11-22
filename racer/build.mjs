@@ -43,6 +43,8 @@ const readBin = (p) => readFileSync(join(dir, p));
 
 const manifest = JSON.parse(read('manifest.json'));
 
+if (manifest.minBuild !== 5861) throw new Error('minBuild must be 5861 — gifos.people');
+
 for (const need of ['vendor/common.js', 'images/sprites.png', 'images/background.png', 'index.html']) {
   if (!existsSync(join(dir, need))) throw new Error(need + ' is missing');
 }
