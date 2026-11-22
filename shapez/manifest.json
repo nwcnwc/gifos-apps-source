@@ -3,8 +3,8 @@
   "appId": "shapez",
   "name": "shapez.io",
   "shortName": "shapez",
-  "version": "1.0.0",
-  "minBuild": 947,
+  "version": "1.0.1",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [102, 167, 255],
   "capabilities": {

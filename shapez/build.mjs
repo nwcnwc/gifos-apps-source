@@ -47,7 +47,7 @@ assert(read('help.md').trim().length >= 400, 'help.md is too short');
 
 assert(manifest.gifos === '1.0', 'manifest.gifos');
 assert(manifest.appId === 'shapez', 'manifest.appId');
-assert(manifest.minBuild === 947, 'minBuild must be 947');
+assert(manifest.minBuild === 5861, 'minBuild must be 5861');
 assert(manifest.capabilities && manifest.capabilities.db === true, 'capabilities.db');
 assert(manifest.capabilities.multiplayer === true, 'capabilities.multiplayer');
 assert(!manifest.capabilities.network, 'no network');

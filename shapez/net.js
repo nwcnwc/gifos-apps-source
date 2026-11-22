@@ -1,33 +1,39 @@
 /*
  * Co-op factory. Each builder writes only their own cursor row. Buildings
- * live in `cells` (read-write). The host writes hub progress on `world`
+ * live in `cells` (read-write). The app owner writes hub progress on `world`
  * and a compact item snapshot on `flow` so guests see the same belts.
- *
- * Invite is OS chrome — this file never draws that button.
+ * Who is here is gifos.people(). Invite is OS chrome — this file never
+ * draws that button.
  */
 (function (root) {
   'use strict';
 
-  var PUB_MS = 140;
   var FLOW_MS = 180;
   var CUR_MS = 120;
-  var STALE_MS = 9000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Shapez needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
 
   var api = null;
   var me = { id: null, name: 'You' };
   var owner = true;
   var simHost = true;
   var others = {};
-  var lastCellPut = 0;
+  var roomPeople = [];
+  var roomKey = '';
   var lastFlow = 0;
   var lastCur = 0;
   var lastWorld = 0;
+  var lastWorldSig = '';
+  var lastFlowSig = '';
+  var lastCurSig = '';
   var onRoster = null;
   var game = null;
   var applying = false;
   var worldLoaded = false;
   var pendingPuts = {};
   var pendingDels = {};
+  var worldSeq = 0;
 
   function db(n) { return api.db(n); }
   function now() { return Date.now(); }
@@ -39,21 +45,72 @@
     return 'hsl(' + (h % 360) + ', 70%, 48%)';
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'friend';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      simHost = owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        paintRoster();
+      }
+    }, function () {});
+  }
+
+  function paintRoster() {
+    var names = peopleNames();
+    var roster = [{ id: me.id, name: me.name, me: true }];
+    var id;
+    for (id in others) {
+      roster.push({
+        id: id,
+        name: names[id] || others[id].name,
+        me: false,
+        x: others[id].x, y: others[id].y,
+        color: others[id].color
+      });
+    }
+    if (root.SZUI) {
+      root.SZUI.setCursors(roster);
+      root.SZUI.paintRoster(roster);
+    }
+    if (onRoster) onRoster(roster);
+  }
+
   function init(g) {
     game = g;
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
-    var infoP = api.info ? api.info().then(function (i) {
-      owner = !!(i && i.owner);
-      simHost = owner;
-      return owner;
-    }).catch(function () { owner = true; simHost = true; return true; }) : Promise.resolve(true);
-
-    return infoP.then(function () {
-      return api.me();
-    }).then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'You';
+    if (!PEOPLE) return Promise.resolve({ owner: true, others: 0 });
+    return readRoom().then(function () {
+      if (!me.id) return { owner: owner, others: 0 };
       var settled = false;
       return new Promise(function (resolve) {
         var done = function () {
@@ -75,6 +132,7 @@
         db('cursors').subscribe(function (list) {
           ingestCursors(list || []);
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () {
       return { owner: true, others: 0 };
@@ -115,6 +173,7 @@
       if (list[i] && list[i].id === 'world') rec = list[i];
     }
     if (!rec || !game) return;
+    worldSeq = rec.t | 0;
     if (simHost && worldLoaded) return;
     worldLoaded = true;
     if (rec.level != null) game.level = rec.level | 0;
@@ -136,33 +195,27 @@
   }
 
   function ingestCursors(list) {
-    var t = now(), seen = {}, i, p;
+    var names = peopleNames(), seen = {}, i, p;
     for (i = 0; i < (list || []).length; i++) {
       p = list[i];
       if (!p || !p.id || p.id === me.id) continue;
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
       others[p.id] = {
         id: p.id,
-        name: p.name || 'friend',
+        name: names[p.id] || p.name || 'friend',
         x: p.x, y: p.y,
-        color: tint(p.id),
-        seen: t
+        color: tint(p.id)
       };
     }
     for (i in others) {
-      if (!seen[i] || t - others[i].seen > STALE_MS) delete others[i];
+      if (!seen[i] || !names[i]) delete others[i];
     }
-    var roster = [{ id: me.id, name: me.name, me: true }];
-    for (i in others) roster.push(others[i]);
-    if (root.SZUI) {
-      root.SZUI.setCursors(roster);
-      root.SZUI.paintRoster(roster);
-    }
-    if (onRoster) onRoster(roster);
+    paintRoster();
   }
 
   function putCell(x, y, kind, rot) {
-    if (!api || !me.id || applying) return;
+    if (!api || !me.id || !PEOPLE || applying) return;
     var rec = { id: x + ',' + y, k: kind, r: rot & 3, by: me.id, t: now() };
     pendingPuts[rec.id] = rec;
     delete pendingDels[rec.id];
@@ -170,7 +223,7 @@
   }
 
   function delCell(x, y) {
-    if (!api || !me.id || applying) return;
+    if (!api || !me.id || !PEOPLE || applying) return;
     var id = x + ',' + y;
     pendingDels[id] = now();
     delete pendingPuts[id];
@@ -178,46 +231,58 @@
   }
 
   function publishWorld(force) {
-    if (!api || !me.id || !simHost || !game) return;
+    if (!api || !me.id || !simHost || !PEOPLE || !game) return;
     var t = now();
     if (!force && t - lastWorld < 400) return;
-    lastWorld = t;
-    db('world').put({
+    var row = {
       id: 'world',
       by: me.id,
       seed: game.seed,
       level: game.level,
-      delivered: game.delivered,
-      t: t
-    }).catch(function () {});
+      delivered: game.delivered
+    };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastWorldSig) return;
+    lastWorldSig = sig;
+    lastWorld = t;
+    row.t = t;
+    worldSeq = t;
+    db('world').put(row).catch(function () {});
   }
 
   function publishFlow(force) {
-    if (!api || !me.id || !simHost || !game) return;
+    if (!api || !me.id || !simHost || !PEOPLE || !game) return;
     var t = now();
     if (!force && t - lastFlow < FLOW_MS) return;
+    var items = game.exportItems();
+    var sig = JSON.stringify(items);
+    if (!force && sig === lastFlowSig) return;
+    lastFlowSig = sig;
     lastFlow = t;
     db('flow').put({
       id: 'flow',
-      items: game.exportItems(),
+      items: items,
       t: t
     }).catch(function () {});
   }
 
   function publishCursor(hover, force) {
-    if (!api || !me.id || !hover) return;
+    if (!api || !me.id || !PEOPLE || !hover) return;
     var t = now();
     if (!force && t - lastCur < CUR_MS) return;
+    var row = {
+      id: me.id,
+      x: hover.x, y: hover.y, tool: game ? game.tool : ''
+    };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastCurSig) return;
+    lastCurSig = sig;
     lastCur = t;
-    db('cursors').put({
-      id: me.id, name: me.name,
-      x: hover.x, y: hover.y, tool: game ? game.tool : '',
-      t: t
-    }).catch(function () {});
+    db('cursors').put(row).catch(function () {});
   }
 
   function tick(hover) {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     if (simHost) {
       if (game && game.dirty) {
         game.dirty = false;
@@ -235,7 +300,7 @@
     if (game) {
       list = game.exportCells();
       game.reset();
-      if (api && me.id) {
+      if (api && me.id && PEOPLE) {
         for (i = 0; i < list.length; i++) {
           xy = String(list[i].id).split(',');
           delCell(+xy[0], +xy[1]);
@@ -262,8 +327,32 @@
     me: function () { return me; },
     owner: function () { return owner; },
     simHost: function () { return simHost; },
-    live: function () { return !!api && !!me.id; },
+    live: function () { return PEOPLE && !!me.id; },
     others: function () { return others; },
     onRoster: function (fn) { onRoster = fn; }
   };
+
+  root['__shapez'] = {
+    state: function () {
+      if (!PEOPLE) return null;
+      if (game) return { level: game.level | 0, delivered: game.delivered | 0, seed: game.seed || '' };
+      return worldSeq ? { t: worldSeq | 0 } : null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'shapez-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
