@@ -89,7 +89,8 @@
   }
 
   function publishState(force) {
-    if (!isOwner || applying) return;
+    // No shared fire without gifos.people — solo save stays on the private collection.
+    if (!PEOPLE || !isOwner || applying) return;
     var fire = db('fire');
     if (!fire) return;
     var t = now();
