@@ -25,7 +25,10 @@ build.mjs           packs the GIF into site/apps/gomoku/gomoku.gif
 - **Play a friend** — send the invite (top bar; that button is OS chrome).
   Black and white seats, turns, who is here and who waits all come from
   `gifos.room` (manifest `room`); the mover writes the whole next board with
-  `gifos.room.move`. No undo on a shared board. On a GifOS older than build
+  `gifos.room.move`. Undo is a request the
+  other player accepts (plain data in `gomoku-aux`); the turn holder then removes
+  the stone with a room move. If the other seat empties mid-game the player left
+  wins (the board remembers who sat where). On a GifOS older than build
   5861 the app says it needs a newer GifOS and writes nothing.
 
 A game in progress auto-saves in the icon.

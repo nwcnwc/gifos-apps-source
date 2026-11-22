@@ -487,10 +487,13 @@
   var NEEDS_NEWER = 'Gomoku needs a newer GifOS to play together. Reload the page to update.';
   var mpDb = null;
   try { if (window.gifos) mpDb = gifos.db('gomoku-mp'); } catch (e) {}
-  var mp = { on: false, rs: null, board: null, hover: null, auto: false, note: '' };
+  var mp = { on: false, rs: null, board: null, hover: null, auto: false, note: '', undo: null, end: null, undone: -1, ended: -1 };
+  // Plain app data beside the board: the undo request ('undo') and the verdict when the opponent left ('end').
+  var auxDb = null;
+  try { if (window.gifos) auxDb = gifos.db('gomoku-aux'); } catch (e) {}
 
   function freshBoard() {
-    return { id: 'board', stones: [], winner: null, result: '', last: null, seq: 0 };
+    return { id: 'board', stones: [], winner: null, result: '', last: null, seq: 0, by: {} };
   }
   function curBoard() { return mp.board || freshBoard(); }
   function mySeat() { return mp.rs && mp.rs.me ? mp.rs.me.seat : null; }
@@ -500,14 +503,43 @@
     return { seat: name, id: null, name: '', here: 'open' };
   }
   // The room says whose turn it is. Alone, one person plays every open seat.
-  function mpCanPlay() {
+  function mpCanMove() {
     var rs = mp.rs;
-    if (!ROOM || !rs || !rs.me || !mySeat() || curBoard().winner) return false;
+    if (!ROOM || !rs || !rs.me || !mySeat()) return false;
     if (!rs.live) return seatRow(rs.turn).here !== 'away';
     return !!rs.myTurn;
   }
+  function mpCanPlay() { return mpCanMove() && !outcome().winner; }
+  function otherSeat(name) { return name === 'black' ? 'white' : 'black'; }
+  // Win on leave: the room says a seat is open, and the board remembers who sat there (`by`, written with each move).
+  // Whoever is left in the other seat wins; they also save the verdict so it holds if somebody new sits down.
+  function leaveWinner(b) {
+    var rs = mp.rs;
+    if (!ROOM || !rs || !(b.stones || []).length || b.winner || !b.by) return null;
+    var names = ['black', 'white'], i;
+    for (i = 0; i < 2; i++) {
+      var gone = seatRow(names[i]), stay = seatRow(names[1 - i]);
+      if (gone.here === 'open' && b.by[names[i]] && stay.id && stay.here === 'here' && b.by[names[1 - i]] === stay.id) return names[1 - i];
+    }
+    return null;
+  }
+  // The result of this round: the board's own, else the saved leave verdict, else a leave seen right now.
+  function outcome() {
+    var b = curBoard(), e = mp.end;
+    if (b.winner) return { winner: b.winner, result: b.result || '' };
+    if (e && mp.rs && e.round === mp.rs.round && e.seq === (b.seq || 0)) return { winner: e.winner, result: 'Opponent left' };
+    var w = leaveWinner(b);
+    return w ? { winner: w, result: 'Opponent left' } : { winner: null, result: '' };
+  }
+  function seatedBy(b) {
+    var by = {}, k;
+    for (k in (b.by || {})) by[k] = b.by[k];
+    ['black', 'white'].forEach(function (n) { var r = seatRow(n); if (r.id) by[n] = r.id; });
+    return by;
+  }
   function mpSay(e) {
     mp.note = e && e.message ? e.message : '';
+    mp.undone = -1;
     mpRender();
   }
   function boardToState(b) {
@@ -551,7 +583,7 @@
     if (!ns) return false;
     var nb = {
       id: 'board', stones: (b.stones || []).concat([{ r: r, c: c, color: mp.rs.turn }]), winner: null, result: '',
-      last: { r: r, c: c }, seq: (b.seq || 0) + 1
+      last: { r: r, c: c }, seq: (b.seq || 0) + 1, by: seatedBy(b)
     };
     if (ns.winner === -1) { nb.winner = 'draw'; nb.result = 'Draw'; }
     else if (ns.winner) { nb.winner = G.colorName(ns.winner); nb.result = 'Five in a row'; }
@@ -563,17 +595,66 @@
     var prev = mp.board, b = curBoard();
     mpSend(prev, {
       id: 'board', stones: b.stones, winner: mp.rs.turn === 'black' ? 'white' : 'black', result: 'Resigned',
-      last: null, seq: (b.seq || 0) + 1
+      last: null, seq: (b.seq || 0) + 1, by: seatedBy(b)
     });
   };
+  // Undo takes back the last stone and gives the turn back to whoever played it. The other player must say yes
+  // (alone, or with the other seat empty, it is at once). The yes is plain data; the move that removes the stone
+  // is made by whoever holds the turn, so the room's turn order stays whole.
+  function undoRec() {
+    var u = mp.undo, b = curBoard();
+    return u && mp.rs && u.round === mp.rs.round && u.seq === (b.seq || 0) ? u : null;
+  }
+  function undoOk() {
+    var b = curBoard();
+    return !!(ROOM && mySeat() && (b.stones || []).length && b.result !== 'Resigned' && outcome().result !== 'Opponent left');
+  }
+  function undoApply() {
+    var b = curBoard(), seq = b.seq || 0;
+    if (!undoOk() || !mpCanMove() || mp.undone === seq) return;
+    mp.undone = seq;
+    var stones = (b.stones || []).slice(0, -1), prev = mp.board;
+    var tmp = boardToState({ stones: stones });
+    mpSend(prev, {
+      id: 'board', stones: stones, winner: null, result: '', last: tmp.last ? { r: tmp.last.r, c: tmp.last.c } : null,
+      seq: seq + 1, by: seatedBy(b)
+    });
+  }
+  function undoPut(state) {
+    if (!auxDb) return Promise.resolve();
+    var u = undoRec(), b = curBoard();
+    return auxDb.put({ id: 'undo', round: mp.rs.round, seq: b.seq || 0, by: u ? u.by : mp.rs.me.id, state: state }).catch(mpSay);
+  }
+  $('fUndo').onclick = function () {
+    mp.note = '';
+    if (!undoOk()) return;
+    var u = undoRec(), other = seatRow(otherSeat(mySeat()));
+    if (!other.id) { undoApply(); return; }   // nobody else is seated: at once
+    if (u && u.state === 'ask' && u.by !== mp.rs.me.id) { undoPut('ok').then(undoApply); return; }
+    if (u && u.state === 'ask') return;       // already asked, waiting for the answer
+    undoPut('ask').then(function () { mp.note = ''; mpRender(); });
+    mp.undo = { id: 'undo', round: mp.rs.round, seq: curBoard().seq || 0, by: mp.rs.me.id, state: 'ask' };
+    mpRender();
+  };
+  $('fUndoNo').onclick = function () {
+    var u = undoRec();
+    if (u && u.state === 'ask' && u.by !== mp.rs.me.id) undoPut('no');
+  };
+  // The leaving player's seat is open and the board says who sat there: the one left is the winner; keep it.
+  function saveLeave() {
+    var b = curBoard(), w = leaveWinner(b);
+    if (!w || !auxDb || mp.ended === (b.seq || 0) || seatRow(w).id !== mp.rs.me.id) return;
+    mp.ended = b.seq || 0;
+    auxDb.put({ id: 'end', round: mp.rs.round, seq: b.seq || 0, winner: w }).catch(function () {});
+  }
   // A finished game: anyone seated may start the next one (black goes first).
   $('fNew').onclick = function () {
-    if (!ROOM || !mySeat() || !curBoard().winner) return;
+    if (!ROOM || !mySeat() || !outcome().winner) return;
     gifos.room.newRound('gomoku-mp', freshBoard(), { first: 'black' }).catch(mpSay);
   };
 
   function seatHtml(name) {
-    var row = seatRow(name), b = curBoard();
+    var row = seatRow(name), b = { winner: outcome().winner };
     var who = row.id ? esc(row.name || 'Player') + (row.here === 'away' ? ' …' : '') : '<span class="open">open</span>';
     return '<div class="seat' + (mySeat() === name ? ' me' : '') + (mp.rs && mp.rs.turn === name && !b.winner ? ' turn' : '') +
       (b.winner === name ? ' win' : '') + '"><i class="stone ' + name + '" aria-hidden="true"></i> ' + who + '</div>';
@@ -583,10 +664,11 @@
     if (!ROOM) return [NEEDS_NEWER, 'warn'];
     if (!rs) return ['Setting up the board…', ''];
     var role = rs.me.role;
-    if (b.winner === 'draw') return [(b.result || 'Draw') + '.', ''];
-    if (b.winner) {
-      var w = seatRow(b.winner);
-      return [(b.result ? b.result + ' — ' : '') + (w.id && w.name ? w.name : b.winner) + ' wins.', mySeat() === b.winner ? 'good' : ''];
+    var oc = outcome();
+    if (oc.winner === 'draw') return [(oc.result || 'Draw') + '.', ''];
+    if (oc.winner) {
+      var w = seatRow(oc.winner);
+      return [(oc.result ? oc.result + ' — ' : '') + (w.id && w.name ? w.name : oc.winner) + ' wins.', mySeat() === oc.winner ? 'good' : ''];
     }
     if (role === 'waiting') return ['Waiting for a seat to open…', ''];
     if (role === 'asking') return ['Asking the host if you can play…', ''];
@@ -635,7 +717,16 @@
       wrap.children[r * G.N + c].setAttribute('aria-disabled', off ? 'true' : 'false');
     }
     $('fResign').hidden = !(can && (b.stones || []).length);
-    $('fNew').hidden = !(ROOM && mySeat() && b.winner);
+    $('fNew').hidden = !(ROOM && mySeat() && outcome().winner);
+    var u = undoRec(), incoming = !!(u && u.state === 'ask' && rs && rs.me && u.by !== rs.me.id && undoOk());
+    var mineAsked = !!(u && u.state === 'ask' && rs && rs.me && u.by === rs.me.id);
+    $('fUndo').hidden = !undoOk();
+    $('fUndo').textContent = incoming ? 'Accept undo' : (mineAsked ? 'Undo asked…' : 'Undo');
+    $('fUndo').disabled = mineAsked;
+    $('fUndoNo').hidden = !incoming;
+    if (u && u.state === 'no' && rs && rs.me && u.by === rs.me.id && !mp.note) setStatus($('fStatus'), 'Undo declined.', '');
+    else if (incoming && !mp.note) setStatus($('fStatus'), 'Your opponent asks to take back the last move.', '');
+    if (rs) { saveLeave(); if (u && u.state === 'ok' && u.by === rs.me.id) undoApply(); }
   }
 
   (function buildCells() {
@@ -655,7 +746,7 @@
   // The game only, so the checks and a tester can compare copies.
   window['__gomoku'] = { state: function () {
     var b = mp.board;
-    return { stones: b && b.stones ? b.stones.map(function (m) { return m.r + ',' + m.c; }).join(';') : '', winner: b ? b.winner : null };
+    return { stones: b && b.stones ? b.stones.map(function (m) { return m.r + ',' + m.c; }).join(';') : '', winner: outcome().winner };
   } };
 
   window.addEventListener('resize', function () {
@@ -668,6 +759,15 @@
     else if (!$('game').hidden) { killAi(); $('game').hidden = true; $('setup').hidden = false; setChip('ready', 'Ready'); }
   });
 
+  if (auxDb) auxDb.subscribe(function (items) {
+    var u = null, e = null, i;
+    for (i = 0; i < (items || []).length; i++) {
+      if (items[i] && items[i].id === 'undo') u = items[i];
+      if (items[i] && items[i].id === 'end') e = items[i];
+    }
+    mp.undo = u; mp.end = e;
+    mpRender();
+  });
   // The board arrives as data; the room's word arrives from gifos.room.
   if (mpDb) mpDb.subscribe(function (items) {
     var b = null, i;
