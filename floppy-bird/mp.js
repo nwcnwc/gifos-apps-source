@@ -4,17 +4,26 @@
  * Upstream is a solo tap-flap game with Math.random pipes and a cookie
  * highscore. Everything multiplayer is here: a shared pipe seed, each bird
  * publishing y + alive + distance on its own row, ghosts of the others, and
- * a farthest-wins race. Nobody writes anybody else's row. The OS draws the
+ * a farthest-wins race. Nobody writes anybody else's row. Who is here is
+ * gifos.people(); the app owner hosts the pipe seed. The OS draws the
  * share control; we never do. Solo is the original game.
  *
  * A subscriber re-downloads the whole collection on every change, so we
- * publish slowly (~8 Hz) with small numbers.
+ * publish slowly (~8 Hz) with small numbers, and only while flying (or on
+ * start / crash / splash) — never as an idle keep-alive.
  */
 (function (root) {
   'use strict';
 
+  var NEEDS_NEWER = 'Floppy Bird needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var roomRead = false;
+
   var PUBLISH_HZ = 8;
-  var STALE_MS = 8000;
   var SCROLL = 1000 / 7500; // px/ms — matches vendor/main.css animPipe
 
   var api = null;
@@ -28,6 +37,8 @@
   var prefsDb = null;
   var roomDb = null;
   var savedHigh = 0;
+  var peopleTimer = 0;
+  var lastList = [];
 
   if (root.FLOPPY_ASSETS && root.FLOPPY_ASSETS['assets/replay.png']) {
     var replayImg = document.getElementById('replayimg');
@@ -71,24 +82,51 @@
     return h % 360;
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+
   function resetPipes(seed) {
     pipeSeed = (seed >>> 0) || 1;
     pipeRng = mulberry32(pipeSeed);
   }
 
   function hostSeed() {
-    var rows = [{ id: me.id || 'local', seed: pipeSeed }];
+    var names = peopleNames();
+    var rows = [];
+    if (me.id && names[me.id]) rows.push({ id: me.id, seed: pipeSeed });
     var id;
     for (id in others) {
-      if (others[id].seed) rows.push({ id: id, seed: others[id].seed });
+      if (others[id].seed && names[id]) rows.push({ id: id, seed: others[id].seed });
+    }
+    if (!rows.length) return (pipeSeed >>> 0) || 1;
+    if (owner && me.id) {
+      for (var i = 0; i < rows.length; i++) if (rows[i].id === me.id) return rows[i].seed >>> 0;
     }
     rows.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
     return (rows[0].seed >>> 0) || 1;
   }
 
   function pickSeed() {
+    if (owner) return (pipeSeed >>> 0) || 1;
     var id, live = null;
+    var names = peopleNames();
     for (id in others) {
+      if (!names[id]) continue;
       if (others[id].alive && others[id].seed) {
         if (!live || id < live.id) live = others[id];
       }
@@ -127,7 +165,8 @@
   }
 
   function publish(force) {
-    if (!roomDb || !me.id) return;
+    if (!PEOPLE || !roomDb || !me.id) return;
+    if (peopleCount() < 2 && !force) return;
     var now = Date.now();
     if (!force && now - lastPublished < 1000 / PUBLISH_HZ) return;
     lastPublished = now;
@@ -135,43 +174,40 @@
     var dist = myDistance();
     var rec = {
       id: me.id,
-      name: me.name,
       y: Math.round(y),
       alive: myAlive(),
       distance: Math.round(dist),
       score: (typeof score === 'number') ? score : 0,
-      seed: pipeSeed,
-      t: now
+      seed: pipeSeed
     };
     try { roomDb.put(rec).catch(function () {}); } catch (e) {}
   }
 
   function ingest(list) {
-    var now = Date.now();
+    lastList = list || [];
+    var names = peopleNames();
     var seen = {};
-    for (var i = 0; i < list.length; i++) {
-      var p = list[i];
+    for (var i = 0; i < lastList.length; i++) {
+      var p = lastList[i];
       if (!p || !p.id || p.id === me.id) continue;
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) continue;
       seen[p.id] = 1;
       var cur = others[p.id];
-      var moved = !cur || cur.y !== p.y || cur.distance !== p.distance || cur.stamp !== p.t || cur.alive !== !!p.alive;
       others[p.id] = {
         id: p.id,
-        name: p.name || 'Player',
+        name: names[p.id] || 'Player',
         y: p.y == null ? 180 : p.y,
         alive: !!p.alive,
         distance: p.distance || 0,
         score: p.score || 0,
         seed: p.seed || 0,
-        stamp: p.t,
-        seen: moved ? now : (cur ? cur.seen : now),
         hue: cur && cur.hue != null ? cur.hue : tintFor(p.id),
         gx: cur && cur.gx != null ? cur.gx : null,
         gy: cur && cur.gy != null ? cur.gy : null
       };
     }
     for (var id in others) {
-      if (!seen[id] || now - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id]) delete others[id];
     }
     if (!myAlive()) {
       var hs = hostSeed();
@@ -227,14 +263,18 @@
   }
 
   function roster() {
-    var rows = [{
-      id: me.id || 'local',
-      name: me.name || 'You',
-      mine: true,
-      alive: myAlive(),
-      distance: myDistance(),
-      score: (typeof score === 'number') ? score : 0
-    }];
+    var names = peopleNames();
+    var rows = [];
+    if (me.id && names[me.id]) {
+      rows.push({
+        id: me.id,
+        name: names[me.id] || me.name || 'You',
+        mine: true,
+        alive: myAlive(),
+        distance: myDistance(),
+        score: (typeof score === 'number') ? score : 0
+      });
+    }
     for (var id in others) {
       var o = others[id];
       rows.push({
@@ -362,7 +402,8 @@
   var _gameloop = root.gameloop;
   root.gameloop = function () {
     _gameloop();
-    publish(false);
+    // Live position only while flying — never idle keep-alive (K3).
+    if (myAlive()) publish(false);
     paintGhosts();
     if (document.body.classList.contains('racing')) paintHud();
   };
@@ -403,23 +444,53 @@
   if (root.$) $(syncFly);
   root.addEventListener('resize', syncFly);
 
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      var wasOwner = owner;
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Player'; }
+      if (!wasOwner && owner && roomRead && peopleCount() > 1) {
+        // New owner hosts the pipe seed after hand-off (P2).
+        if (pipeSeed === 1) pipeSeed = (Date.now() ^ hashId(me.id)) >>> 0 || 1;
+        publish(true);
+      }
+      if (key !== roomKey) {
+        roomKey = key;
+        ingest(lastList);
+      }
+    }, function () {});
+  }
+
   function initNet() {
     api = root.gifos || null;
     if (!api || !api.db) return;
     loadPrefs();
+    if (!PEOPLE) return;
     try { roomDb = api.db('room'); } catch (e) { return; }
     var settled = false;
     function go() {
       if (settled) return;
       settled = true;
     }
-    api.me().then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'Player';
+    readRoom().then(function () {
+      if (!me.id) me.id = 'local';
       if (pipeSeed === 1) pipeSeed = (Date.now() ^ hashId(me.id)) >>> 0 || 1;
       go();
       roomDb.subscribe(function (list) { ingest(list || []); });
-      publish(true);
+      if (peopleTimer) clearInterval(peopleTimer);
+      peopleTimer = setInterval(readRoom, PEOPLE_MS);
+      if (peopleCount() > 1) publish(true);
     }).catch(function () {
       me.id = 'local';
       go();
@@ -427,5 +498,25 @@
     setTimeout(go, 2500);
   }
 
+  root['__floppy-bird'] = {
+    state: function () {
+      // Shared course seed only — live y/distance race (K8).
+      return PEOPLE && me.id ? { seed: pipeSeed >>> 0 } : null;
+    },
+    people: function () {
+      return roster().map(function (r) { return r.id; });
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
   initNet();
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'fb-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
