@@ -7,13 +7,19 @@
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
   var WORLD_HZ = 10;
-  var HB_MS = 400;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Matter Sandbox needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
 
   var api = null;
   var me = { id: null, name: 'You' };
-  var owner = true;
+  var owner = false;
+  var roomPeople = [];
+  var roomKey = '';
+  var roomRead = false;
+  var lastWorldSig = '';
+  var worldSeq = 0;
   var others = {};
   var lastWorld = 0;
   var lastPub = 0;
@@ -23,7 +29,6 @@
   var drag = null;
   var cursor = { x: 400, y: 300 };
   var onRoster = null;
-  var seenAt = {};
   var lastList = [];
   var roomy = false;
 
@@ -36,14 +41,27 @@
     return 'hsl(' + (h % 360) + ', 70%, 64%)';
   }
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id) return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      if (t - seenAt[p.id].seen > STALE_MS) return;
+      if (!names[p.id]) return;
       out.push(p);
     });
     return out;
@@ -93,9 +111,10 @@
 
   function ingestPlayers(list) {
     lastList = list || [];
-    var t = now();
-    var players = live(lastList, t);
+    var players = live(lastList);
+    var names = peopleNames();
     var seen = {};
+    var prev = others;
     others = {};
     for (var i = 0; i < players.length; i++) {
       var p = players[i];
@@ -103,15 +122,15 @@
       seen[p.id] = 1;
       others[p.id] = {
         id: p.id,
-        name: p.name || 'Friend',
+        name: names[p.id] || p.name || 'Friend',
         color: tintFor(p.id),
         x: p.px, y: p.py,
         tool: p.tool
       };
       honor(p);
     }
-    for (var id in seenAt) {
-      if (!seen[id] && id !== me.id) root.MSPhysics.setRemoteDrag(id, null);
+    for (var id in prev) {
+      if (!seen[id]) root.MSPhysics.setRemoteDrag(id, null);
     }
     if (onRoster) onRoster(roster());
     pushCursors();
@@ -131,11 +150,9 @@
   function snapshot() {
     var row = {
       id: me.id,
-      name: me.name,
       tool: root.MSUI ? root.MSUI.tool() : 'grab',
       px: Math.round(cursor.x),
-      py: Math.round(cursor.y),
-      at: now()
+      py: Math.round(cursor.y)
     };
     if (pending) row.cmd = pending;
     if (drag) row.drag = drag;
@@ -143,24 +160,29 @@
   }
 
   function publishPlayer(force) {
-    if (!api || !me.id) return;
-    var t = now();
-    if (!force && t - lastPub < HB_MS) return;
-    lastPub = t;
+    if (!PEOPLE || !api || !me.id) return;
+    // Only write on force (a real action) — no idle cursor heartbeat (K3).
+    if (!force) return;
+    lastPub = now();
     db('players').put(snapshot()).catch(function () {});
   }
 
   function publishWorld(force) {
-    if (!api || !me.id || !owner) return;
+    if (!PEOPLE || !api || !me.id || !owner) return;
     if (!roomy && !force) return;
     var t = now();
     if (!force && t - lastWorld < 1000 / WORLD_HZ) return;
+    var scene = root.MSPhysics.exportScene();
+    var sig = JSON.stringify(scene);
+    if (!force && sig === lastWorldSig) return;
+    lastWorldSig = sig;
     lastWorld = t;
+    worldSeq = (worldSeq | 0) + 1;
     db('world').put({
       id: 'world',
       by: me.id,
-      scene: root.MSPhysics.exportScene(),
-      t: t
+      scene: scene,
+      seq: worldSeq
     }).catch(function () {});
   }
 
@@ -191,38 +213,54 @@
     publishPlayer(true);
   }
 
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        roomy = peopleCount() > 1 || !owner;
+      }
+    }, function () {});
+  }
+
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
-    var infoP = api.info ? api.info().then(function (i) {
-      owner = !!(i && i.owner);
-      return owner;
-    }).catch(function () { owner = true; return true; }) : Promise.resolve(true);
-
-    return infoP.then(function () {
-      return api.me();
-    }).then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'You';
+    if (!PEOPLE) return Promise.resolve({ owner: true, others: 0 });
+    return readRoom().then(function () {
+      if (!me.id) return { owner: owner, others: 0 };
       var settled = false;
       return new Promise(function (resolve) {
         var done = function () {
           if (settled) return;
           settled = true;
-          roomy = countOthers() > 0 || !owner;
+          roomy = peopleCount() > 1 || !owner;
           resolve({ owner: owner, others: countOthers() });
         };
         setTimeout(done, 2200);
         db('players').subscribe(function (list) {
           ingestPlayers(list || []);
           var was = roomy;
-          roomy = countOthers() > 0 || !owner;
+          roomy = peopleCount() > 1 || !owner;
           if (owner && roomy && !was) publishWorld(true);
           done();
         });
         db('world').subscribe(function (list) {
           ingestWorld(list || []);
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () {
       return { owner: true, others: 0 };
@@ -230,8 +268,8 @@
   }
 
   function tick() {
-    if (!api || !me.id) return;
-    publishPlayer(false);
+    if (!PEOPLE || !api || !me.id) return;
+    // No idle player puts. World only when the scene changes.
     if (owner) publishWorld(false);
     pushCursors();
   }
@@ -251,7 +289,31 @@
     roster: roster,
     me: function () { return me; },
     owner: function () { return owner; },
-    live: function () { return !!api && !!me.id && (countOthers() > 0 || !owner); },
+    live: function () { return PEOPLE && !!api && !!me.id && (countOthers() > 0 || !owner); },
     count: function () { return countOthers() + (me.id ? 1 : 0); }
   };
+
+  root['__matter-sandbox'] = {
+    state: function () {
+      return worldSeq ? { seq: worldSeq | 0 } : null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'ms-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
+
 })(window);

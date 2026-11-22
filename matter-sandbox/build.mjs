@@ -98,7 +98,7 @@ if (!manifest.data.world || manifest.data.world.visibility !== 'read-only') {
 if (!manifest.data.players || manifest.data.players.visibility !== 'read-write') {
   throw new Error('manifest.data.players must be read-write');
 }
-if (manifest.minBuild !== 947) {
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861');
   throw new Error('minBuild must be 947 — this app needs nothing newer than the store');
 }
 if (manifest.capabilities.network) throw new Error('matter-sandbox has no network path');
