@@ -373,7 +373,7 @@
         $('statusLine').className = 'statusline' + (mineWin ? ' good' : '');
         $('statusLine').textContent = line;
         setChip('ready', 'Time');
-        showEnd(myScore, mineWin ? 'You win' : 'Time', isHost(mp.people));
+        showEnd(myScore, mineWin ? 'You win' : 'Time', isHost());
       } else if (m.phase === 'playing') {
         hideEnd();
         if (m.q !== seenQ) {
@@ -465,7 +465,7 @@
   $('soloBtn').onclick = startSolo;
   $('againBtn').onclick = function () {
     if (mp.on) {
-      if (isHost(mp.people)) hostStart();
+      if (isHost()) hostStart();
       return;
     }
     startSolo();
@@ -741,7 +741,7 @@
     if (mp.match.phase !== 'playing') return;
     var rem = remainingOf(mp.match.endsAt, nowMs());
     paintClock(rem, true, mp.match.duration);
-    if (isHost(mp.people) && rem <= 0) {
+    if (isHost() && rem <= 0) {
       var next = mpReconcile(mp.match, mp.people);
       if (next) putMatch(next);
     }
