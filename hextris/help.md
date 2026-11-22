@@ -53,3 +53,5 @@ This is friends, not a ladder.
 ## What is saved
 
 Your **top three scores** stay in this app on this device. A live race is only while the room is open. Closing the app does not keep a game in progress.
+
+Who is here comes from gifos.people(). The app owner hosts the seed; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

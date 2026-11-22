@@ -33,7 +33,7 @@ to be FontAwesome.
 | `db` | Top-three scores in a `private` collection; race rows in a `read-write` one. |
 | `multiplayer` | The room. Invite is OS chrome — this app never draws that button. |
 
-Needs nothing newer than the App Store itself, so `minBuild` is **947**.
+Needs nothing newer than the App Store itself, so `minBuild` is **5861**.
 
 ## Building
 
@@ -46,3 +46,5 @@ node apps/hextris/build.mjs   # -> site/apps/hextris/hextris.gif
 GPL-3.0-or-later, Logan Engstrom et al. The notice is packed **inside the
 GIF** as `COPYING.txt` (and `COPYING-hextris.txt`) because a copy of this
 app that someone was handed is a distribution of that work.
+
+Who is here comes from gifos.people(). The app owner hosts the seed; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.
