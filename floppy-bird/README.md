@@ -66,3 +66,5 @@ Apache-2.0, Nebez Briefkani. The notice is packed **inside the GIF** as
 app that someone was handed is a distribution of that work. Art and sound
 are from Dong Nguyen / .GEARS — see NOTICE. jQuery, jQuery Transit and Buzz
 are MIT, attributed in NOTICE. No upstream PR: this is an unofficial port.
+
+Who is here comes from gifos.people(). The app owner hosts the pipe seed; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

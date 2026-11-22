@@ -57,3 +57,5 @@ The race HUD along the top only appears when a friend is actually here. Playing 
 ## What is saved
 
 Your high score stays in this app on this device. A live race is only while the room is open. The current run is not saved.
+
+Who is here comes from gifos.people(). The app owner hosts the pipe seed; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.
