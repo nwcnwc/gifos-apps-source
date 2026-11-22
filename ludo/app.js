@@ -16,7 +16,7 @@
   var mySeat = 0;
   var game = L.fresh(4);
   var nPlayers = 4;
-  var rs = null, joined = false, picked = false, note = '', advKey = '';
+  var rs = null, joined = false, picked = false, note = '';
   var stash = null;
   var rgame = null;   // the shared game record's game, as the room data last said
 
@@ -38,10 +38,19 @@
   // ---- the room's word ----
   function held() { return [0, 1, 2, 3].map(function (p) { var x = rs && rs.seats && rs.seats[p]; return !!(x && x.id); }); }
   function heldCount() { return held().filter(Boolean).length; }
-  // The game as the table stands: only held seats play.
+  // The room's turn: the colour index whose seat has the turn (the room skips open seats), or -1.
+  function roomTurn() {
+    var p;
+    if (rs && rs.turn) for (p = 0; p < 4; p++) if (L.NAMES[p] === rs.turn) return p;
+    return -1;
+  }
+  // The game as the table stands: only held seats play, and the turn is the room's. A turn the room moved on (its
+  // holder left) starts fresh for the new holder.
   function shown() {
-    var g = L.clone(rgame || L.fresh(4));
+    var g = L.clone(rgame || L.fresh(4)), t = roomTurn();
     g.playing = held();
+    // `rt` is the room's turn when the record was written; the room has since moved on (or the record is new): start fresh at its turn
+    if (t >= 0 && g.winner < 0 && (g.rt === undefined ? g.turn !== t : g.rt !== t)) { g.turn = t; g.sixes = 0; g.die = 0; g.rolled = false; }
     return g;
   }
   function myIndex() {
@@ -54,9 +63,11 @@
     paintBoard();
   }
   function put(g, fresh) {
+    g.rt = roomTurn();
     var rec = { id: 'game', game: g };
     if (fresh) return gifos.room.newRound('game', rec, { first: 'Red' }).catch(say);
-    return gifos.room.move('game', rec).catch(function (e) { rgame = null; say(e); });
+    // the room passes the turn on each move unless told to keep it: keep it while the game's turn is still the room's
+    return gifos.room.move('game', rec, { keep: g.winner < 0 && g.turn === g.rt }).catch(function (e) { rgame = null; say(e); });
   }
 
   function paintRoster() {
@@ -163,9 +174,9 @@
   function doRoll() {
     if (!canAct() || game.rolled) return;
     if (mode === 'mp') {
-      game = L.roll(game);
-      rgame = game;
-      paintBoard(); put(game);
+      var g = L.roll(game);
+      rgame = g;
+      put(g); paintBoard();
       return;
     }
     game = L.roll(game);
@@ -177,9 +188,9 @@
       var legal = L.moves(game), ok = false, i;
       for (i = 0; i < legal.length; i++) if (legal[i].t === t) ok = true;
       if (!ok) return;
-      game = L.apply(game, t);
-      rgame = game;
-      paintBoard(); put(game);
+      var g2 = L.apply(game, t);
+      rgame = g2;
+      put(g2); paintBoard();
       return;
     }
     game = L.apply(game, t);
@@ -268,26 +279,13 @@
     paintBoard();
   }
 
-  // The shared game record. Empty seats are skipped: when the colour on turn is open, the first seated player
-  // moves the turn on (the room itself does not pass over an open seat).
+  // The shared game record.
   function onItems(items) {
     note = '';
     var b = null, i;
     for (i = 0; i < (items || []).length; i++) if (items[i] && items[i].id === 'game') b = items[i];
     rgame = b && b.game ? b.game : null;
-    advance();
     if (mode === 'mp') paintBoard();
-  }
-  function advance() {
-    if (mode !== 'mp' || !ROOM || !rs || heldCount() < 2) return;
-    var g = shown(), me = myIndex(), first = held().indexOf(true);
-    if (g.winner >= 0 || me < 0 || me !== first || g.playing[g.turn]) return;
-    var key = JSON.stringify([rs.round, g.turn, g.tokens, g.playing]);
-    if (key === advKey) return;
-    advKey = key;
-    L.nextTurn(g);
-    rgame = g;
-    put(g);
   }
 
   function onBack() {
@@ -321,7 +319,6 @@
         // with other people here, room play is what you see; alone you start on the menu
         if (mode !== 'mp' && !picked && s.live) { mpEnter(); return; }
         if (mode === 'mp' && !joined && s.me && s.me.role === 'watcher') { joined = true; gifos.room.join().catch(function () {}); }
-        advance();
         if (mode === 'mp') paintBoard();
       });
     }
@@ -330,6 +327,15 @@
 
   // Read-only, for the room kit: the game only.
   window.__ludo = {
+    // One legal play for this copy's player when it is their turn (the kit calls it; it writes only through the room).
+    act: function () {
+      if (mode !== 'mp' || !canAct()) return false;
+      if (!game.rolled) { doRoll(); return true; }
+      var legal = L.moves(game);
+      if (!legal.length) return false;
+      doMove(legal[0].t);
+      return true;
+    },
     state: function () {
       var g = rgame;
       return g ? { turn: g.turn, die: g.die, rolled: g.rolled, winner: g.winner, tokens: JSON.stringify(g.tokens) } : { turn: null };

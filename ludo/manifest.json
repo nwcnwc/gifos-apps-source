@@ -4,7 +4,7 @@
   "name": "Ludo",
   "shortName": "Ludo",
   "version": "1.2",
-  "minBuild": 5861,
+  "minBuild": 5995,
   "description": "Four seats fill as people open the invite. A six leaves the yard.",
   "entry": "index.html",
   "accent": [42, 138, 74],
@@ -17,6 +17,6 @@
     "game": { "visibility": "read-write" }
   },
   "room": {
-    "seats": ["Red", "Green", "Yellow", "Blue"], "turns": "free", "min": 2, "moves": ["game"]
+    "seats": ["Red", "Green", "Yellow", "Blue"], "turns": "order", "min": 2, "moves": ["game"]
   }
 }
