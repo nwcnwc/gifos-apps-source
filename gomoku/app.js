@@ -725,7 +725,7 @@
     $('fUndo').textContent = incoming ? 'Accept undo' : (mineAsked ? 'Undo asked…' : 'Undo');
     $('fUndo').disabled = mineAsked;
     $('fUndoNo').hidden = !incoming;
-    if (u && u.state === 'no' && rs && rs.me && u.by === rs.me.id && !mp.note) setStatus($('fStatus'), 'Undo declined.', '');
+    if (outcome().winner) { /* the result is shown */ } else if (u && u.state === 'no' && rs && rs.me && u.by === rs.me.id && !mp.note) setStatus($('fStatus'), 'Undo declined.', '');
     else if (incoming && !mp.note) setStatus($('fStatus'), 'Your opponent asks to take back the last move.', '');
     if (rs) { saveLeave(); if (u && u.state === 'ok' && u.app === mySeat()) undoApply(); }
   }
