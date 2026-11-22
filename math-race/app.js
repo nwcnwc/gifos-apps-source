@@ -887,7 +887,7 @@
       return (mp.people || []).map(function (p) { return p.id; });
     },
     amHost: function () {
-      return PEOPLE && mp.owner && peopleCount() > 1 && mp.on;
+      return PEOPLE && mp.owner && peopleCount() > 1;
     }
   };
   if (!PEOPLE) {
