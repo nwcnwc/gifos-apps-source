@@ -25,7 +25,7 @@ A green lamp is 1. A red lamp is 0. Wires show the value they carry.
 
 ## A friend on the bench
 
-Press **Invite** in the bar above the app and send the link. They get this circuit. Anyone can flip a pin; Play is shared.
+Press **Invite** in the bar above the app and send the link. They get this circuit. Anyone can flip a pin; Play is shared. Who is here comes from the room (gifos.people()). The app owner hosts the shared bench; GifOS hands that on when they leave. An older GifOS shows a line that DigitalJS needs a newer build — solo still works.
 
 ## What is saved
 
