@@ -39,7 +39,7 @@ Invite is OS chrome. This app never draws an invite button.
 | `db` | Last board size (private). Player rows and the race deal (read-write). |
 | `multiplayer` | The room. |
 
-`minBuild` is **947**, the App Store itself. `gifos.db` is older than that.
+`minBuild` is **5861**, the App Store itself. `gifos.db` is older than that.
 
 ## Building
 
@@ -55,3 +55,5 @@ elsewhere.
 
 MIT, Mu-An Chiou. The notice is packed **inside the GIF** as `COPYING.txt`
 as well as living here. No upstream PR: this is an unofficial port.
+
+Who is here comes from gifos.people(). The app owner hosts; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

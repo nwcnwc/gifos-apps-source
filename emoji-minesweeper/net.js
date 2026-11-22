@@ -8,17 +8,23 @@
  *      record in `players` and only ever reads the others. Times, result
  *      and progress ride on that row.
  *   2. The race document (`id: 'race'`) is the board deal — seed, size,
- *      emoji set — not a person. Anyone in the room may deal a new board
- *      by putting that one document. That is not writing another player's
+ *      emoji set — not a person. The app owner deals a new board by
+ *      putting that one document. That is not writing another player's
  *      row.
  *
- * Invite is OS chrome: this file never draws an invite button.
+ * Who is here is gifos.people(). Invite is OS chrome: this file never
+ * draws an invite button.
  */
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 2000;
+  var NEEDS_NEWER = 'Emoji Minesweeper needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var roomRead = false;
   var PUBLISH_MS = 250;
 
   var api = null;
@@ -27,10 +33,11 @@
   var raceRec = null;
   var lastSnap = { seed: 0, opened: 0, safe: 0, moves: 0, time: 0, result: '', flagged: 0 };
   var lastPub = 0;
-  var hbTimer = 0;
+  var lastRows = [];
   var onRace = null;
   var onRoster = null;
   var ready = false;
+  var peopleTimer = 0;
 
   function db(n) { return api.db(n); }
   function now() { return Date.now(); }
@@ -41,17 +48,48 @@
     return (h % 360);
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Player'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        ingestPlayers(lastRows);
+      }
+    }, function () {});
+  }
+
   function ingestPlayers(list) {
-    var t = now(), seen = {}, i, p;
-    for (i = 0; i < list.length; i++) {
-      p = list[i];
+    lastRows = list || [];
+    var names = peopleNames(), seen = {}, i, p;
+    for (i = 0; i < lastRows.length; i++) {
+      p = lastRows[i];
       if (!p || !p.id || p.id === me.id) continue;
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) continue;
       seen[p.id] = 1;
-      var cur = others[p.id];
-      var moved = !cur || cur.stamp !== p.at || cur.result !== p.result || cur.time !== p.time || cur.opened !== p.opened;
       others[p.id] = {
         id: p.id,
-        name: p.name || 'Player',
+        name: names[p.id] || 'Player',
         seed: p.seed || 0,
         opened: p.opened || 0,
         safe: p.safe || 0,
@@ -59,13 +97,11 @@
         time: p.time || 0,
         result: p.result || '',
         flagged: p.flagged || 0,
-        stamp: p.at,
-        seen: moved ? t : cur.seen,
         hue: tintFor(p.id)
       };
     }
     for (var id in others) {
-      if (!seen[id] || t - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id]) delete others[id];
     }
     if (onRoster) onRoster(roster());
   }
@@ -84,19 +120,22 @@
 
   function roster() {
     var list = [];
-    list.push({
-      id: me.id,
-      name: me.name,
-      mine: true,
-      seed: lastSnap.seed || 0,
-      opened: lastSnap.opened || 0,
-      safe: lastSnap.safe || 0,
-      moves: lastSnap.moves || 0,
-      time: lastSnap.time || 0,
-      result: lastSnap.result || '',
-      flagged: lastSnap.flagged || 0,
-      hue: me.id ? tintFor(me.id) : 40
-    });
+    var names = peopleNames();
+    if (me.id && names[me.id]) {
+      list.push({
+        id: me.id,
+        name: names[me.id] || me.name,
+        mine: true,
+        seed: lastSnap.seed || 0,
+        opened: lastSnap.opened || 0,
+        safe: lastSnap.safe || 0,
+        moves: lastSnap.moves || 0,
+        time: lastSnap.time || 0,
+        result: lastSnap.result || '',
+        flagged: lastSnap.flagged || 0,
+        hue: me.id ? tintFor(me.id) : 40
+      });
+    }
     for (var id in others) list.push({
       id: others[id].id,
       name: others[id].name,
@@ -114,14 +153,15 @@
   }
 
   function putSelf(force) {
-    if (!api || !me.id) return;
+    if (!PEOPLE || !api || !me.id) return;
+    var names = peopleNames(), n = 0, id;
+    for (id in names) n++;
+    if (n < 2 && !force) return;
     var t = now();
     if (!force && t - lastPub < PUBLISH_MS) return;
     lastPub = t;
     db('players').put({
       id: me.id,
-      name: me.name,
-      at: t,
       seed: lastSnap.seed || 0,
       opened: lastSnap.opened || 0,
       safe: lastSnap.safe || 0,
@@ -138,15 +178,18 @@
     onRoster = opts.onRoster || null;
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ ok: false });
-    return api.me().then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Player';
+    if (!PEOPLE) {
+      ready = false;
+      return Promise.resolve({ ok: false, needsNewer: true });
+    }
+    return readRoom().then(function () {
+      if (!me.id) me.id = 'local';
       ready = true;
       db('players').subscribe(function (list) { ingestPlayers(list || []); });
       db('race').subscribe(function (list) { ingestRace(list || []); });
       putSelf(true);
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(function () { putSelf(true); }, HB_MS);
+      if (peopleTimer) clearInterval(peopleTimer);
+      peopleTimer = setInterval(readRoom, PEOPLE_MS);
       return { ok: true, me: me };
     }).catch(function () { return { ok: false }; });
   }
@@ -158,7 +201,7 @@
   }
 
   function deal(cfg) {
-    if (!api || !me.id) return;
+    if (!PEOPLE || !api || !me.id || !owner) return;
     db('race').put({
       id: 'race',
       seed: cfg.seed >>> 0,
@@ -167,7 +210,6 @@
       bombs: Number(cfg.bombs),
       emojiset: cfg.emojiset,
       byId: me.id,
-      by: me.name,
       at: now()
     }).catch(function () {});
   }
@@ -186,6 +228,33 @@
     me: function () { return me; },
     roster: roster,
     others: otherCount,
-    ready: function () { return ready; }
+    ready: function () { return ready; },
+    owner: function () { return owner; }
   };
+
+  root['__emoji-minesweeper'] = {
+    state: function () {
+      if (!ready || !raceRec) return null;
+      return { seed: raceRec.seed >>> 0, at: raceRec.at | 0 };
+    },
+    people: function () {
+      return roster().map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      var n = 0, i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') n++;
+      }
+      return ready && owner && n > 1;
+    }
+  };
+
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'em-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
