@@ -62,3 +62,5 @@ node apps/hexgl/build.mjs    # -> site/apps/hexgl/hexgl.gif
 MIT, Thibaut Despoulain. Audio samples are CC-BY 3.0 / public domain
 (COPYING-audio.txt). three.js r50dev is MIT (COPYING-three.txt). The
 notices are packed **inside the GIF**.
+
+Who is here comes from gifos.people(). The app owner hosts; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

@@ -1,30 +1,33 @@
 /*
  * HexGL — ghost race over a meeting.
  *
- * Upstream has no networking. Each pilot owns one row in `players` and
- * only ever writes that row: pose, lap, finish, best. A subscriber
- * re-downloads the whole collection on every change, so publish is 8 Hz
- * with interpolation, not a datagram stream. Nobody collides with
- * anybody else — extra ships are ghosts on the same track. Invite is OS chrome.
+ * Who is here is gifos.people(); the app owner hosts. Invite is OS chrome.
+ * Each pilot owns one row in `players`: pose, lap, finish, best. Publish is
+ * 8 Hz with interpolation; write only when the pose changes (no idle keep-alive).
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 8;
-  var STALE_MS = 9000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'HexGL needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
 
   var api = null;
   var me = { id: null, name: 'Pilot' };
   var others = {};
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
   var lastPublished = 0;
+  var lastPubSig = '';
   var onRoster = null;
-  var owner = true;
+  var started = false;
 
   function db(n) {
     try { return api && api.db ? api.db(n) : null; } catch (e) { return null; }
   }
   function r1(n) { return Math.round(n * 10) / 10; }
-  function r2(n) { return Math.round(n * 100) / 100; }
   function r3(n) { return Math.round(n * 1000) / 1000; }
 
   function tintFor(id) {
@@ -34,20 +37,58 @@
     return (h % 360);
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Pilot';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Pilot'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        // re-filter ghosts against the room
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        if (onRoster) onRoster(roster());
+      }
+    }, function () {});
+  }
+
   function init() {
     api = root.gifos;
-    if (!api || !api.db || !api.me) {
-      owner = true;
+    if (!api || !api.db) {
       return Promise.resolve({ owner: true, others: 0 });
     }
-    var infoP = api.info ? api.info().then(function (i) {
-      owner = !!(i && i.owner);
-      return owner;
-    }).catch(function () { owner = true; return true; }) : Promise.resolve(true);
-
-    return infoP.then(function () { return api.me(); }).then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Pilot';
+    if (!PEOPLE) {
+      return Promise.resolve({ owner: true, others: 0 });
+    }
+    return readRoom().then(function () {
+      if (!me.id) return { owner: owner, others: 0 };
       var settled = false;
       return new Promise(function (resolve) {
         var done = function () {
@@ -62,6 +103,7 @@
           done();
         });
         else done();
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () {
       return { owner: true, others: 0 };
@@ -69,25 +111,24 @@
   }
 
   function ingest(list) {
-    var t = Date.now(), seen = {};
+    var t = Date.now(), seen = {}, names = peopleNames();
     for (var i = 0; i < list.length; i++) {
       var p = list[i];
       if (!p || !p.id || p.id === me.id) continue;
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
       var cur = others[p.id];
-      var moved = !cur || cur.x !== p.x || cur.z !== p.z || cur.stamp !== p.t;
       others[p.id] = {
-        id: p.id, name: p.name || 'Pilot',
+        id: p.id, name: names[p.id] || p.name || 'Pilot',
         x: p.x, y: p.y, z: p.z,
         qx: p.qx, qy: p.qy, qz: p.qz, qw: p.qw,
         lap: p.lap || 0, fin: p.fin || 0, best: p.best || 0,
-        stamp: p.t, seen: moved ? t : cur.seen, t: t,
-        hue: tintFor(p.id),
+        stamp: p.t, t: t, hue: tintFor(p.id),
         prev: cur ? { x: cur.x, y: cur.y, z: cur.z, qx: cur.qx, qy: cur.qy, qz: cur.qz, qw: cur.qw, t: cur.t } : null
       };
     }
     for (var id in others) {
-      if (!seen[id] || Date.now() - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id] || !names[id]) delete others[id];
     }
     if (onRoster) onRoster(roster());
   }
@@ -108,26 +149,32 @@
   }
 
   function publish(st, force) {
+    if (!PEOPLE || !me.id || !st) return;
     var p = db('players');
-    if (!p || !me.id || !st) return;
+    if (!p) return;
     var now = Date.now();
     if (!force && now - lastPublished < 1000 / PUBLISH_HZ) return;
-    lastPublished = now;
-    p.put({
-      id: me.id, name: me.name,
+    var row = {
+      id: me.id,
       x: r1(st.x), y: r1(st.y), z: r1(st.z),
       qx: r3(st.qx), qy: r3(st.qy), qz: r3(st.qz), qw: r3(st.qw),
-      lap: st.lap | 0, fin: st.fin | 0, best: st.best | 0,
-      t: now
-    }).catch(function () {});
+      lap: st.lap | 0, fin: st.fin | 0, best: st.best | 0
+    };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPublished = now;
+    row.t = now;
+    started = true;
+    p.put(row).catch(function () {});
   }
 
   function roster() {
-    var list = [];
+    var names = peopleNames(), list = [];
     for (var id in others) {
       var o = others[id];
       list.push({
-        id: o.id, name: o.name, me: false,
+        id: o.id, name: names[o.id] || o.name, me: false,
         best: o.best, fin: o.fin, lap: o.lap, hue: o.hue
       });
     }
@@ -161,8 +208,30 @@
     ghosts: ghosts,
     me: function () { return me; },
     owner: function () { return owner; },
-    live: function () { return !!api && !!me.id; },
+    live: function () { return PEOPLE && !!me.id; },
     count: function () { return countOthers() + (me.id ? 1 : 0); },
     onRoster: function (fn) { onRoster = fn; }
   };
+
+  root['__hexgl'] = {
+    // Ghost race — no shared world row; copies agree on null.
+    state: function () { return null; },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'hexgl-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
