@@ -13,6 +13,8 @@
   var started = false;
   var joined = false;
   var lastJson = '';
+  var lastCount = null;   // turns finished by my last write: a write that raises it hands the turn on
+  var autoKey = '';       // the turn I already passed because my game is over
   var round = 1;
   var EN = { needsNewer: 'Bowling needs a newer GifOS to play together. Reload the page to update.' };
   function needsNewer() {
@@ -45,31 +47,17 @@
     return players.filter(function (p) { return p.id !== me().id; });
   }
 
-  function completed(p) {
-    return (p.frames && p.frames.length) || 0;
-  }
-
-  function midFrame(p) {
-    return !!(p.cur && p.cur.length && !p.done);
-  }
-
-  /* Fewest finished frames bowls next. A player who has started a frame
-   * finishes it. Roster order is id. Derived from own rows only. */
+  /* The room's turn (it skips open seats): the seated player whose turn it is, from the roster. */
   function whoseTurn(players) {
-    var roster = players.slice().sort(function (a, b) {
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
-    var open = roster.filter(function (p) { return !p.done; });
-    if (!open.length) return null;
-    var mid = open.filter(midFrame);
-    if (mid.length) return mid[0];
-    var minC = 99;
-    open.forEach(function (p) {
-      var c = completed(p);
-      if (c < minC) minC = c;
-    });
-    var cand = open.filter(function (p) { return completed(p) === minC; });
-    return cand[0] || null;
+    var i, x;
+    if (!rs || !rs.turn) return null;
+    for (i = 0; i < (rs.seats || []).length; i++) {
+      x = rs.seats[i];
+      if (x.seat === rs.turn && x.id) {
+        for (var j = 0; j < players.length; j++) if (players[j].id === x.id) return players[j];
+      }
+    }
+    return null;
   }
 
   function adoptedRound(players) {
@@ -97,13 +85,29 @@
     return rec;
   }
 
-  // Only when the row changed: a person standing still writes nothing.
-  function publish(game) {
+  // The row goes through the room as a move: only the player whose turn it is writes. The turn stays with them
+  // until a write that finishes a turn (a closed frame / a settled shot), which hands it to the next seated player.
+  // `fresh` starts the next round (any seated player).
+  function publish(game, fresh) {
     if (!on || !room || !me().id) return;
     var rec = snapshot(game), json = JSON.stringify(rec);
-    if (json === lastJson) return;
+    if (json === lastJson && !fresh) return;
     lastJson = json;
-    room.put(rec).catch(function () {});
+    var n = rec.frames.length, ends = lastCount !== null && n > lastCount && true;
+    lastCount = fresh ? 0 : n;
+    (fresh ? api.room.newRound('players', rec) : api.room.move('players', rec, { keep: !ends })).catch(function () {});
+  }
+
+  // A player whose game is over still comes up in the room's order: they hand the turn on at once.
+  function passIfDone() {
+    if (!rs || !rs.myTurn) { autoKey = ''; return; }
+    var mine = null, others = false;
+    rows.forEach(function (r) { if (r && r.id === me().id) mine = r; });
+    roster().forEach(function (p) { if (p.id !== me().id && !p.done) others = true; });
+    var key = rs.round + ':' + rs.turn;
+    if (!mine || !mine.done || !others || autoKey === key) return;
+    autoKey = key;
+    api.room.move('players', mine, { keep: false }).catch(function () { autoKey = ''; });
   }
 
   var Mp = {
@@ -120,8 +124,7 @@
       var mine = players.some(function (p) { return p.id === me().id; });
       if (!mine) return !(rs && rs.live);
       if (othersOf(players).length === 0) return true;
-      var w = whoseTurn(players);
-      return !!(w && w.id === me().id);
+      return !!(rs && rs.myTurn);
     },
     adoptedRound: function () { return adoptedRound(roster()); },
     publish: publish,
@@ -137,6 +140,7 @@
   function changed() {
     if (!on || !rs) return;
     if (!joined && rs.me && rs.me.role === 'watcher') { joined = true; root.gifos.room.join().catch(function () {}); }
+    passIfDone();
     if (Mp.onList) Mp.onList(roster(), !!rs.live);
   }
 

@@ -17,6 +17,6 @@
     "game": { "visibility": "read-write" }
   },
   "room": {
-    "seats": ["Red", "Green", "Yellow", "Blue"], "turns": "free", "min": 2, "moves": ["game"]
+    "seats": ["Red", "Green", "Yellow", "Blue"], "turns": "order", "min": 2, "moves": ["game"]
   }
 }

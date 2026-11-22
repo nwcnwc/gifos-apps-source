@@ -411,7 +411,7 @@
     if (mode === 'mp' && Mp.on()) {
       Mp.setRound(Mp.round() + 1);
       game.reset();
-      Mp.publish(game);
+      Mp.publish(game, true);
       return;
     }
     game.reset();
