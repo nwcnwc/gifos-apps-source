@@ -62,7 +62,9 @@
     current.seed = seed;
     if ($('recipe').value !== code) $('recipe').value = code;
     try { doodle.setAttribute('seed', String(seed)); } catch (e) {}
-    if (typeof doodle.update === 'function') doodle.update(code);
+    // css-doodle 0.70 made function names case-sensitive: patterns saved or shared
+    // under 0.51 say @Svg(. Feed the engine @svg( but keep the person's text as typed.
+    if (typeof doodle.update === 'function') doodle.update(code.replace(/@Svg\(/g, '@svg('));
     paintWhich();
   }
 

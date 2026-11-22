@@ -95,7 +95,7 @@
       name: 'Spiral',
       code: [
         '@grid: 1 / 100% / #125cde;',
-        '@content: @Svg(',
+        '@content: @svg(',
         '  viewBox: -50 -50 100 100 padding -12;',
         '  circle*120 {',
         '    fill: hsl(@calc(120-90*@sin.n), 80%, 50%);',
