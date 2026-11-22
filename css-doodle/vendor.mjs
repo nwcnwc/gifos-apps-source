@@ -1,6 +1,6 @@
 /*
  * vendor.mjs — rebuild vendor/css-doodle.js and COPYING from the pinned
- * css-doodle@0.51.0 npm tarball (same commit as GitHub tag v0.51.0).
+ * css-doodle@0.70.1 npm tarball (same commit as GitHub tag v0.70.1).
  *
  * This is the ONLY step that needs the network, and it is deliberately NOT
  * part of build.mjs: the App GIF must be buildable offline from what is
@@ -24,11 +24,11 @@ const vendor = join(dir, 'vendor');
 mkdirSync(vendor, { recursive: true });
 
 // Moving the pin is a deliberate act: bump TAG + COMMIT + SHA256 together.
-const TAG = '0.51.0';
-const COMMIT = '7c1665aa550fcdcbe5b3e274271776af27c04fef';
+const TAG = '0.70.1';
+const COMMIT = 'bd5d9106d29765feeea792d4f77d9ef25bbd035a';
 const TARBALL = 'https://registry.npmjs.org/css-doodle/-/css-doodle-' + TAG + '.tgz';
-const JS_SHA256 = '47dbd5196ef91f44372056a72d3d6f59512f597f46cd98555146df8eb1463e48';
-const LICENSE_SHA256 = '351f4ae17eab23d2bfe3f2faf373b1335b4817483a5c6a8344a2303fd0fea58a';
+const JS_SHA256 = 'caac6918c799de58f16138956080fa49d2b1da230ec714f128123d683b46fa31';
+const LICENSE_SHA256 = '6a3bfd2b5099860379fa3d20f457f984f894c9bfd3d360e16ad8a961ea51c399';
 
 function sha256(buf) { return createHash('sha256').update(buf).digest('hex'); }
 

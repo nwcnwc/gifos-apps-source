@@ -18,7 +18,7 @@ mp.js                      shared pattern string, own-row publish
 icon.mjs                   procedural tile-card icon + 1200×720 cover
 vendor.mjs                 rebuilds vendor/ from the pinned npm tarball
 build.mjs                  packs the GIF into site/apps/css-doodle/css-doodle.gif
-vendor/css-doodle.js       GENERATED. css-doodle@0.51.0 classic IIFE.
+vendor/css-doodle.js       GENERATED. css-doodle@0.70.1 classic IIFE.
 vendor/COPYING-*.txt       Yuan Chuan's MIT notice, packed inside the GIF
 ```
 
