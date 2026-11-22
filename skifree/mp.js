@@ -69,7 +69,6 @@
     var s = (root.Ski && root.Ski.snap) ? root.Ski.snap() : {};
     return {
       id: me.id,
-      name: me.name,
       round: round,
       x: Math.round(s.x || 0),
       y: Math.round(s.y || 0),
@@ -302,25 +301,34 @@
     }
   }
 
-  function beat() {
-    publish(true);
-    paintHud();
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      ingest(lastList);
+    }, function () {});
   }
 
   function init() {
     api = root.gifos || null;
-    if (!api || !api.db) return;
+    if (!api || !api.db || !PEOPLE) return;
     try { room = api.db('room'); } catch (e) { return; }
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
+    readRoom().then(function () {
       if (!subscribed) {
         subscribed = true;
-        room.subscribe(function (list) { ingest(list || []); });
+        room.subscribe(function (list) { lastList = list || []; ingest(lastList); });
       }
       publish(true);
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(beat, HB_MS);
+      setInterval(readRoom, PEOPLE_MS);
     }).catch(function () {
       me.id = 'local';
     });
@@ -361,6 +369,31 @@
       return roundOver || !snap().over;
     }
   };
+
+  root['__skifree'] = {
+    state: function () {
+      return PEOPLE && me.id ? { round: round | 0, dist: Math.round((snap().dist || 0) * 10) / 10 } : null;
+    },
+    people: function () {
+      return roster().map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      var n = 0, i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') n++;
+      }
+      return PEOPLE && owner && n > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'ski-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 
   init();
 })(window);
