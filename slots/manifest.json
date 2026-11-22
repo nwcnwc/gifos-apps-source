@@ -3,17 +3,25 @@
   "appId": "slots",
   "name": "Slots",
   "shortName": "Slots",
-  "version": "1.1",
-  "minBuild": 947,
+  "version": "1.2",
+  "minBuild": 5861,
   "description": "Five fruit reels and a lever. Friends watch the same spin from one link.",
   "entry": "index.html",
-  "accent": [212, 160, 48],
+  "accent": [
+    212,
+    160,
+    48
+  ],
   "capabilities": {
     "db": true,
     "multiplayer": true
   },
   "data": {
-    "save": { "visibility": "private" },
-    "room": { "visibility": "read-write" }
+    "save": {
+      "visibility": "private"
+    },
+    "room": {
+      "visibility": "read-write"
+    }
   }
 }

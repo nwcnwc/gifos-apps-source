@@ -1,26 +1,40 @@
 // Room: anyone can pull. Each person writes ONLY their own row.
-// The latest spin across live rows is the table. Credits stay private.
-// Invite is OS chrome.
+// The latest spin among people() is the table. Credits stay private.
+// Invite is OS chrome. No idle heartbeats.
 (function (g) {
   'use strict';
-  var PRES_TTL = 12000, HB_MS = 3000;
+
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(typeof gifos !== 'undefined' && gifos && gifos.people);
 
   function nowMs() { return Date.now ? Date.now() : 0; }
 
   var mp = {
     on: false,
     me: { id: 'local', name: '' },
-    owner: true,
+    owner: false,
     items: [],
     saveDb: null,
     roomDb: null,
-    hb: 0
+    roomPeople: [],
+    peopleTimer: 0
   };
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < mp.roomPeople.length; i++) {
+      p = mp.roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'player';
+    }
+    return m;
+  }
+
   function livePeople(items) {
-    var t = nowMs();
+    var names = peopleNames();
     return (items || []).filter(function (it) {
-      return it && it.kind === 'seat' && it.t && (t - it.t) < PRES_TTL;
+      return it && it.kind === 'seat' && it.id && Object.prototype.hasOwnProperty.call(names, it.id);
+    }).map(function (it) {
+      return Object.assign({}, it, { name: names[it.id] || it.name || 'player' });
     });
   }
 
@@ -28,20 +42,33 @@
     var best = null;
     livePeople(items).forEach(function (it) {
       if (!it.spin || !it.spin.symbols) return;
-      if (!best || (it.spin.t || 0) > (best.t || 0)) best = it.spin;
+      if (!best || (it.spin.n || it.spin.t || 0) > (best.n || best.t || 0)) best = it.spin;
     });
     return best;
   }
 
+  function readRoom() {
+    if (!PEOPLE || typeof gifos === 'undefined' || !gifos) return Promise.resolve();
+    return Promise.all([
+      gifos.people(),
+      gifos.info ? gifos.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      mp.roomPeople = ppl;
+      mp.owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { mp.me.id = mine.id; mp.me.name = mine.name || 'player'; }
+    }, function () {});
+  }
+
   async function putMe(extra) {
     extra = extra || {};
-    if (!mp.roomDb || !mp.on) return;
+    if (!PEOPLE || !mp.roomDb || !mp.on) return;
     var rec = {
       id: mp.me.id,
-      kind: 'seat',
-      name: mp.me.name || 'player',
-      t: nowMs(),
-      owner: mp.owner
+      kind: 'seat'
     };
     var k;
     for (k in extra) if (Object.prototype.hasOwnProperty.call(extra, k)) rec[k] = extra[k];
@@ -49,11 +76,13 @@
   }
 
   function startHeartbeat() {
-    stopHeartbeat();
-    mp.hb = setInterval(function () { putMe(); }, HB_MS);
+    // People poll only — no idle seat puts.
+    if (mp.peopleTimer) clearInterval(mp.peopleTimer);
+    readRoom();
+    mp.peopleTimer = setInterval(readRoom, PEOPLE_MS);
   }
   function stopHeartbeat() {
-    if (mp.hb) { clearInterval(mp.hb); mp.hb = 0; }
+    if (mp.peopleTimer) { clearInterval(mp.peopleTimer); mp.peopleTimer = 0; }
   }
 
   mp.livePeople = livePeople;
@@ -61,5 +90,19 @@
   mp.putMe = putMe;
   mp.startHeartbeat = startHeartbeat;
   mp.stopHeartbeat = stopHeartbeat;
+  mp.readRoom = readRoom;
   g.SlotsMp = mp;
+
+  g['__slots'] = {
+    state: function () {
+      var s = latestSpin(mp.items);
+      return s ? { n: (s.n || s.t || 0) | 0 } : null;
+    },
+    people: function () {
+      return livePeople(mp.items).map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      return PEOPLE && mp.owner && livePeople(mp.items).length > 1;
+    }
+  };
 })(window);

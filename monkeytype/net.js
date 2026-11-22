@@ -1,51 +1,84 @@
 /*
  * Monkeytype race — same words, live WPM, no server.
  *
- * Each racer writes ONLY their own row in `players`. The host alone writes
- * `match` (the seed, the countdown, the clock). Invite is OS chrome.
+ * Each racer writes ONLY their own row in `players`. The app owner alone
+ * writes `match` (the seed, the countdown, the clock). Who is here is
+ * gifos.people(). Invite is OS chrome.
  */
 (function (root) {
   'use strict';
 
-  var PRES_TTL = 9000, HB_MS = 1800, PUB_MS = 220;
+  var NEEDS_NEWER = 'Monkeytype needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var PUB_MS = 220;
   var COUNTDOWN_MS = 3000;
 
   var api = null;
   var matchDb = null, playersDb = null;
   var me = { id: 'local', name: 'You' };
-  var owner = true;
+  var owner = false;
+  var roomPeople = [];
   var others = {};
+  var lastPlayerRows = [];
   var match = null;
   var onChange = null;
-  var hbTimer = 0, pubTimer = 0;
   var lastPub = 0;
+  var lastPubSig = '';
   var selfRow = {
     wpm: 0, raw: 0, acc: 100, progress: 0, done: false, finishedAt: 0, keys: 0
   };
 
   function now() { return Date.now(); }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Racer';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      ingestPlayers(lastPlayerRows);
+    }, function () {});
+  }
+
   function init(opts) {
     opts = opts || {};
     onChange = opts.onChange || null;
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
+    if (!PEOPLE) return Promise.resolve({ owner: true, others: 0, needsNewer: true });
     try {
       matchDb = api.db('match');
       playersDb = api.db('players');
     } catch (e) {
       return Promise.resolve({ owner: true, others: 0 });
     }
-    var infoP = api.info ? api.info().then(function (i) {
-      owner = !!(i && i.owner);
-      return owner;
-    }).catch(function () { owner = true; return true; }) : Promise.resolve(true);
-
-    return infoP.then(function () {
-      return api.me ? api.me() : { id: 'local', name: 'You' };
-    }).then(function (id) {
-      me.id = (id && id.id) ? id.id : 'local';
-      me.name = (id && id.name) || 'You';
+    return readRoom().then(function () {
       var settled = false;
       return new Promise(function (resolve) {
         var done = function () {
@@ -61,12 +94,11 @@
         matchDb.subscribe(function (list) {
           ingestMatch(list || []);
         });
-        beat();
-        if (hbTimer) clearInterval(hbTimer);
-        hbTimer = setInterval(beat, HB_MS);
+        putSelf(true);
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () {
-      return { owner: true, others: 0 };
+      return { owner: false, others: 0 };
     });
   }
 
@@ -77,27 +109,25 @@
   }
 
   function ingestPlayers(list) {
-    var t = now(), seen = {}, i, p;
-    for (i = 0; i < list.length; i++) {
-      p = list[i];
+    lastPlayerRows = list || [];
+    var names = peopleNames(), seen = {}, i, p;
+    others = {};
+    for (i = 0; i < lastPlayerRows.length; i++) {
+      p = lastPlayerRows[i];
       if (!p || !p.id || p.id === me.id) continue;
-      if (p.t && t - p.t > PRES_TTL) continue;
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) continue;
       seen[p.id] = 1;
       others[p.id] = {
         id: p.id,
-        name: p.name || 'Racer',
+        name: names[p.id] || p.name || 'Racer',
         wpm: p.wpm || 0,
         raw: p.raw || 0,
         acc: p.acc == null ? 100 : p.acc,
         progress: p.progress || 0,
         done: !!p.done,
         finishedAt: p.finishedAt || 0,
-        keys: p.keys || 0,
-        t: p.t || t
+        keys: p.keys || 0
       };
-    }
-    for (var id in others) {
-      if (!seen[id]) delete others[id];
     }
     fire();
   }
@@ -111,20 +141,22 @@
     fire();
   }
 
-  function beat() {
-    if (!playersDb) return;
+  function putSelf(force) {
+    if (!PEOPLE || !playersDb || !me.id || me.id === 'local') return;
+    if (peopleCount() < 2 && !force) return;
     var row = {
       id: me.id,
-      name: me.name,
       wpm: selfRow.wpm,
       raw: selfRow.raw,
       acc: selfRow.acc,
       progress: selfRow.progress,
       done: !!selfRow.done,
       finishedAt: selfRow.finishedAt || 0,
-      keys: selfRow.keys || 0,
-      t: now()
+      keys: selfRow.keys || 0
     };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
     playersDb.put(row).catch(function () {});
   }
 
@@ -142,7 +174,7 @@
     var t = now();
     if (!force && t - lastPub < PUB_MS) return;
     lastPub = t;
-    beat();
+    putSelf(!!force);
   }
 
   function hostStart(cfg) {
@@ -159,8 +191,7 @@
       punct: !!cfg.punct,
       numbers: !!cfg.numbers,
       lang: cfg.lang || 'english',
-      startAt: startAt,
-      t: now()
+      startAt: startAt
     };
     match = row;
     return matchDb.put(row).catch(function (e) { throw e; });
@@ -170,14 +201,12 @@
     if (!matchDb || !owner || !match) return;
     if (match.status === 'live') return;
     match.status = 'live';
-    match.t = now();
     matchDb.put(match).catch(function () {});
   }
 
   function hostDone() {
     if (!matchDb || !owner || !match) return;
     match.status = 'done';
-    match.t = now();
     matchDb.put(match).catch(function () {});
   }
 
@@ -186,7 +215,7 @@
     var row = {
       id: 'match', host: me.id, status: 'lobby',
       seed: 0, mode: 'time', mode2: 30, punct: false, numbers: false,
-      lang: 'english', startAt: 0, t: now()
+      lang: 'english', startAt: 0
     };
     match = row;
     matchDb.put(row).catch(function () {});
@@ -247,5 +276,18 @@
     roster: roster,
     setName: setName,
     COUNTDOWN_MS: COUNTDOWN_MS
+  };
+
+  root['__monkeytype'] = {
+    state: function () {
+      if (!match) return null;
+      return { status: match.status || '', seed: match.seed | 0 };
+    },
+    people: function () {
+      return roster().map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
   };
 })(this);
