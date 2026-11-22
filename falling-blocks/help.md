@@ -38,6 +38,7 @@ Clearing 1 / 2 / 3 / 4 rows at once scores **100 / 300 / 500 / 800**. Soft drop 
 **Best** is your highest solo score on this copy of the app.
 
 ## Solo vs a live friend
+Who is here comes from gifos.people(). The app owner hosts the shared seed; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.
 
 Alone: **New game** starts a fresh well. Your **Best** stays.
 

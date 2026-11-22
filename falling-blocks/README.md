@@ -32,6 +32,7 @@ vendor/         original classic scripts. Never edit.
 No `network`, no `wasm`. The original is plain JS.
 
 ## How the race works
+Who is here comes from gifos.people(). The app owner hosts the shared seed; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.
 
 1. Press **Play a friend**. Press **Invite** (the GifOS menu) to send the link.
    Solo still works if nobody comes — you can play while you wait.
