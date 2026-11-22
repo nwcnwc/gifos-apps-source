@@ -41,7 +41,7 @@ for (const need of [
   if (!existsSync(join(dir, need))) throw new Error(need + ' is missing');
 }
 
-if (manifest.minBuild !== 947 || manifest.appId !== 'rawgraphs') throw new Error('manifest');
+if (manifest.minBuild !== 5861 || manifest.appId !== 'rawgraphs') throw new Error('manifest');
 if (!manifest.capabilities || manifest.capabilities.db !== true) throw new Error('must declare capabilities.db');
 if (!manifest.capabilities.multiplayer) throw new Error('must declare capabilities.multiplayer');
 if (manifest.capabilities.network) throw new Error('rawgraphs has no network path');
