@@ -62,6 +62,50 @@ if (editorHex !== EDITOR_SHA256) {
 }
 
 if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861');
+if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
+  throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
+}
+if (manifest.capabilities.network) throw new Error('beepbox has no network path. Do not declare capabilities.network.');
+if (!manifest.data || !manifest.data.songs || manifest.data.songs.visibility !== 'private') {
+  throw new Error('manifest.data.songs must be private — the solo song stays on this device.');
+}
+if (!manifest.data.room || manifest.data.room.visibility !== 'read-write') {
+  throw new Error('manifest.data.room must be read-write — a jam has to sync.');
+}
+if (!listing.basedOn || listing.basedOn.blessed !== false) {
+  throw new Error('listing.basedOn.blessed must be false — unofficial port');
+}
+if (listing.basedOn.name !== 'BeepBox' || listing.basedOn.url !== 'https://github.com/johnnesky/beepbox') {
+  throw new Error('listing.basedOn must name BeepBox at github.com/johnnesky/beepbox');
+}
+if (!listing.porter || listing.porter.name !== 'GifOS') {
+  throw new Error('listing.porter must be GifOS');
+}
+if (!listing.author || listing.author.name !== 'John Nesky') {
+  throw new Error('listing.author must be John Nesky');
+}
+if (listing.author.name === 'GifOS') {
+  throw new Error('author is John Nesky, never GifOS — this is a port');
+}
+if (listing.license !== 'MIT') throw new Error('listing.license must be MIT');
+if (listing.releaseDate !== '2026-08-30') throw new Error('releaseDate must be 2026-08-30');
+
+const listingBlob = JSON.stringify(listing);
+for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage', 'WebRTC', 'JSON', 'WebGL', 'Web Audio', 'CDN', 'TypeScript']) {
+  if (listingBlob.includes(bad)) throw new Error('listing.json mentions ' + bad + ' — keep it non-technical');
+}
+
+function safeScript(s) {
+  return s.replace(/<\/(script)/gi, '<\\/$1');
+}
+
+const SCRIPTS = ['shim.js', 'vendor/seed.js', 'vendor/beepbox_editor.min.js', 'net.js', 'touch.js', 'boot.js'];
+
+const help = read('help.md').replace(/^\uFEFF/, '');
+if (help.trim().length < 400) throw new Error('help.md is missing or too short — need >= 400 trimmed characters');
+if (!/^#\s+\S/.test(help.trim())) throw new Error('help.md must start with # <App Name>');
+
+const FN_NEEDLE = 'new Function("Config","Synth",';
 const FN_REPL = 'window.GifOSBeepboxShim.compile("Config","Synth",';
 let editorSrc = editorBuf.toString('utf8').replace(/\n\/\/# sourceMappingURL=.*$/, '');
 const fnSites = editorSrc.split(FN_NEEDLE).length - 1;
