@@ -373,7 +373,7 @@
       return live(lastList).map(function (p) { return p.id; });
     },
     amHost: function () {
-      return PEOPLE && owner && peopleCount() > 1 && on;
+      return PEOPLE && owner && peopleCount() > 1;
     }
   };
 
