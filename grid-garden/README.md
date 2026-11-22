@@ -30,7 +30,7 @@ build.mjs            packs site/apps/grid-garden/grid-garden.gif
 | `db` | Private `save` (level, answers, solved). Shared `garden` plot and `players` rows. |
 | `multiplayer` | The room. Invite is OS chrome. |
 
-Needs nothing newer than the App Store itself, so `minBuild` is **947**.
+Needs nothing newer than the App Store itself, so `minBuild` is **5861**.
 
 ## Building
 
@@ -42,3 +42,5 @@ node apps/grid-garden/build.mjs   # -> site/apps/grid-garden/grid-garden.gif
 
 Code MIT, Thomas Park. Art CC BY 3.0, Thomas Park. Both notices ride
 **inside the GIF** (`COPYING.txt`, `COPYING-images.txt`).
+
+Who is here comes from gifos.people(). The app owner hosts the shared plot; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.
