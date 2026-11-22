@@ -9,22 +9,27 @@
  * MULTIPLAYER. Invite is OS chrome — this app never draws a share button.
  * The host (the person who opened the app) is the near paddle and simulates
  * the puck. The friend writes only their own paddle. Nobody writes anybody
- * else's row.
+ * else's row. Who is here is gifos.people(). No heartbeat.
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 20;
-  var STALE_MS = 2500;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Air Hockey needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
 
   var api = root.gifos || null;
   var me = { id: 'local', name: 'You' };
   var owner = true;
   var others = {};
+  var roomPeople = [];
+  var roomKey = '';
   var opponent = null;
   var hadOpponent = false;
   var acc = 0;
   var netReady = !api;
+  var lastPubSig = '';
   var soundOn = true;
   var actx = null;
   var gameScene = null;
@@ -40,7 +45,23 @@
   function clamp(n, a, b) { return n < a ? a : n > b ? b : n; }
   function db(n) { return api && api.db ? api.db(n) : null; }
   function now() { return Date.now(); }
-  function isMp() { return !!(opponent && (now() - opponent.seen) < STALE_MS); }
+
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function isMp() { return !!(PEOPLE && opponent && peopleNames()[opponent.id]); }
   function round(n) { return Math.round(n * 1000) / 1000; }
 
   /* ------------------------------------------------------------------ */
@@ -357,27 +378,25 @@
   /* ------------------------------------------------------------------ */
 
   function ingest(list) {
-    var t = now(), seen = {};
+    var names = peopleNames(), seen = {};
     opponent = null;
     for (var i = 0; i < list.length; i++) {
       var p = list[i];
       if (!p || !p.id || p.id === me.id) continue;
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
-      var cur = others[p.id];
-      var moved = !cur || cur.x !== p.x || cur.z !== p.z || cur.stamp !== p.t || cur.host !== p.host;
       others[p.id] = {
         id: p.id,
-        name: p.name || 'Friend',
+        name: names[p.id] || p.name || 'Friend',
         x: p.x, z: p.z,
         ax: p.ax, az: p.az,
         stamp: p.t,
-        seen: moved ? t : cur.seen,
         host: p.host,
         pucks: p.pucks,
         sa: p.sa, sb: p.sb
       };
     }
-    for (var id in others) if (!seen[id] || t - others[id].seen > STALE_MS) delete others[id];
+    for (var id in others) if (!seen[id] || !names[id]) delete others[id];
 
     var ids = Object.keys(others).sort();
     if (!owner) {
@@ -414,7 +433,7 @@
 
   function publish(dt) {
     var players = db('players');
-    if (!netReady || !players || !me.id || me.id === 'local') return;
+    if (!PEOPLE || !netReady || !players || !me.id || me.id === 'local') return;
     if (!gameScene || !gameScene.model || gameScene.model.state === Hockey.GameModel.STATES.LOADING) return;
     var paddle = myPaddle();
     if (!paddle) return;
@@ -425,8 +444,7 @@
       id: me.id,
       name: me.name,
       x: round(paddle.position.x),
-      z: round(paddle.position.z),
-      t: now()
+      z: round(paddle.position.z)
     };
     if (owner) {
       rec.host = 1;
@@ -448,25 +466,49 @@
         });
       }
     }
+    var sig = JSON.stringify(rec);
+    if (sig === lastPubSig) return;
+    lastPubSig = sig;
+    rec.t = now();
     players.put(rec).catch(function () {});
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        if (opponent && !names[opponent.id]) opponent = null;
+        maybeSwitchMode();
+        setHint();
+        paintScores();
+      }
+    }, function () {});
   }
 
   function bootNet() {
     if (!api || !api.db) return;
-    var ready = [];
-    if (api.me) ready.push(api.me().then(function (m) {
-      me.id = (m && m.id) || 'local';
-      me.name = (m && m.name) || 'You';
-    }).catch(function () {}));
-    if (api.info) ready.push(api.info().then(function (i) {
-      owner = !!(i && i.owner);
-    }).catch(function () {}));
-    Promise.all(ready).then(function () {
+    if (!PEOPLE) return;
+    readRoom().then(function () {
       netReady = true;
       db('players').subscribe(function (list) { ingest(list || []); });
+      setInterval(readRoom, PEOPLE_MS);
       setHint();
       paintScores();
-    });
+    }).catch(function () {});
   }
 
   /* ------------------------------------------------------------------ */
@@ -519,4 +561,34 @@
   setHint();
   bootNet();
   whenImages(init);
+
+  root['__air-hockey'] = {
+    state: function () {
+      if (!PEOPLE || !me.id || me.id === 'local') return null;
+      var a = 0, b = 0;
+      if (gameScene && gameScene.model) {
+        a = gameScene.model.playerA.score || 0;
+        b = gameScene.model.playerB.score || 0;
+      }
+      return { sa: a, sb: b };
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'ah-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
+
 })(window);
