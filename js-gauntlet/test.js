@@ -509,7 +509,7 @@ const flushJG = () => new Promise((r) => setImmediate(r));
     const man = JSON.parse(src('manifest.json'));
     const help = src('help.md');
     check('db + multiplayer are declared', man.capabilities.db === true && man.capabilities.multiplayer === true);
-    check('minBuild stays 947', man.minBuild === 947);
+    check('minBuild is 5861', man.minBuild === 5861);
     check('author is Jake Gordon', listing.author.name === 'Jake Gordon' && listing.basedOn.blessed === false);
     // TEXT-CHECK: a trademark disclaimer; the words are the deliverable.
     check('listing does not claim a Namco product as ours',
