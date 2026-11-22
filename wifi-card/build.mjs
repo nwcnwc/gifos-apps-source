@@ -63,7 +63,7 @@ if (qrHex !== QR_SHA256) {
   throw new Error('vendor/qrcode.js sha256 ' + qrHex + ' ≠ pin ' + QR_SHA256);
 }
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947 — this app needs nothing newer than the store.');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861 — this app needs nothing newer than the store.');
 if (manifest.appId !== 'wifi-card') throw new Error('appId must be wifi-card');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
