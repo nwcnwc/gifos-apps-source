@@ -317,7 +317,7 @@
       usedSeed = null;
       usedRound = 0;
       roundOver = false;
-      lastScorePub = -1;
+      lastScorePub = 0;
       if (!subscribed) {
         subscribed = true;
         room.subscribe(onRoom);
