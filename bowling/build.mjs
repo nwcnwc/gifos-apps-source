@@ -53,7 +53,8 @@ for (const need of ['vendor/layout.js', 'vendor/COPYING-bowling.txt', 'vendor/UP
 }
 
 if (!(manifest.minBuild >= 5861)) throw new Error('minBuild must be 5861 or higher: this app needs gifos.room.');
-if (!manifest.room || manifest.room.turns !== 'free' || !manifest.room.seats) throw new Error('manifest needs the room block (seats, free turns)');
+if (!manifest.room || manifest.room.turns !== 'order' || !manifest.room.seats) throw new Error('manifest needs the room block (seats, turns in order)');
+if (!(manifest.minBuild >= 5995)) throw new Error('minBuild must be 5995 or higher: turns in order need the room to skip open seats (0.9.27.4).');
 if (manifest.appId !== 'bowling') throw new Error('appId must be bowling');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
