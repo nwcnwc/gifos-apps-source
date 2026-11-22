@@ -234,8 +234,8 @@
     round = 1;
     used = null;
     applyChart(ch, round, true);
-    // Auto-enter from people() is not an act — no room put (K3). Button / hand-off may put.
-    if (fromAct) { lastPub = 0; publish(); }
+    // Guests never join-put. Owner puts the chart once so everyone adopts (K3: one write in settle before w1).
+    if (owner) { lastPub = 0; publish(); }
     render();
   }
 
@@ -367,9 +367,10 @@
 
   root['__guitar-bro'] = {
     state: function () {
+      // Room-adopted chart only — local on/round races before any put (K8).
       var ad = adopted(lastList);
-      if (ad) return { round: ad.round | 0, seed: ad.seed >>> 0 };
-      return on ? { round: (used && used.round ? used.round : round) | 0 } : null;
+      if (!ad) return null;
+      return { round: ad.round | 0 };
     },
     people: function () {
       return live(lastList).map(function (p) { return p.id; });
