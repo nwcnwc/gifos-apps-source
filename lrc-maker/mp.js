@@ -147,7 +147,8 @@
   };
   root['__lrc-maker'] = {
     state: function () {
-      return on && acted ? { round: usedRound || round } : (on ? { round: usedRound || 0 } : null);
+      var ad = adopted(lastList);
+      return ad ? { round: ad.round | 0 } : null;
     },
     people: function () { return live(lastList).map(function (p) { return p.id; }); },
     amHost: function () { return PEOPLE && owner && peopleCount() > 1 && on; }
