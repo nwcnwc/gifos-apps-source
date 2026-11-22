@@ -34,7 +34,7 @@ Bulldoze the plant. Raise tax to 20%. Cut the road between homes and works. Watc
 
 ## With a friend
 
-Press **Invite** in the bar **above** this app — Civiclock does not draw a share button. Whoever opens the link is co-mayor on the **same** land. The owner’s device runs the months; everyone can paint. Cursors of other mayors show on the map.
+Press **Invite** in the bar **above** this app — Civiclock does not draw a share button. Whoever opens the link is co-mayor on the **same** land. Who is here comes from the room (gifos.people()). The app owner hosts the months; GifOS hands that on when they leave. Everyone can paint. Cursors of other mayors show on the map. An older GifOS shows a line that Civiclock needs a newer build — solo still works.
 
 ## What is saved
 

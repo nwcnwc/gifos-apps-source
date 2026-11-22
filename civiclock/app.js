@@ -27,6 +27,13 @@
   var owner = true;
   var cityDb = null, editsDb = null, cursorsDb = null, prefsDb = null;
   var cursors = [];
+  var NEEDS_NEWER = 'Civiclock needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(window.gifos && gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var roomRead = false;
+  var mpOn = false;
   var cam = { x: 0, y: 0, s: 1 };
   var canvas = $('map');
   var ctx = canvas.getContext('2d');
@@ -41,6 +48,37 @@
 
   function hasGifos() {
     return !!(window.gifos && gifos.db);
+  }
+
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !window.gifos) return Promise.resolve();
+    return Promise.all([
+      gifos.people(),
+      gifos.info ? gifos.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || ''; }
+      if (key !== roomKey) {
+        roomKey = key;
+        showMayors(cursors);
+      }
+    }, function () {});
   }
 
   var toolsEl = $('tools');
@@ -142,7 +180,7 @@
 
   function persistWorld(w) {
     world = w;
-    if (!cityDb) return;
+    if (!cityDb || !PEOPLE) return;
     cityDb.put(C.dump(w)).catch(function () {});
   }
 
@@ -177,10 +215,10 @@
     }
     world = r.world;
     hud();
-    if (editsDb && !owner) {
+    if (editsDb && !owner && PEOPLE) {
       editsDb.put({
         id: 'e_' + me.id + '_' + Date.now(),
-        x: x, y: y, tool: tool, by: me.id, name: me.name, at: Date.now()
+        x: x, y: y, tool: tool, by: me.id, at: Date.now()
       }).catch(function (err) { flash(String(err && err.message || err)); });
     } else {
       persistWorld(world);
@@ -374,12 +412,12 @@
 
   var lastCursorAt = 0;
   function publishCursor(t) {
-    if (!cursorsDb || !t) return;
+    if (!cursorsDb || !t || !PEOPLE || !me.id) return;
     var n = Date.now();
     if (n - lastCursorAt < 180) return;
     lastCursorAt = n;
     cursorsDb.put({
-      id: me.id, x: t.x, y: t.y, tool: tool, name: me.name || 'mayor', at: n
+      id: me.id, x: t.x, y: t.y, tool: tool
     }).catch(function () {});
   }
 
@@ -389,10 +427,15 @@
   }
 
   function showMayors(list) {
-    var live = (list || []).filter(function (c) {
-      return c && Date.now() - (c.at || 0) < 8000;
-    });
-    cursors = live;
+    // Keep the latest cursor rows; who is here is gifos.people(), not a stale clock.
+    if (list) cursors = list || [];
+    var names = peopleNames(), live = [], i, c;
+    for (i = 0; i < cursors.length; i++) {
+      c = cursors[i];
+      if (!c || !c.id) continue;
+      if (!Object.prototype.hasOwnProperty.call(names, c.id)) continue;
+      live.push(c);
+    }
     var el = $('mayors');
     if (live.length <= 1) { el.hidden = true; return; }
     el.hidden = false;
@@ -437,23 +480,26 @@
       bindBack();
       return;
     }
+    if (!PEOPLE) {
+      var el = $('mayors');
+      if (el) { el.hidden = false; el.textContent = NEEDS_NEWER; }
+      bindBack();
+      return;
+    }
     try {
       cityDb = gifos.db('city');
       editsDb = gifos.db('edits');
       cursorsDb = gifos.db('cursors');
       prefsDb = gifos.db('prefs');
     } catch (e) {}
-    Promise.resolve()
-      .then(function () { return gifos.me ? gifos.me() : { id: 'local', name: '' }; })
-      .then(function (m) { me = m || me; })
-      .then(function () { return gifos.info ? gifos.info() : { owner: true }; })
-      .then(function (info) { owner = !info || info.owner !== false; })
+    readRoom()
       .then(function () { return prefsDb ? prefsDb.get('ui') : null; })
       .then(function (ui) {
         if (ui && ui.tool) setTool(ui.tool);
         if (ui && ui.coach === 0) hideCoach();
       })
       .then(function () {
+        mpOn = true;
         if (cityDb && cityDb.subscribe) {
           cityDb.subscribe(function (rows) {
             var rec = null, i;
@@ -466,6 +512,7 @@
           });
         }
         if (cursorsDb && cursorsDb.subscribe) cursorsDb.subscribe(showMayors);
+        setInterval(readRoom, PEOPLE_MS);
         return cityDb ? cityDb.get('world') : null;
       })
       .then(function (rec) {
@@ -490,5 +537,27 @@
   }
 
   window.CiviclockApp = { coverShot: coverShot, world: function () { return world; }, setWorld: persistWorld };
+  window['__civiclock'] = {
+    state: function () {
+      if (!mpOn || !PEOPLE) return null;
+      return {
+        month: world.month | 0,
+        pop: world.pop | 0,
+        money: world.money | 0,
+        v: world.v | 0,
+        speed: world.speed | 0
+      };
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      for (id in names) if (Object.prototype.hasOwnProperty.call(names, id)) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      var names = peopleNames(), n = 0, id;
+      for (id in names) if (Object.prototype.hasOwnProperty.call(names, id)) n++;
+      return PEOPLE && mpOn && owner && n > 1;
+    }
+  };
   boot();
 })();
