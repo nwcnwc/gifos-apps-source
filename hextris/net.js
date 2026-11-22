@@ -32,7 +32,7 @@
   var lastList = [];
   var roundOver = false;
   var lastPub = 0;
-  var lastScorePub = -1;
+  var lastScorePub = 0;
 
   var $id = function (id) { return document.getElementById(id); };
   var now = function () { return Date.now(); };
@@ -324,7 +324,7 @@
       } else {
         onRoom(lastList);
       }
-      if (!usedSeed) applySeed(mySeed, round, !!(fromAct || owner));
+      if (!usedSeed) applySeed(mySeed, round, !!owner);
       if (peopleTimer) clearInterval(peopleTimer);
       peopleTimer = setInterval(readRoom, PEOPLE_MS);
       renderMp();
@@ -357,8 +357,10 @@
     if (!on) return;
     var sc = root.score | 0;
     var over = !!(root.HT && HT.over && HT.over());
-    if (sc > lastScorePub || over) {
-      if (sc > lastScorePub) lastScorePub = sc;
+    if (sc > lastScorePub) {
+      lastScorePub = sc;
+      publish(true);
+    } else if (over && lastScorePub > 0) {
       publish(true);
     }
     renderMp();
