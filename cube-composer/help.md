@@ -34,11 +34,11 @@ Difficulty is marked Easy / Medium / Hard on each puzzle. Hard ones have no Tip.
 
 ## A live friend
 
-On your own this is the original puzzle. Close it, come back — you are still on that puzzle.
+Playing alone is the original puzzle. The last level stays on this device.
 
 Press **Play a friend**, then **Invite** in the bar above the app, and send the link. You both get the **same picture**. First to match it wins. If two people finish in the same moment, **fewer steps** wins.
 
-You never see each other’s functions — only who finished, and how many steps they used. The level menu is locked for the race. **Next puzzle** starts the next round. **← Solo** returns you to your own save.
+Who is here comes from the room (gifos.people()). The app owner hosts the shared level; GifOS hands that on when they leave. An older GifOS shows a line that Cube Composer needs a newer build — solo still works.
 
 ## What is saved
 
