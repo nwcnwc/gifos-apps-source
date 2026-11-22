@@ -621,7 +621,7 @@
       setChip('ready', 'A friend');
       if (!mp.sub) {
         mp.sub = true;
-        matchDb.subscribe(function (items) { _matchItems = items || []; mpRefresh(); });
+        matchDb.subscribe(function (items) { _matchItems = items || []; mp.matchSeen = true; mpRefresh(); });
         playersDb.subscribe(function (items) { _playerItems = items || []; mpRefresh(); });
       }
       if (mp.peopleTimer) clearInterval(mp.peopleTimer);
@@ -634,6 +634,7 @@
     mp.on = false;
     stopTick();
     if (mp.peopleTimer) clearInterval(mp.peopleTimer); mp.peopleTimer = 0;
+  mp.matchSeen = false;
     if (playersDb && mp.id && mp.id !== 'local') playersDb.delete(mp.id).catch(function () {});
     show('setup');
     setChip('ready', 'Ready');
@@ -655,7 +656,9 @@
       for (i = 0; i < people.length; i++) if (people[i].id === mp.id) mp.row = people[i];
     }
     if (!match) {
-      if (isHost()) putMatch(freshMatch(mp.id, mp.duration, mp.difficulty));
+      // Wait for the first subscribe snapshot so a late joiner / new host does not
+      // overwrite a live playing match with a fresh lobby (kit K8).
+      if (isHost() && mp.matchSeen) putMatch(freshMatch(mp.id, mp.duration, mp.difficulty));
       mpRenderLobby();
       return;
     }

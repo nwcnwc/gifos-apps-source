@@ -3,7 +3,7 @@
   "appId": "math-race",
   "name": "Math Race",
   "shortName": "Math Race",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "minBuild": 5861,
   "description": "Solve it first. Same equation, a clock, live scores. Practice alone, or race a friend from one invite.",
   "entry": "index.html",
