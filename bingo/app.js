@@ -373,6 +373,8 @@
   var mp = {
     on: false, id: null, name: 'You', row: null, people: [], hb: 0, sub: false,
     adopted: null, marked: emptyMarks(), auto: false,
+    // autoIn: entered together once (mp.auto is the caller's auto-draw).
+    autoIn: false, read: false,
     // Am I the app owner — the person whose link this is? A lone player owns
     // their own room, so a runtime that cannot say defaults to yes.
     owner: true
@@ -398,16 +400,25 @@
       var info = r[1] || {};
       var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
       roomPeople = ppl;
+      // Handed the app (owner left): this copy must host with the others.
+      var handed = !mp.owner && !!info.owner && mp.read;
       mp.owner = !!info.owner;
+      mp.read = true;
       var mine = null, i;
       for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
       if (mine) {
         mp.id = mine.id;
         mp.name = mine.name || 'You';
       }
-      if (key !== roomKey) {
+      // Opened with others, or handed the app: join without hunting for a button.
+      if ((handed || (!mp.autoIn && !localPlay)) && !mp.on && ppl.length > 1) {
+        mp.autoIn = true;
+        mpEnter();
+      } else if (key !== roomKey) {
         roomKey = key;
         if (mp.on) mpRefresh();
+      } else {
+        roomKey = key;
       }
     }, function () {});
   }
@@ -941,8 +952,9 @@
 
   window['__bingo'] = {
     state: function () {
-      var ad = mp.adopted;
-      return mp.on && ad ? { round: ad.round | 0, phase: ad.phase || 'lobby', called: (ad.called || []).length | 0 } : null;
+      // Shared round from the room rows so a late joiner agrees before local adopt.
+      var ad = adoptedRound(livePeople(_items)) || (mp.on ? mp.adopted : null);
+      return ad ? { round: ad.round | 0, phase: ad.phase || 'lobby', called: (ad.called || []).length | 0 } : null;
     },
     people: function () {
       return livePeople(_items).map(function (p) { return p.id; });
