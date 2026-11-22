@@ -42,7 +42,7 @@ const srcBuf = readFileSync(join(dir, 'vendor', 'script.js'));
 const hex = createHash('sha256').update(srcBuf).digest('hex');
 if (hex !== PIN) throw new Error('vendor/script.js sha256 ' + hex + ' ≠ pin ' + PIN);
 
-if (manifest.minBuild !== 947) throw new Error('minBuild');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861');
 if (manifest.appId !== 'memory') throw new Error('appId');
 if (!manifest.capabilities.db || !manifest.capabilities.multiplayer) throw new Error('db+mp');
 if (manifest.capabilities.network) throw new Error('no network');

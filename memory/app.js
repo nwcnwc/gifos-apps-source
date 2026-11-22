@@ -4,7 +4,7 @@
  * Same rules as vendor/script.js: 4 pads, a growing sequence, extra pads
  * after level 7 and 14, speed 2500 down to 550. No SweetAlert, no CDN, no
  * music. Pad tones are local Web Audio. Best score in gifos.db. Invite is a
- * race on the same seeded sequence — whoever taps Start publishes the seed.
+ * race on the same seeded sequence — the app owner publishes the seed; GifOS hands that on when they leave.
  */
 (function (root) {
   'use strict';
@@ -98,6 +98,9 @@
   G.muted = false;
 
   var api = typeof gifos !== 'undefined' ? gifos : null;
+  var NEEDS_NEWER = 'Memory needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(api && api.people);
   var saveDb = null, matchDb = null, playersDb = null;
   try {
     if (api && api.db) {
@@ -109,12 +112,35 @@
 
   var me = { id: 'local', name: 'You' };
   var others = [];
+  var lastPlayerRows = [];
   var match = null;
   var started = false;
   var ac = null;
   var timers = [];
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var roomRead = false;
+  var hbTimer = 0;
 
-  function versusOn() { return others.length > 0; }
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+  function versusOn() { return PEOPLE && peopleCount() > 1; }
+  function iAmHost() { return !!(PEOPLE && owner); }
 
   function clearTimers() {
     timers.forEach(function (t) { clearTimeout(t); });
@@ -128,11 +154,12 @@
   }
 
   function publish() {
-    if (!started || !playersDb || !me.id || me.id === 'local') return;
+    if (!PEOPLE || !started || !playersDb || !me.id || me.id === 'local') return;
+    if (peopleCount() < 2) return;
     playersDb.put({
-      id: me.id, name: me.name,
+      id: me.id,
       round: match && match.id, score: G.score, level: G.level,
-      phase: G.phase, t: Date.now()
+      phase: G.phase
     }).catch(function () {});
   }
 
@@ -288,6 +315,10 @@
     if (G.phase === 'demo' || G.phase === 'play') return;
     var seed = ((Math.random() * 0x7fffffff) | 1);
     if (versusOn() && matchDb) {
+      if (!iAmHost()) {
+        statusEl.textContent = 'Waiting for the host to start the shared round.';
+        return;
+      }
       var rec = { id: 'round', n: Date.now(), seed: seed };
       matchDb.put(rec).catch(function (err) {
         statusEl.textContent = (err && err.message) || 'Could not share the round.';
@@ -317,12 +348,50 @@
   }
 
   function ingestPlayers(list) {
+    lastPlayerRows = list || [];
+    var names = peopleNames();
     others = [];
-    (list || []).forEach(function (p) {
+    lastPlayerRows.forEach(function (p) {
       if (!p || !p.id || p.id === me.id) return;
-      others.push(p);
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
+      others.push({
+        id: p.id,
+        name: names[p.id] || p.name || 'Friend',
+        score: p.score || 0,
+        level: p.level || 0,
+        phase: p.phase,
+        round: p.round
+      });
     });
     paint();
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      var wasOwner = owner;
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (!wasOwner && owner && roomRead && peopleCount() > 1 && !match) {
+        // Hand-off: new owner can start the next shared round (P2).
+        statusEl.textContent = 'You host now — tap Start for a shared round.';
+      }
+      if (key !== roomKey) {
+        roomKey = key;
+        ingestPlayers(lastPlayerRows);
+      }
+      paint();
+    }, function () {});
   }
 
   document.addEventListener('keydown', function (e) {
@@ -352,25 +421,33 @@
 
   function boot() {
     if (!api || !api.db) return;
-    api.me().then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
-      var p = Promise.resolve();
-      if (saveDb) {
-        p = saveDb.get('best').then(function (row) {
-          if (!row) return;
-          if (row.score) G.best = row.score | 0;
-          if (row.muted) G.muted = !!row.muted;
-          paint();
+    var roomP = PEOPLE ? readRoom() : Promise.resolve();
+    var saveP = Promise.resolve();
+    if (saveDb) {
+      saveP = saveDb.get('best').then(function (row) {
+        if (!row) return;
+        if (row.score) G.best = row.score | 0;
+        if (row.muted) G.muted = !!row.muted;
+        paint();
+      }).catch(function () {});
+    }
+    if (!PEOPLE) {
+      // Solo still works; friend race needs people()/owner.
+      if (api.me) {
+        api.me().then(function (id) {
+          me.id = (id && id.id) || 'local';
+          me.name = (id && id.name) || 'You';
         }).catch(function () {});
       }
-      return p;
-    }).then(function () {
-      if (!matchDb || !playersDb || me.id === 'local') return;
+    }
+    Promise.all([roomP, saveP]).then(function () {
+      if (!PEOPLE || !matchDb || !playersDb) return;
       started = true;
       matchDb.subscribe(ingestMatch);
       playersDb.subscribe(ingestPlayers);
       publish();
+      if (hbTimer) clearInterval(hbTimer);
+      hbTimer = setInterval(readRoom, PEOPLE_MS);
     }).catch(function () {});
   }
 
@@ -389,6 +466,31 @@
       }
       return false;
     });
+  }
+
+
+  root['__memory'] = {
+    state: function () {
+      if (!match) return null;
+      return { n: match.id | 0, seed: match.seed | 0 };
+    },
+    people: function () {
+      var names = peopleNames(), out = [];
+      if (me.id && names[me.id]) out.push(me.id);
+      others.forEach(function (p) { if (names[p.id]) out.push(p.id); });
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'memory-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
   }
 
   boot();
