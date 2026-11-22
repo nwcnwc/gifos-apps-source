@@ -1,6 +1,7 @@
 /* Optional meeting: the same card, on everyone else's screen.
- * Each person writes THEIR own row. The app owner hosts the live card
- * (else lowest id). Who is here is gifos.people(). Invite is OS chrome. */
+ * Each person writes THEIR own row. Nobody writes anybody else's row.
+ * The app owner hosts the live card (else lowest id). Who is here is
+ * gifos.people(). Invite is OS chrome. */
 (function (root) {
   'use strict';
 
