@@ -623,14 +623,15 @@
   function undoPut(state) {
     if (!auxDb) return Promise.resolve();
     var u = undoRec(), b = curBoard();
-    return auxDb.put({ id: 'undo', round: mp.rs.round, seq: b.seq || 0, by: u ? u.by : mp.rs.me.id, state: state }).catch(mpSay);
+    // app = the seat holding the turn when asked: that seat makes the move that removes the stone
+    return auxDb.put({ id: 'undo', round: mp.rs.round, seq: b.seq || 0, by: u ? u.by : mp.rs.me.id, app: u ? u.app : mp.rs.turn, state: state }).catch(mpSay);
   }
   $('fUndo').onclick = function () {
     mp.note = '';
     if (!undoOk()) return;
     var u = undoRec(), other = seatRow(otherSeat(mySeat()));
     if (!other.id) { undoApply(); return; }   // nobody else is seated: at once
-    if (u && u.state === 'ask' && u.by !== mp.rs.me.id) { undoPut('ok').then(undoApply); return; }
+    if (u && u.state === 'ask' && u.by !== mp.rs.me.id) { undoPut('ok').then(function () { if (u.app === mySeat()) undoApply(); }); return; }
     if (u && u.state === 'ask') return;       // already asked, waiting for the answer
     undoPut('ask').then(function () { mp.note = ''; mpRender(); });
     mp.undo = { id: 'undo', round: mp.rs.round, seq: curBoard().seq || 0, by: mp.rs.me.id, state: 'ask' };
@@ -726,7 +727,7 @@
     $('fUndoNo').hidden = !incoming;
     if (u && u.state === 'no' && rs && rs.me && u.by === rs.me.id && !mp.note) setStatus($('fStatus'), 'Undo declined.', '');
     else if (incoming && !mp.note) setStatus($('fStatus'), 'Your opponent asks to take back the last move.', '');
-    if (rs) { saveLeave(); if (u && u.state === 'ok' && u.by === rs.me.id) undoApply(); }
+    if (rs) { saveLeave(); if (u && u.state === 'ok' && u.app === mySeat()) undoApply(); }
   }
 
   (function buildCells() {
