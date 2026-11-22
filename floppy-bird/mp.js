@@ -500,8 +500,20 @@
 
   root['__floppy-bird'] = {
     state: function () {
-      // Shared course seed only — live y/distance race (K8).
-      return PEOPLE && me.id ? { seed: pipeSeed >>> 0 } : null;
+      // Seed from published room rows only — local pipeSeed races before put (K8).
+      var names = peopleNames(), seeds = [];
+      (lastList || []).forEach(function (p) {
+        if (!p || !p.id || !p.seed) return;
+        if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
+        seeds.push({ id: p.id, seed: p.seed >>> 0 });
+      });
+      if (!seeds.length) return null;
+      var i;
+      if (owner && me.id) {
+        for (i = 0; i < seeds.length; i++) if (seeds[i].id === me.id) return { seed: seeds[i].seed };
+      }
+      seeds.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
+      return { seed: seeds[0].seed };
     },
     people: function () {
       return roster().map(function (r) { return r.id; });
