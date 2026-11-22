@@ -147,8 +147,6 @@
     if (root.GBApp && root.GBApp.syncMenu) root.GBApp.syncMenu(ch);
     if (root.GBApp && root.GBApp.hideMenu) root.GBApp.hideMenu();
     if (root.GBApp && root.GBApp.setRace) root.GBApp.setRace(true);
-    lastPub = 0;
-    publish();
   }
 
   function verdict(players) {
@@ -216,6 +214,8 @@
     var ad = adopted(lastList);
     if (ad && (!used || ad.round !== used.round || !sameChart(ad, used))) {
       applyChart(ad, ad.round, ad.by === me.id);
+      lastPub = 0;
+      publish();
     }
     render();
   }
@@ -233,6 +233,8 @@
     round = 1;
     used = null;
     applyChart(ch, round, true);
+    lastPub = 0;
+    publish();
     render();
   }
 
@@ -255,7 +257,7 @@
       if (handed && !declined) {
         // New owner must host the race after hand-off (P2).
         if (!on) startRace();
-        else publish();
+        else { lastPub = 0; publish(); }
       } else if (key !== roomKey) {
         roomKey = key;
         if (on) onRoom(lastList);
@@ -332,10 +334,17 @@
     ch.seed = (Math.random() * 0x100000000) >>> 0;
     round = (used && used.round ? used.round : round) + 1;
     applyChart(ch, round, true);
+    lastPub = 0;
+    publish();
   }
 
+  var lastScorePub = '';
   function onPlayed() {
     if (!on) return;
+    var g = root.GB;
+    var key = g ? String(g.score|0) + ':' + String(g.hits|0) + ':' + String(!!g.done) : '';
+    if (key && key === lastScorePub) { render(); return; }
+    lastScorePub = key;
     publish();
     render();
   }
@@ -359,7 +368,7 @@
       return live(lastList).map(function (p) { return p.id; });
     },
     amHost: function () {
-      return on && owner && peopleCount() > 1;
+      return PEOPLE && owner && peopleCount() > 1;
     }
   };
 
