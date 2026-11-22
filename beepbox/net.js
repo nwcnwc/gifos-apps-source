@@ -186,12 +186,10 @@
           // Only adopt a guest song that differs from the wire canonical — and
           // defer the put so subscribe cannot re-enter this stack frame.
           if (np && np !== cp) {
-            var adopt = newest.json;
-            var adoptSeq = ((lastSong && lastSong.seq) || 0) + 1;
-            setTimeout(function () { publishSong(adopt, adoptSeq); }, 0);
+            publishSong(newest.json, ((lastSong && lastSong.seq) || 0) + 1);
           }
         } else if (getJson && !canonical) {
-          setTimeout(function () { publishSong(getJson(), 1); }, 0);
+          publishSong(getJson(), 1);
         }
       }
     } finally {
