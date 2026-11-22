@@ -258,7 +258,6 @@
       if (handed && !declined) {
         // New owner must host the race after hand-off (P2).
         if (!on) startRace(true);
-        else { publish(); }
       } else if (key !== roomKey) {
         roomKey = key;
         if (on) onRoom(lastList);
@@ -339,17 +338,21 @@
     publish();
   }
 
-  var lastHitsPub = -1;
+  var lastHitsPub = 0;
+  var publishedDone = false;
   function onPlayed() {
     if (!on) return;
     var g = root.GB;
     var hits = g ? (g.hits | 0) : 0;
     var done = !!(g && g.done);
     // game.onChange fires often; only room-put on a real hit or song end (K3).
-    if (hits <= lastHitsPub && !done) { render(); return; }
-    if (hits === lastHitsPub && done) { /* allow one done put */ }
-    lastHitsPub = hits;
-    publish(true);
+    if (hits > lastHitsPub) {
+      lastHitsPub = hits;
+      publish(true);
+    } else if (done && !publishedDone && lastHitsPub > 0) {
+      publishedDone = true;
+      publish(true);
+    }
     render();
   }
 
