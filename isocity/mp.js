@@ -1,8 +1,8 @@
 // Share the map, or compare cities.
 //
-// Share: each player writes tile strokes on THEIR own row. The host (lowest
-// present id) applies legal placements onto the city row. Nobody writes
-// anybody else's row.
+// Share: each player writes tile strokes on THEIR own row. Who is here is
+// gifos.people(); the app owner applies placements onto the city row.
+// Nobody writes anybody else's row.
 // Compare: each player publishes THEIR city on their own row. Tap a name to
 // peek; you only ever edit yours.
 //
@@ -10,8 +10,9 @@
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 3000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'IsoCity needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var PUB_MS = 120;
   var NTILES = 16;
   var TEX_W = 12;
@@ -27,10 +28,13 @@
   var on = false;
   var mode = null; // 'share' | 'compare'
   var subscribed = false;
-  var hbTimer = 0;
+  var peopleTimer = 0;
   var pubTimer = 0;
   var lastList = [];
-  var seenAt = {};
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var roomRead = false;
   var myN = 0;
   var pending = [];
   var viewing = null;
@@ -62,26 +66,32 @@
     for (var i = 0; i < (cells || []).length; i++) if (cells[i]) n++;
     return n;
   }
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id || p.id === 'city') return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      var rec = seenAt[p.id];
-      if (t - rec.seen > STALE_MS) return;
+      if (!names[p.id]) return;
       out.push(p);
     });
     return out;
   }
-  function isHost(people) {
-    people = people || live(lastList);
-    if (!people.length) return true;
-    var m = people[0].id;
-    for (var i = 0; i < people.length; i++) if (people[i].id < m) m = people[i].id;
-    return me.id === m;
-  }
+  function isHost() { return PEOPLE && owner; }
   function cityOf(list) {
     for (var i = 0; i < (list || []).length; i++) {
       if (list[i] && list[i].id === 'city') return list[i];
@@ -92,11 +102,9 @@
   function snapshot(extra) {
     var row = {
       id: me.id,
-      name: me.name,
       mode: mode,
       n: myN,
-      pending: pending.slice(),
-      at: now()
+      pending: pending.slice()
     };
     if (mode === 'compare') {
       row.cells = ownCells();
@@ -110,7 +118,8 @@
   }
 
   function publish() {
-    if (!on || !room || !me.id) return;
+    if (!PEOPLE || !on || !room || !me.id) return;
+    if (!myN && !pending.length && mode !== 'compare') return;
     room.put(snapshot()).catch(function () {});
   }
   function schedulePublish() {
@@ -122,6 +131,7 @@
   }
 
   function putCity(c) {
+    if (!PEOPLE || !owner) return;
     lastCity = c;
     room.put(c).catch(function () {});
   }
@@ -252,7 +262,7 @@
       var tiles = mode === 'compare' ? countFilled(p.cells) : (p.n || 0);
       var view = viewing === p.id;
       html += '<li class="' + (mine ? 'me' : '') + (view ? ' viewing' : '') + '" data-id="' + esc(p.id) + '">' +
-        '<span class="name">' + (mine ? 'You' : esc(p.name || 'Player')) + '</span>' +
+        '<span class="name">' + (mine ? 'You' : esc(peopleNames()[p.id] || 'Player')) + '</span>' +
         '<span class="meta">' + tiles + ' tiles</span></li>';
     });
     roster.innerHTML = html || '<li>Just you so far</li>';
@@ -285,7 +295,7 @@
     var people = live(lastList);
     var city = cityOf(lastList);
     if (!city) {
-      if (isHost(people)) putCity(freshCity(me.id, mode));
+      if (isHost() && pending.length) putCity(freshCity(me.id, mode));
       render();
       return;
     }
@@ -293,7 +303,7 @@
     if (city.mode && city.mode !== mode) {
       mode = city.mode;
     }
-    if (isHost(people) && mode === 'share') {
+    if (isHost() && mode === 'share') {
       var next = reconcile(city, people);
       if (next) {
         putCity(next);
@@ -316,10 +326,29 @@
     render();
   }
 
-  function beat() {
-    if (!on) return;
-    publish();
-    render();
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      var handed = !owner && !!info.owner && roomRead;
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (handed && !on) enter('share');
+      else if (key !== roomKey) {
+        roomKey = key;
+        if (on) onRoom(lastList);
+        else if (peopleCount() > 1) enter('share');
+      }
+    }, function () {});
   }
 
   function enter(which) {
@@ -329,16 +358,18 @@
       $('friend-status').textContent = 'Sharing needs a GifOS room.';
       return;
     }
+    if (!PEOPLE) {
+      $('friend-bar').hidden = false;
+      $('friend-status').textContent = NEEDS_NEWER;
+      return;
+    }
     room = api.db('room');
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
+    readRoom().then(function () {
       on = true;
-      mode = which;
-      viewing = which === 'compare' ? me.id : null;
+      mode = which || 'share';
+      viewing = mode === 'compare' ? me.id : null;
       pending = [];
       myN = 0;
-      seenAt = {};
       lastPacked = '';
       lastCity = null;
       if (root.IsoCity.flushSave) root.IsoCity.flushSave();
@@ -348,7 +379,7 @@
       document.body.classList.add('together');
       $('friend-bar').hidden = false;
       if (root.IsoCity.centerMap) setTimeout(root.IsoCity.centerMap, 40);
-      $('friend-hint').textContent = which === 'share'
+      $('friend-hint').textContent = mode === 'share'
         ? 'Press Invite in the bar above the app to send the link. Everyone paints on the same city.'
         : 'Press Invite in the bar above the app to send the link. Each of you builds a city; tap a name to peek.';
       if ($('hint')) $('hint').hidden = true;
@@ -358,10 +389,10 @@
       } else {
         onRoom(lastList);
       }
-      publish();
-      beat();
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(beat, HB_MS);
+      // No publish/heartbeat on enter — write only when tiles are placed (K3).
+      if (peopleTimer) clearInterval(peopleTimer);
+      peopleTimer = setInterval(readRoom, PEOPLE_MS);
+      render();
     }).catch(function () {});
   }
 
@@ -382,7 +413,7 @@
       for (var i = 0; i < (cells || []).length; i++) if (cells[i]) n++;
       $('hint').hidden = n > 0;
     }
-    if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
+    if (peopleTimer) { clearInterval(peopleTimer); peopleTimer = 0; }
     if (pubTimer) { clearTimeout(pubTimer); pubTimer = 0; }
     if (room && me.id) room.delete(me.id).catch(function () {});
     if (root.IsoCity.restoreSave) root.IsoCity.restoreSave();
@@ -430,8 +461,14 @@
     viewing: function () { return viewing; }
   };
 
-  $('shareBtn').addEventListener('click', function (e) { e.preventDefault(); enter('share'); });
-  $('compareBtn').addEventListener('click', function (e) { e.preventDefault(); enter('compare'); });
+  if ($('shareBtn')) {
+    if (!PEOPLE) { $('shareBtn').disabled = true; $('shareBtn').title = NEEDS_NEWER; }
+    $('shareBtn').addEventListener('click', function (e) { e.preventDefault(); enter('share'); });
+  }
+  if ($('compareBtn')) {
+    if (!PEOPLE) { $('compareBtn').disabled = true; $('compareBtn').title = NEEDS_NEWER; }
+    $('compareBtn').addEventListener('click', function (e) { e.preventDefault(); enter('compare'); });
+  }
   $('leaveBtn').addEventListener('click', function (e) { e.preventDefault(); leave(); });
   $('mineBtn').addEventListener('click', function (e) { e.preventDefault(); view(me.id); });
   $('friend-roster').addEventListener('click', function (e) {
@@ -441,4 +478,26 @@
     var id = li.getAttribute('data-id');
     if (id && mode === 'compare') view(id);
   });
+
+  root['__isocity'] = {
+    state: function () {
+      var c = lastCity || cityOf(lastList);
+      return c ? { seq: c.seq | 0, mode: c.mode || mode } : null;
+    },
+    people: function () {
+      return live(lastList).map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1 && on;
+    }
+  };
+
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'isocity-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
+
 })(window);
