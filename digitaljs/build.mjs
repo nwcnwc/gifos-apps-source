@@ -54,7 +54,7 @@ if (/<\/script/i.test(vendorBuf.toString('utf8'))) throw new Error('</script in 
   if (!v.includes('Vector3vl')) throw new Error('Vector3vl global missing');
 }
 
-if (manifest.minBuild !== 947 || manifest.appId !== 'digitaljs') throw new Error('manifest');
+if (manifest.minBuild < 5861 || manifest.appId !== 'digitaljs') throw new Error('manifest');
 if (!manifest.capabilities.db || !manifest.capabilities.multiplayer) throw new Error('caps');
 if (manifest.capabilities.network) throw new Error('no network');
 if (listing.basedOn.blessed !== false || listing.basedOn.name !== 'DigitalJS') throw new Error('basedOn');

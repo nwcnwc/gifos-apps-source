@@ -37,7 +37,7 @@ nothing. Buttons, lamps and the I/O panel are the original widgets.
 | `db` | Last netlist in a `private` collection; the meeting copy in a `read-write` one. |
 | `multiplayer` | The room. Invite is OS chrome — this app never draws that button. |
 
-Needs nothing newer than the App Store itself, so `minBuild` is **947**.
+`minBuild` is **5861** (gifos.people()). Who is here comes from the room; the app owner hosts the shared bench and GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.
 
 ## Building
 
