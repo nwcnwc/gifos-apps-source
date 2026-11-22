@@ -5,12 +5,19 @@
   var $ = function (id) { return document.getElementById(id); };
 
   var trainer = PT.Trainer.create();
+  var NEEDS_NEWER = 'Piano Trainer needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(typeof gifos !== 'undefined' && gifos && gifos.people);
   var saveDb = null, roomDb = null, me = { id: 'local', name: 'You' };
   var saveTimer = 0;
   var together = false;
   var pointers = {};
   var firstRun = true;
   var flashTimer = 0;
+  var roomPeople = [];
+  var owner = false;
+  var lastPubSig = '';
+  var friendRows = [];
 
   try {
     if (window.gifos) {
@@ -30,13 +37,68 @@
     }, 180);
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+  function readRoom() {
+    if (!PEOPLE || typeof gifos === 'undefined' || !gifos) return Promise.resolve();
+    return Promise.all([
+      gifos.people(),
+      gifos.info ? gifos.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (together) paintFriend(friendRows);
+    }, function () {});
+  }
+  function paintFriend(rows) {
+    friendRows = rows || [];
+    var names = peopleNames();
+    var other = null, i;
+    for (i = 0; i < friendRows.length; i++) {
+      var row = friendRows[i];
+      if (!row || !row.id || row.id === me.id) continue;
+      if (!Object.prototype.hasOwnProperty.call(names, row.id)) continue;
+      other = Object.assign({}, row, { name: names[row.id] || row.name || 'Friend' });
+      break;
+    }
+    var note = $('friendNote');
+    if (!note) return;
+    if (!other) { note.hidden = true; return; }
+    note.hidden = false;
+    note.textContent = (other.name || 'Friend') + ' · ' + (other.mode || '') +
+      (other.quizPrompt ? ' · ' + other.quizPrompt : '');
+  }
   function publish() {
-    if (!together || !roomDb || !me.id) return;
-    roomDb.put({
-      id: me.id, name: me.name, at: Date.now(),
+    if (!PEOPLE || !together || !roomDb || !me.id) return;
+    if (peopleCount() < 2) return;
+    var row = {
+      id: me.id,
       mode: trainer.mode, tonicId: trainer.tonicId, step: trainer.step,
       quizPrompt: trainer.quiz && trainer.quiz.prompt
-    }).catch(function () {});
+    };
+    var sig = JSON.stringify(row);
+    if (sig === lastPubSig) return;
+    lastPubSig = sig;
+    roomDb.put(row).catch(function () {});
   }
 
   function paintCircle() {
@@ -319,27 +381,22 @@
   });
 
   $('togetherBtn').onclick = function () {
+    if (!PEOPLE) {
+      $('togetherNote').hidden = false;
+      $('togetherNote').textContent = NEEDS_NEWER;
+      return;
+    }
     together = !together;
     this.classList.toggle('on', together);
     $('togetherNote').hidden = !together;
     if (together) {
-      publish();
-      if (roomDb && roomDb.subscribe) {
-        roomDb.subscribe(function (rows) {
-          var list = rows || [];
-          var other = null, i;
-          for (i = 0; i < list.length; i++) {
-            if (list[i] && list[i].id && list[i].id !== me.id) {
-              if (!other || (list[i].at || 0) > (other.at || 0)) other = list[i];
-            }
-          }
-          var note = $('friendNote');
-          if (!other) { note.hidden = true; return; }
-          note.hidden = false;
-          note.textContent = (other.name || 'Friend') + ' · ' + (other.mode || '') +
-            (other.quizPrompt ? ' · ' + other.quizPrompt : '');
-        });
-      }
+      readRoom().then(function () {
+        publish();
+        if (roomDb && roomDb.subscribe) {
+          roomDb.subscribe(function (rows) { paintFriend(rows || []); });
+        }
+        setInterval(readRoom, PEOPLE_MS);
+      });
     } else {
       $('friendNote').hidden = true;
     }
@@ -382,7 +439,9 @@
     fillTonic();
     paint();
     var p = Promise.resolve();
-    if (window.gifos && gifos.me) {
+    if (PEOPLE) {
+      p = readRoom();
+    } else if (window.gifos && gifos.me) {
       p = gifos.me().then(function (id) {
         me.id = id && id.id ? id.id : 'local';
         me.name = (id && id.name) || 'You';
@@ -416,5 +475,27 @@
       });
     }
   }
+  window['__piano-trainer'] = {
+    state: function () {
+      return together ? { mode: trainer.mode, tonicId: trainer.tonicId, step: trainer.step | 0 } : null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'piano-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
+
   boot();
 })();
