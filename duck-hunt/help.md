@@ -21,3 +21,5 @@ Press **Invite** in the bar above the app. A friend who opens the link sits thei
 ## What is saved
 
 Your **best** and **last** run stay in this file. A live wave does not. Close it, come back, Play.
+
+Who is here comes from gifos.people(). The app owner hosts; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

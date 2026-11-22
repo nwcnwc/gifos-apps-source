@@ -43,6 +43,8 @@ function load(savedRow, roomRows) {
   const sandbox = {
     console, Math, Object, Array, JSON, Date, String, Number, Boolean, Promise,
     setTimeout: (fn) => { fn(); return 1; },
+    setInterval: (fn) => { return 1; },
+    clearInterval: () => {},
     document,
     window: null,
     gifos: {
@@ -52,6 +54,11 @@ function load(savedRow, roomRows) {
         subscribe: (cb) => { if (name === 'room') cb(roomRows || []); },
       }),
       me: () => Promise.resolve({ id: 'me1', name: 'Pat' }),
+      people: () => Promise.resolve([
+        { id: 'me1', name: 'Pat', me: true, here: 'here' },
+        { id: 'friend', name: 'Ada', here: 'here' },
+      ]),
+      info: () => Promise.resolve({ owner: true }),
       onBack: (fn) => { sandbox._onBack = fn; },
     },
   };
@@ -76,6 +83,7 @@ function load(savedRow, roomRows) {
 }
 
 async function runAsync() {
+  await pondBoard();
   const { sandbox, puts, document } = load({ id: 'save', best: 700, last: 300 }, []);
   const DH = sandbox.DHSave;
   await new Promise((r) => setImmediate(r));
@@ -100,14 +108,16 @@ async function runAsync() {
 }
 
 // ---- pond board -------------------------------------------------------------
-{
+async function pondBoard() {
   const { document } = load(null, [
-    { id: 'a', name: 'Ada', best: 500 },
-    { id: 'b', name: 'Bob', best: 900 },
+    { id: 'me1', best: 500 },
+    { id: 'friend', best: 900 },
   ]);
+  await Promise.resolve();
+  await Promise.resolve();
   const pond = document.getElementById('pond');
   check('two people at the pond un-hide the board', pond.hidden === false);
-  check('the pond lists the higher best first', /Bob 900/.test(pond.textContent) && /Ada 500/.test(pond.textContent), pond.textContent);
+  check('the pond lists the higher best first', /Ada 900/.test(pond.textContent) && /Pat 500/.test(pond.textContent), pond.textContent);
 }
 
 // ---- vendor hooks, RUN ------------------------------------------------------
@@ -393,7 +403,7 @@ function fakeDomPage(htmlText, opts) {
   check('listing does not say Nintendo', !/Nintendo/.test(listing) && !/Nintendo/.test(help) && !/Nintendo/.test(html));
   check('multiplayer + db declared', man.capabilities.db === true && man.capabilities.multiplayer === true);
   check('no network/wasm', !man.capabilities.network && !man.capabilities.wasm);
-  check('minBuild stays 947', man.minBuild === 947);
+  check('minBuild stays 5861', man.minBuild === 5861);
 }
 
 runAsync().then(function () {

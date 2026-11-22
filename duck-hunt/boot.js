@@ -1,16 +1,26 @@
 /*
  * Duck Hunt — GifOS shell. Best score in the file. Invite is OS chrome.
  * Two devices that open the same invite each have a zapper; the pond board
- * is the room. Replay must never assign window.location (srcdoc).
+ * is the room. Who is here is gifos.people(). Replay must never assign
+ * window.location (srcdoc).
  */
 (function (root) {
   'use strict';
+  var NEEDS_NEWER = 'Pond Hunt needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var roomRead = false;
+
   var prefs = { best: 0, last: 0 };
   var db = null;
   var roomDb = null;
   var me = { id: 'solo', name: '' };
   var pond = [];
   var saveTimer = 0;
+  var lastPub = 0;
 
   function paint(id, text) {
     if (typeof document === 'undefined') return;
@@ -23,11 +33,33 @@
     paint('best', t);
     paint('best-live', t);
   }
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'someone';
+    }
+    return m;
+  }
+  function livePond() {
+    var names = peopleNames(), out = [];
+    (pond || []).forEach(function (r) {
+      if (!r || !r.id) return;
+      if (!Object.prototype.hasOwnProperty.call(names, r.id)) return;
+      out.push({
+        id: r.id,
+        name: names[r.id] || r.name || 'someone',
+        best: r.best | 0,
+        last: r.last | 0
+      });
+    });
+    return out;
+  }
   function paintPond() {
     if (typeof document === 'undefined') return;
     var el = document.getElementById('pond');
     if (!el) return;
-    var rows = pond.filter(function (r) { return r && r.id; });
+    var rows = livePond();
     el.hidden = rows.length < 2;
     if (rows.length < 2) { el.textContent = ''; return; }
     rows.sort(function (a, b) { return (b.best | 0) - (a.best | 0); });
@@ -41,18 +73,29 @@
       tally.textContent = rows.length + ' at the pond';
     }
     var gateRoom = document.getElementById('gate-room');
-    if (gateRoom) gateRoom.textContent = rows.length + ' at the pond. Scores stay on each device — the board is the room.';
+    if (gateRoom) {
+      gateRoom.textContent = PEOPLE
+        ? (rows.length + ' at the pond. Scores stay on each device — the board is the room.')
+        : NEEDS_NEWER;
+    }
   }
 
   function persist() {
     if (!db) return;
     db.put({ id: 'save', best: prefs.best | 0, last: prefs.last | 0 }).catch(function () {});
   }
-  function publish() {
-    if (!roomDb) return;
+  function publish(force) {
+    if (!PEOPLE || !roomDb || !me.id || me.id === 'solo') return;
+    var names = peopleNames(), n = 0, id;
+    for (id in names) n++;
+    if (n < 2) return;
+    var t = Date.now();
+    if (!force && t - lastPub < 80) return;
+    lastPub = t;
     roomDb.put({
-      id: me.id, name: me.name || 'someone',
-      best: prefs.best | 0, last: prefs.last | 0, t: Date.now()
+      id: me.id,
+      best: prefs.best | 0,
+      last: prefs.last | 0
     }).catch(function () {});
   }
   function scheduleSave() {
@@ -74,7 +117,7 @@
   function onEnd(won, score) {
     if (score != null) onScore(score);
     persist();
-    publish();
+    publish(true);
   }
   function replay() {
     var g = root.__DHGame;
@@ -120,7 +163,7 @@
   if (typeof document === 'undefined') return;
 
   try { if (root.gifos) db = gifos.db('save'); } catch (e) {}
-  try { if (root.gifos) roomDb = gifos.db('room'); } catch (e) {}
+  try { if (root.gifos && PEOPLE) roomDb = gifos.db('room'); } catch (e) {}
 
   function start() {
     document.getElementById('gate').hidden = true;
@@ -150,8 +193,30 @@
   load().then(function () {
     paintBest();
     if (go) go.disabled = false;
-    publish();
   });
+
+  function readRoom() {
+    if (!PEOPLE || !root.gifos) return Promise.resolve();
+    return Promise.all([
+      gifos.people(),
+      gifos.info ? gifos.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || ''; }
+      if (key !== roomKey) {
+        roomKey = key;
+        paintPond();
+        publish();
+      }
+    }, function () {});
+  }
 
   if (roomDb) {
     try {
@@ -161,11 +226,35 @@
       });
     } catch (e) {}
   }
-  if (root.gifos && gifos.me) {
-    gifos.me().then(function (who) {
-      if (who && who.id) me = { id: who.id, name: who.name || '' };
-      publish();
-    }).catch(function () {});
+  if (PEOPLE) {
+    readRoom().then(function () { publish(); });
+    setInterval(readRoom, PEOPLE_MS);
+  } else {
+    var gateRoom = document.getElementById('gate-room');
+    if (gateRoom) gateRoom.textContent = NEEDS_NEWER;
+  }
+
+  root['__duck-hunt'] = {
+    state: function () { return null; },
+    people: function () {
+      return livePond().map(function (r) { return r.id; });
+    },
+    amHost: function () {
+      var n = 0, i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') n++;
+      }
+      return owner && n > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'dh-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
   }
 
   if (root.gifos && gifos.onBack) {

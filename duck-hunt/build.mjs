@@ -90,7 +90,7 @@ const listingBlob = JSON.stringify(listing);
 for (const bad of ['gifos.db', 'WASM', 'sandbox', 'connect-src', 'localStorage', 'WebRTC', 'Nintendo']) {
   if (listingBlob.includes(bad)) throw new Error('listing ' + bad);
 }
-if (manifest.minBuild !== 947) throw new Error('minBuild');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861');
 if (manifest.appId !== 'duck-hunt') throw new Error('appId');
 if (!manifest.capabilities.db || !manifest.capabilities.multiplayer) throw new Error('caps');
 if (manifest.capabilities.network || manifest.capabilities.wasm) throw new Error('no net/wasm');

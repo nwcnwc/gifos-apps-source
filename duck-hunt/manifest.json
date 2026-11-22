@@ -3,17 +3,25 @@
   "appId": "duck-hunt",
   "name": "Pond Hunt",
   "shortName": "Pond Hunt",
-  "version": "1.2",
-  "minBuild": 947,
+  "version": "1.3",
+  "minBuild": 5861,
   "description": "Click the ducks. The dog laughs. Three shots a round.",
   "entry": "index.html",
-  "accent": [100, 176, 255],
+  "accent": [
+    100,
+    176,
+    255
+  ],
   "capabilities": {
     "db": true,
     "multiplayer": true
   },
   "data": {
-    "save": { "visibility": "private" },
-    "room": { "visibility": "read-write" }
+    "save": {
+      "visibility": "private"
+    },
+    "room": {
+      "visibility": "read-write"
+    }
   }
 }
