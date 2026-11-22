@@ -98,8 +98,8 @@ if (!manifest.capabilities.multiplayer) {
 if (manifest.capabilities.network) {
   throw new Error('InvaderZ has no network path. Do not declare capabilities.network.');
 }
-if (manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947 — this app needs nothing newer than the store');
+if (manifest.minBuild < 5861) {
+  throw new Error('minBuild must be >= 5861 — gifos.people');
 }
 if (manifest.appId !== 'invaderz') throw new Error('appId must be invaderz');
 {

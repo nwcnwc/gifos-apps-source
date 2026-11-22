@@ -1,40 +1,36 @@
 /*
  * InvaderZ — extra cannons over a meeting.
  *
- * Upstream has no networking. The only channel GifOS gives an app is a
- * replicated collection. Two rules shape this:
- *
- *   1. A subscriber re-downloads the WHOLE collection on every change, so
- *      publish is slow (8 Hz) with interpolation, not a datagram stream.
- *   2. NOBODY WRITES TO ANYBODY ELSE'S ROW. Each cannon owns one record in
- *      `players`. The host alone writes `world` (the swarm) — guests see it
- *      because the collection is read-only, and they never put() it.
- *
- * Host simulates the invaders. Everyone else renders that snapshot and
- * claims a hit on their own row when their shot meets a body. The host
- * applies the claim.
- *
- * Invite is OS chrome. This file never draws a share button.
+ * Who is here is gifos.people(); the app owner hosts the swarm. Invite is OS chrome.
+ * Each cannon owns one `players` row. The owner alone writes `world`. Publish only
+ * when the pose/claims change — no idle keep-alive (kit K3).
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 8;
   var WORLD_HZ = 8;
-  var STALE_MS = 9000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'InvaderZ needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var CLAIM_RING = 8;
   var CLAIM_TTL = 12000;
 
   var api = null;
   var me = { id: null, name: 'Cannon' };
   var others = {};
-  var owner = true;
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
   var seq = 0;
   var claims = [];
   var lastPublished = 0;
+  var lastPubSig = '';
   var lastWorld = 0;
+  var lastWorldSig = '';
   var onRoster = null;
   var honored = {};
+  var worldSeq = 0;
 
   function db(n) { return api.db(n); }
   function now() { return Date.now(); }
@@ -47,19 +43,53 @@
     return 'hsl(' + hue + ', 70%, 32%)';
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Cannon';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Cannon'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        if (onRoster) onRoster(roster());
+      }
+    }, function () {});
+  }
+
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
-    var infoP = api.info ? api.info().then(function (i) {
-      owner = !!(i && i.owner);
-      return owner;
-    }).catch(function () { owner = true; return true; }) : Promise.resolve(true);
-
-    return infoP.then(function () {
-      return api.me();
-    }).then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Cannon';
+    if (!PEOPLE) return Promise.resolve({ owner: true, others: 0 });
+    return readRoom().then(function () {
+      if (!me.id) return { owner: owner, others: 0 };
       var settled = false;
       return new Promise(function (resolve) {
         var done = function () {
@@ -75,6 +105,7 @@
         db('world').subscribe(function (list) {
           ingestWorld(list || []);
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () {
       return { owner: true, others: 0 };
@@ -82,12 +113,13 @@
   }
 
   function ingestPlayers(list) {
-    var t = now(), seen = {};
+    var t = now(), seen = {}, names = peopleNames();
     var pending = [];
     for (var i = 0; i < list.length; i++) {
       var p = list[i];
       if (!p || !p.id) continue;
       if (p.id === me.id) continue;
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
       if (p.claims && p.claims.length) {
         for (var c = 0; c < p.claims.length; c++) {
@@ -95,19 +127,18 @@
         }
       }
       var cur = others[p.id];
-      var moved = !cur || cur.x !== p.x || cur.stamp !== p.t;
       others[p.id] = {
-        id: p.id, name: p.name || 'Cannon',
+        id: p.id, name: names[p.id] || p.name || 'Cannon',
         x: p.x, y: p.y, shooting: !!p.sh,
         bx: p.bx, by: p.by,
         kills: p.kills | 0,
-        stamp: p.t, seen: moved ? t : cur.seen, t: t,
+        stamp: p.t, t: t,
         color: tintFor(p.id),
         prev: cur ? { x: cur.x, y: cur.y, bx: cur.bx, by: cur.by, t: cur.t } : null
       };
     }
     for (var id in others) {
-      if (!seen[id] || now() - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id] || !names[id]) delete others[id];
     }
     if (owner) honorClaims(pending);
     if (onRoster) onRoster(roster());
@@ -135,6 +166,7 @@
     var G = root.InvaderZ;
     if (!G || owner) return;
     if (!rec) return;
+    worldSeq = rec.seq | 0;
     G.importWorld(rec);
   }
 
@@ -153,49 +185,63 @@
   }
 
   function claim(idx) {
-    if (!api || !me.id || idx < 0) return;
+    if (!api || !me.id || !PEOPLE || idx < 0) return;
     claims.push({ i: idx, n: ++seq });
     if (claims.length > CLAIM_RING) claims.shift();
     publish(true);
   }
 
   function publish(force) {
-    if (!api || !me.id) return;
-    if (!player) return;
+    if (!api || !me.id || !PEOPLE) return;
+    if (typeof player === 'undefined' || !player) return;
     var t = now();
     if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
-    lastPublished = t;
     var G = root.InvaderZ;
-    db('players').put({
-      id: me.id, name: me.name,
+    var row = {
+      id: me.id,
       x: r1(player.x), y: r1(player.y),
       sh: player.isShooting ? 1 : 0,
       bx: player.isShooting ? r1(player.bullet.x) : null,
       by: player.isShooting ? r1(player.bullet.y) : null,
       kills: G ? G.kills : 0,
-      claims: claims.slice(),
-      t: t
-    }).catch(function () {});
+      claims: claims.slice()
+    };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPublished = t;
+    row.t = t;
+    db('players').put(row).catch(function () {});
   }
 
   function publishWorld(force) {
-    if (!api || !me.id || !owner) return;
+    if (!api || !me.id || !owner || !PEOPLE) return;
     var G = root.InvaderZ;
     if (!G) return;
     var t = now();
     if (!force && t - lastWorld < 1000 / WORLD_HZ) return;
-    lastWorld = t;
     var snap = G.exportWorld();
     snap.id = 'world';
     snap.by = me.id;
+    var sig = JSON.stringify(snap);
+    if (!force && sig === lastWorldSig) return;
+    lastWorldSig = sig;
+    lastWorld = t;
+    worldSeq = (worldSeq | 0) + 1;
+    snap.seq = worldSeq;
     snap.t = t;
     db('world').put(snap).catch(function () {});
   }
 
   function tick() {
-    if (!api || !me.id) return;
-    publish(false);
-    if (owner) publishWorld(false);
+    if (!api || !me.id || !PEOPLE) return;
+    var G = root.InvaderZ;
+    if (!G || typeof player === 'undefined' || !player) return;
+    // Write only while the cannon acts (golden: no idle keep-alive).
+    var moving = !!(player.isMovingLeft || player.isMovingRight || player.isShooting);
+    if (moving) publish(false);
+    // Host publishes the swarm while a wave is live.
+    if (owner && G.sim && !G.over) publishWorld(false);
   }
 
   function drawCannons(ctx) {
@@ -205,7 +251,7 @@
     for (var id in others) {
       var o = others[id];
       var p = poseOf(o);
-      var shape = (player && player.shape) || [0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1];
+      var shape = (typeof player !== 'undefined' && player && player.shape) || [0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1];
       G.drawShape(ctx, shape, p.x, p.y == null ? (h / 4 - 4) : p.y, s, o.color);
       if (o.shooting && p.bx != null && p.by != null) {
         ctx.fillStyle = o.color;
@@ -223,13 +269,14 @@
 
   function roster() {
     var G = root.InvaderZ;
+    var names = peopleNames();
     var list = [{
       id: me.id, name: me.name, me: true,
       kills: G ? G.kills : 0
     }];
     for (var id in others) {
       var o = others[id];
-      list.push({ id: o.id, name: o.name, me: false, kills: o.kills });
+      list.push({ id: o.id, name: names[o.id] || o.name, me: false, kills: o.kills });
     }
     list.sort(function (a, b) { return (b.kills - a.kills) || a.name.localeCompare(b.name); });
     return list;
@@ -252,8 +299,31 @@
     me: function () { return me; },
     owner: function () { return owner; },
     count: function () { return countOthers() + (me.id ? 1 : 0); },
-    live: function () { return !!api && !!me.id; },
+    live: function () { return PEOPLE && !!me.id; },
     drawCannons: drawCannons,
     onRoster: function (fn) { onRoster = fn; }
   };
+
+  root['__invaderz'] = {
+    state: function () {
+      return worldSeq ? { seq: worldSeq | 0 } : null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'invaderz-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
