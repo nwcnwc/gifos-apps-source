@@ -52,7 +52,7 @@ for (const need of ['vendor/Vec2.js', 'vendor/Sphere.js', 'vendor/COPYING-finger
   }
 }
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947 — this app needs nothing newer than the store.');
+if (manifest.minBuild !== 5861) throw new Error('minBuild must be 5861 — this app needs nothing newer than the store.');
 if (manifest.appId !== 'finger-pool') throw new Error('appId must be finger-pool');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');

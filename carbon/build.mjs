@@ -52,7 +52,7 @@ function fontDataUrl(rel) {
   return 'url("data:font/woff2;base64,' + buf.toString('base64') + '")';
 }
 
-if (manifest.minBuild !== 947 || manifest.appId !== 'carbon') throw new Error('manifest');
+if (manifest.minBuild !== 5861 || manifest.appId !== 'carbon') throw new Error('manifest');
 if (!manifest.capabilities.db || !manifest.capabilities.multiplayer) throw new Error('caps');
 if (manifest.capabilities.network) throw new Error('no network');
 if (!manifest.data.save || manifest.data.save.visibility !== 'private') throw new Error('save private');
@@ -62,7 +62,7 @@ if (listing.basedOn.blessed !== false || listing.basedOn.name !== 'Carbon') thro
 if (listing.basedOn.url !== 'https://github.com/carbon-app/carbon') throw new Error('basedOn.url');
 if (listing.author.name !== 'Carbon' || listing.porter.name !== 'GifOS') throw new Error('author');
 if (listing.license !== 'MIT') throw new Error('license');
-if (!listing.homepage.includes('/apps/carbon')) throw new Error('homepage');
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/carbon') throw new Error('homepage');
 if (!listing.description.toLowerCase().includes('no account')) throw new Error('listing must lead with no account');
 if (!listing.description.includes('Invite')) throw new Error('listing invite');
 if (!listing.description.toLowerCase().includes('unofficial')) throw new Error('unofficial');

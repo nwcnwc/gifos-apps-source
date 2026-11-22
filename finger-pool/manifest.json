@@ -3,8 +3,8 @@
   "appId": "finger-pool",
   "name": "Finger Pool",
   "shortName": "Flick",
-  "version": "1.0.0",
-  "minBuild": 947,
+  "version": "1.0.1",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [17, 99, 54],
   "capabilities": {
