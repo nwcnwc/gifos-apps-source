@@ -1,16 +1,17 @@
 // Share a pattern over Invite.
 //
-// Each player writes the beat on THEIR own row. The host (lowest present id)
-// copies legal kits onto the `kit` row. Nobody writes anybody else's row.
-// Patterns in gifos.db('patterns') stay private — this file never touches them
-// except to freeze a copy on enter and restore it on leave.
+// Who is here is gifos.people(); the app owner hosts the kit row. Each player
+// writes ops on THEIR own row. Nobody writes anybody else's row. Patterns in
+// gifos.db('patterns') stay private — this file never touches them except to
+// freeze a copy on enter and restore it on leave.
 // Invite is OS chrome. This file never draws an Invite button.
 (function (root) {
   'use strict';
 
   var IO = root.IO808;
-  var STALE_MS = 9000;
-  var HB_MS = 3000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'IO-808 needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var PUB_MS = 180;
 
   var api = null;
@@ -18,10 +19,13 @@
   var me = { id: null, name: 'You' };
   var on = false;
   var subscribed = false;
-  var hbTimer = 0;
+  var peopleTimer = 0;
   var pubTimer = 0;
   var lastList = [];
-  var seenAt = {};
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var roomRead = false;
   var myN = 0;
   var pending = [];
   var lastKit = null;
@@ -34,6 +38,23 @@
       return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c];
     });
   };
+
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
 
   function legalNum(n, lo, hi) {
     return typeof n === 'number' && n === n && n >= lo && n <= hi;
@@ -65,25 +86,16 @@
     } catch (e) { return ''; }
   }
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id || p.id === 'kit') return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      if (t - seenAt[p.id].seen > STALE_MS) return;
+      if (!names[p.id]) return;
       out.push(p);
     });
     return out;
   }
-  function isHost(people) {
-    people = people || live(lastList);
-    if (!people.length) return true;
-    var m = people[0].id, i;
-    for (i = 0; i < people.length; i++) if (people[i].id < m) m = people[i].id;
-    return me.id === m;
-  }
+  function isHost() { return PEOPLE && owner; }
   function kitOf(list) {
     var i;
     for (i = 0; i < (list || []).length; i++) if (list[i] && list[i].id === 'kit') return list[i];
@@ -96,17 +108,14 @@
     s.host = me.id;
     s.seq = (lastKit && lastKit.seq) || 0;
     s.applied = (lastKit && lastKit.applied) || {};
-    s.at = now();
     return s;
   }
 
   function snapshot(extra) {
     var row = {
       id: me.id,
-      name: me.name,
       n: myN,
-      pending: pending.slice(),
-      at: now()
+      pending: pending.slice()
     };
     if (extra) {
       if (extra.pending) row.pending = extra.pending;
@@ -116,7 +125,8 @@
   }
 
   function publish() {
-    if (!on || !room || !me.id) return;
+    if (!PEOPLE || !on || !room || !me.id) return;
+    if (!myN && !pending.length) return;
     room.put(snapshot()).catch(function () {});
   }
   function schedulePublish() {
@@ -128,6 +138,7 @@
   }
 
   function putKit(c) {
+    if (!PEOPLE || !owner) return;
     lastKit = c;
     room.put(c).catch(function () {});
   }
@@ -173,8 +184,7 @@
       selectedInstrumentTrack: kit.selectedInstrumentTrack,
       basicVariationPosition: kit.basicVariationPosition,
       currentPart: kit.currentPart,
-      currentVariation: kit.currentVariation,
-      at: now()
+      currentVariation: kit.currentVariation
     };
     Object.keys(kit.applied || {}).forEach(function (k) { next.applied[k] = kit.applied[k]; });
     var dirty = false;
@@ -216,17 +226,18 @@
   function render() {
     if (!on) return;
     var people = live(lastList);
+    var names = peopleNames();
     var status = $('friend-status');
     var roster = $('friend-roster');
     var html = '';
     people.sort(function (a, b) {
-      var an = a.name || '', bn = b.name || '';
+      var an = names[a.id] || '', bn = names[b.id] || '';
       return an < bn ? -1 : an > bn ? 1 : 0;
     });
     people.forEach(function (p) {
       var mine = p.id === me.id;
       html += '<li class="' + (mine ? 'me' : '') + '"><span class="name">' +
-        (mine ? 'You' : esc(p.name || 'Player')) + '</span></li>';
+        (mine ? 'You' : esc(names[p.id] || 'Player')) + '</span></li>';
     });
     roster.innerHTML = html || '<li>Just you so far</li>';
     var others = people.filter(function (p) { return p.id !== me.id; });
@@ -243,12 +254,13 @@
     var people = live(lastList);
     var kit = kitOf(lastList);
     if (!kit) {
-      if (isHost(people)) putKit(localKit());
+      // Host only seeds the kit after someone has acted (pending ops) — quiet for K3.
+      if (isHost() && pending.length) putKit(localKit());
       render();
       return;
     }
     lastKit = kit;
-    if (isHost(people)) {
+    if (isHost()) {
       var next = reconcile(kit, people);
       if (next) {
         putKit(next);
@@ -260,27 +272,48 @@
     render();
   }
 
-  function beat() {
-    if (!on) return;
-    publish();
-    render();
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      var handed = !owner && !!info.owner && roomRead;
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (handed && !on) enter(true);
+      else if (key !== roomKey) {
+        roomKey = key;
+        if (on) onRoom(lastList);
+        else if (peopleCount() > 1) enter(false);
+      }
+    }, function () {});
   }
 
-  function enter() {
+  function enter(fromHand) {
     api = root.gifos;
     if (!api || !api.db) {
       $('friend-bar').hidden = false;
       $('friend-status').textContent = 'Sharing a pattern needs a GifOS room.';
       return;
     }
+    if (!PEOPLE) {
+      $('friend-bar').hidden = false;
+      $('friend-status').textContent = NEEDS_NEWER;
+      return;
+    }
     room = api.db('room');
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
+    readRoom().then(function () {
       on = true;
       pending = [];
       myN = 0;
-      seenAt = {};
       lastPacked = '';
       lastKit = null;
       if (IO.Machine.flushSave) IO.Machine.flushSave();
@@ -289,17 +322,16 @@
       $('friend-bar').hidden = false;
       $('shareBtn').hidden = true;
       $('friend-hint').textContent = 'Press Invite (GifOS menu) to send the link. They get this pattern.';
-      pushOp({ t: 'kit', kit: IO.Machine.shareKit() });
+      // Do not pushOp/publish on enter — write only when the pattern changes (K3).
       if (!subscribed) {
         subscribed = true;
         room.subscribe(onRoom);
       } else {
         onRoom(lastList);
       }
-      publish();
-      beat();
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(beat, HB_MS);
+      if (peopleTimer) clearInterval(peopleTimer);
+      peopleTimer = setInterval(readRoom, PEOPLE_MS);
+      render();
     }).catch(function () {});
   }
 
@@ -310,7 +342,7 @@
     document.body.classList.remove('together');
     $('friend-bar').hidden = true;
     $('shareBtn').hidden = false;
-    if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
+    if (peopleTimer) { clearInterval(peopleTimer); peopleTimer = 0; }
     if (pubTimer) { clearTimeout(pubTimer); pubTimer = 0; }
     if (room && me.id) room.delete(me.id).catch(function () {});
     if (IO.Machine.restoreSave) IO.Machine.restoreSave();
@@ -332,6 +364,40 @@
     onKit: onKit
   };
 
-  $('shareBtn').addEventListener('click', function (e) { e.preventDefault(); enter(); });
+  root['__io-808'] = {
+    state: function () {
+      var k = lastKit || kitOf(lastList);
+      return k ? { seq: k.seq | 0 } : null;
+    },
+    people: function () {
+      return live(lastList).map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1 && on;
+    }
+  };
+
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'io808-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  } else {
+    // Boot room watch so auto-enter / hand-off work without a button tap.
+    api = root.gifos;
+    if (api && api.db) {
+      room = api.db('room');
+      readRoom().then(function () {
+        if (peopleTimer) clearInterval(peopleTimer);
+        peopleTimer = setInterval(readRoom, PEOPLE_MS);
+      });
+    }
+  }
+
+  if ($('shareBtn')) {
+    if (!PEOPLE) { $('shareBtn').disabled = true; $('shareBtn').title = NEEDS_NEWER; }
+    $('shareBtn').addEventListener('click', function (e) { e.preventDefault(); enter(true); });
+  }
   $('leaveBtn').addEventListener('click', function (e) { e.preventDefault(); leave(); });
 })(window);
