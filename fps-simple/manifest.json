@@ -3,8 +3,8 @@
   "appId": "fps-simple",
   "name": "FPS Simple",
   "shortName": "FPS",
-  "version": "0.9.1",
-  "minBuild": 1314,
+  "version": "0.9.2",
+  "minBuild": 5861,
   "entry": "index.html",
   "accent": [
     214,

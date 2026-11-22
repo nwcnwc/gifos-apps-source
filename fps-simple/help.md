@@ -32,6 +32,8 @@ The phone layout only appears after a real finger touches the screen, so a lapto
 
 ## A live friend
 
+Who is here comes from gifos.people(). The app owner hosts; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.
+
 Press **Invite** in the **bar above the app** — not inside the game. Everyone who opens the link lands in the same street, same buildings, same sun. The garrison stands down; the other players are the opposition.
 
 Comfortable up to about six people. Friends glide a fraction of a second behind you. This is a deathmatch over a link, not a ranked match.

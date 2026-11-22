@@ -37,13 +37,18 @@
   'use strict';
 
   var PUBLISH_HZ = 6;         // see (1) — the rate the platform actually wants
-  var STALE_MS = 9000;        // a player unheard-from this long stops being drawn
   var HIT_RING = 8;           // recent claims carried on my row
   var CLAIM_TTL = 12000;      // how long a dedupe key is worth remembering
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'FPS Simple needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
 
   var api = null;             // window.gifos, or null when opened outside GifOS
   var me = { id: null, name: 'Player' };
   var others = {};            // id -> interpolation record
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
   var seq = 0;                // my hit-claim sequence, monotonic within a session
   var pendingHits = [];       // claims I have made recently, riding on my row
   var appliedClaims = {};     // "shooterId:seq" -> when we applied it
@@ -53,11 +58,54 @@
   var onKill = null;          // (victimName, headshot) -> void, when I am credited
   var onRoster = null;        // (list) -> void, for the scoreboard
   var lastPublished = 0;
+  var lastPubSig = '';
   var self = { hp: 100, k: 0, d: 0, alive: true, spawn: 0, lastKilledBy: null, killAck: {} };
   var started = false;
 
   function db(n) { return api.db(n); }
   function now() { return Date.now(); }
+
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Player'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        if (onRoster) onRoster(roster());
+      }
+    }, function () {});
+  }
+
 
   // A stable colour per player, derived from the id rather than assigned, so the
   // same person is the same colour in everyone's game with nothing negotiated.
@@ -81,9 +129,9 @@
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve(null);
-    return api.me().then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Player';
+    if (!PEOPLE) return Promise.resolve(null);
+    return readRoom().then(function () {
+      if (!me.id) return null;
       var settled = false;
       return new Promise(function (resolve) {
         var done = function (list) { if (!settled) { settled = true; resolve(list || []); } };
@@ -92,26 +140,24 @@
           ingest(list || []);
           done(list || []);
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () { return null; });
   }
 
   function ingest(list) {
-    var t = now(), seen = {};
+    var t = now(), seen = {}, names = peopleNames();
     for (var i = 0; i < list.length; i++) {
       var p = list[i];
       if (!p || !p.id) continue;
       if (p.id === me.id) { reconcileSelf(p); continue; }
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
       drainClaims(p);
       var cur = others[p.id];
-      // Staleness is measured by when we last saw the row CHANGE, not by the
-      // sender's clock (which is not ours) and not by delivery time (which would
-      // make a player who left months ago permanently fresh — their row lives on
-      // in the host's db). Anyroad paid for this lesson; we inherit it.
-      var moved = !cur || cur.x !== p.x || cur.y !== p.y || cur.z !== p.z || cur.stamp !== p.t;
+      // Who is here is gifos.people(); rows of people the room let go are dropped.
       others[p.id] = {
-        id: p.id, name: p.name || 'Player',
+        id: p.id, name: names[p.id] || p.name || 'Player',
         x: p.x, y: p.y, z: p.z, yaw: p.yaw || 0, pitch: p.pitch || 0,
         mv: p.mv || 0, crouch: !!p.cr, alive: p.alive !== false, hp: p.hp == null ? 100 : p.hp,
         k: p.k || 0, d: p.d || 0, spawn: p.sp || 0,
@@ -140,7 +186,7 @@
       }
     }
     for (var id in others) {
-      if (!seen[id] || now() - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id] || !names[id]) delete others[id];
     }
     if (onRoster) onRoster(roster());
   }
@@ -178,7 +224,7 @@
 
   /** I hit someone. Ride the claim on my own row; their browser decides. */
   function claimHit(targetId, dmg, headshot, targetSpawn) {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     pendingHits.push({ to: targetId, d: Math.round(dmg), hs: !!headshot, n: ++seq, sp: targetSpawn });
     if (pendingHits.length > HIT_RING) pendingHits.shift();
     publish(true); // a hit is the one thing not worth waiting up to 166 ms for
@@ -195,22 +241,26 @@
   }
 
   function publish(force) {
-    if (!api || !me.id || !root.__FPS_POSE__) return;
+    if (!api || !me.id || !PEOPLE || !root.__FPS_POSE__) return;
     var t = now();
     if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
-    lastPublished = t;
     var p = root.__FPS_POSE__();
     if (!p) return;
-    db('players').put({
-      id: me.id, name: me.name,
+    var row = {
+      id: me.id,
       x: r2(p.x), y: r2(p.y), z: r2(p.z), yaw: r2(p.yaw), pitch: r2(p.pitch),
       mv: r2(p.speed), cr: !!p.crouch,
       hp: Math.round(self.hp), alive: !!self.alive, sp: self.spawn,
       k: self.k, d: self.d,
       lastKilledBy: self.lastKilledBy,
-      hits: pendingHits.slice(),
-      t: t,
-    }).catch(function () { /* a dropped frame of presence is not an error */ });
+      hits: pendingHits.slice()
+    };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPublished = t;
+    row.t = t;
+    db('players').put(row).catch(function () { /* a dropped frame of presence is not an error */ });
     started = true;
   }
 
@@ -219,7 +269,8 @@
   // and a player who paused must not silently go stale and vanish from everyone
   // else's room while they are reading the menu.
   function tick() {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
+    // Sig skip inside publish keeps idle silent (kit K3).
     publish(false);
   }
 
@@ -267,7 +318,7 @@
     others: function () { return others; },
     me: function () { return me; },
     count: function () { var n = 0; for (var k in others) n++; return n + 1; },
-    live: function () { return !!api && !!me.id; },
+    live: function () { return PEOPLE && !!api && !!me.id; },
     // Distinct claims paid, ever. The dedupe is invisible from the outside —
     // health regenerates, so a duplicate hit can be masked within seconds — and
     // a guard that cannot see it is a guard that passes when it breaks.
@@ -276,4 +327,28 @@
     onKill: function (fn) { onKill = fn; },
     onRoster: function (fn) { onRoster = fn; },
   };
+
+  root['__fps-simple'] = {
+    state: function () {
+      // Deathmatch has no shared world row; copies agree on null.
+      return null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'fps-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
