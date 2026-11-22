@@ -33,11 +33,11 @@ files that could never compile.
 
 | capability | why |
 |---|---|
-| `db` | Last algorithm + input in a `private` `save`. Host playback in a `read-only` `session`. Presence in `players`. |
+| `db` | Last algorithm + input in a `private` `save`. Host playback in a `read-only` `session`. |
 | `multiplayer` | Invite is follow-along. Guests see the host's cursor; they do not pick the algorithm. |
 
-`launch.algo` opens onto an id (`bubble-sort`, `dijkstra`, …). `minBuild` is
-**947** — nothing newer than the store.
+`launch.algo` opens onto an id (`bubble-sort`, `dijkstra`, …). `minBuild` is **5861**.
+Who is here comes from the room (`gifos.people()`); the person who shared the app hosts, and GifOS hands that on when they leave. An older GifOS shows one plain line and keeps solo play.
 
 ## Building
 

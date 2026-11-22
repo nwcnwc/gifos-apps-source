@@ -15,7 +15,7 @@ style.css             dark cabinet, letterboxed 4:3, chrome in the letterbox
 vendor/game.js        UPSTREAM. Jake Gordon's runner. Never edit.
 vendor/breakout.js    UPSTREAM. Court, paddle, ball, bricks. Never edit.
 vendor/levels.js      UPSTREAM. The walls. Never edit.
-net.js                extra paddle — presence, shared brick field, the host ball
+net.js                extra paddle — gifos.people(), shared brick field, the host ball
 touch.js              drag + ◀ ▶, written onto the same paddle the keys move
 boot.js               mount, prefs, Web Audio, wiring
 icon.mjs              procedural paddle-hits-brick icon, and the 1200×720 cover

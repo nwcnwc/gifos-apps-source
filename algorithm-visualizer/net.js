@@ -3,9 +3,15 @@
  * playing, speed. Guests subscribe and rebuild the same trace locally — the
  * input is the whole story, so the wire stays small. Nobody writes another
  * person's row.
+ *
+ * Who is here is gifos.people(); the app owner hosts. No presence heartbeat.
  */
 (function (root) {
   'use strict';
+
+  var NEEDS_NEWER = 'Algorithm Visualizer needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
 
   var api = null;
   var me = { id: null, name: 'You' };
@@ -15,25 +21,49 @@
   var lastHash = '';
   var onFollow = null;
   var onRoster = null;
-  var others = {};
-  var STALE_MS = 12000;
+  var roomPeople = [];
+  var roomKey = '';
+  var roomRead = false;
+  var peopleTimer = 0;
+  var lastSession = null;
 
   function db(n) { return api.db(n); }
   function now() { return Date.now(); }
 
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      var changed = key !== roomKey;
+      roomKey = key;
+      roomPeople = ppl;
+      var handed = !owner && !!info.owner && roomRead;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (handed && ppl.length > 1) live = true;
+      if (changed && onRoster) onRoster(roster());
+    }, function () {});
+  }
+
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
-    var infoP = api.info
-      ? api.info().then(function (i) { owner = !!(i && i.owner); return owner; })
-        .catch(function () { owner = true; return true; })
-      : Promise.resolve(true);
-
-    return infoP.then(function () {
-      return api.me ? api.me() : { id: 'local', name: 'You' };
-    }).then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'You';
+    if (!PEOPLE) {
+      var blurb = document.getElementById('blurb');
+      if (blurb) blurb.textContent = NEEDS_NEWER;
+      var room = document.getElementById('room');
+      if (room) { room.hidden = false; room.textContent = NEEDS_NEWER; }
+      return Promise.resolve({ owner: true, others: 0 });
+    }
+    return readRoom().then(function () {
       live = true;
       var settled = false;
       return new Promise(function (resolve) {
@@ -47,12 +77,9 @@
           ingestSession(list || []);
           done();
         });
-        db('players').subscribe(function (list) {
-          ingestPlayers(list || []);
-          done();
-        });
-        heartbeat();
-        setInterval(heartbeat, 3000);
+        peopleTimer = setInterval(readRoom, PEOPLE_MS);
+        if (onRoster) onRoster(roster());
+        done();
       });
     }).catch(function () {
       live = false;
@@ -62,30 +89,11 @@
   }
 
   function ingestSession(list) {
-    if (owner) return;
-    var rec = null;
-    for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === 'play') rec = list[i];
-    if (!rec || !onFollow) return;
+    var rec = null, i;
+    for (i = 0; i < list.length; i++) if (list[i] && list[i].id === 'play') rec = list[i];
+    lastSession = rec;
+    if (owner || !rec || !onFollow) return;
     onFollow(rec);
-  }
-
-  function ingestPlayers(list) {
-    var t = now(), seen = {};
-    for (var i = 0; i < list.length; i++) {
-      var p = list[i];
-      if (!p || !p.id || p.id === me.id) continue;
-      seen[p.id] = 1;
-      others[p.id] = { id: p.id, name: p.name || 'Someone', t: p.t || t };
-    }
-    for (var id in others) {
-      if (!seen[id] || t - (others[id].t || 0) > STALE_MS) delete others[id];
-    }
-    if (onRoster) onRoster(roster());
-  }
-
-  function heartbeat() {
-    if (!live || !me.id) return;
-    db('players').put({ id: me.id, name: me.name, t: now() }).catch(function () {});
   }
 
   function hashOf(s) {
@@ -100,7 +108,7 @@
     if (!force && t - lastPut < 90) return;
     lastPut = t;
     lastHash = h;
-    db('session').put({
+    var row = {
       id: 'play',
       by: me.id,
       algo: state.algo,
@@ -109,18 +117,27 @@
       playing: !!state.playing,
       speed: state.speed,
       t: t
-    }).catch(function () {});
+    };
+    lastSession = row;
+    db('session').put(row).catch(function () {});
   }
 
   function countOthers() {
-    var n = 0;
-    for (var k in others) n++;
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.id !== me.id && p.here !== 'gone') n++;
+    }
     return n;
   }
 
   function roster() {
-    var list = [{ id: me.id, name: me.name, me: true }];
-    for (var id in others) list.push({ id: others[id].id, name: others[id].name, me: false });
+    var list = [], i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (!p || !p.id || p.here === 'gone') continue;
+      list.push({ id: p.id, name: p.name || 'Someone', me: !!p.me });
+    }
     return list;
   }
 
@@ -134,5 +151,18 @@
     count: function () { return countOthers() + (me.id ? 1 : 0); },
     onFollow: function (fn) { onFollow = fn; },
     onRoster: function (fn) { onRoster = fn; }
+  };
+
+  root['__algorithm-visualizer'] = {
+    state: function () {
+      return lastSession ? {
+        algo: lastSession.algo,
+        playing: !!lastSession.playing, by: lastSession.by || null
+      } : null;
+    },
+    people: function () {
+      return live ? roster().map(function (p) { return p.id; }) : [];
+    },
+    amHost: function () { return live && owner; }
   };
 })(window);

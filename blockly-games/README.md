@@ -37,7 +37,7 @@ Sprites and animal photos are data URLs. `connect-src 'none'` costs it nothing.
 | `db` | Solved levels and stacked blocks in a `private` save; presence + shared blocks in a `read-write` `players` collection. |
 | `multiplayer` | Invite is OS chrome. A guest lands on the host's game and level. |
 
-Needs nothing newer than the App Store, so `minBuild` is **947**. A `launch`
+`minBuild` is **5861**. Who is here comes from the room (`gifos.people()`); the person who shared the app is the host, and GifOS hands that on when they leave. An older GifOS shows one plain line and keeps solo play. A `launch`
 block lets a link open `puzzle`, `maze`, or `turtle` at a level; older GifOS
 ignores it and the app opens on the saved game.
 
