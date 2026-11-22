@@ -13,6 +13,7 @@
   var saveTimer = 0;
   var lastPacked = '';
   var applying = false;
+  var coolUntil = 0; // after a remote apply, ignore notifier/hash noise
   var started = false;
 
   function pack(j) {
@@ -37,6 +38,8 @@
       // Round-trip form — fromJson/toJson drifts; using the wire pack made
       // persist() think every apply was a local edit and re-publish forever.
       lastPacked = pack(songJson()) || p;
+      // fromJson can fire notifier/hashchange after this returns — cool down.
+      coolUntil = Date.now() + 800;
       if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; }
       if (songsDb) {
         songsDb.put({ id: 'current', json: songJson() || json, at: Date.now() }).catch(function () {});
@@ -60,12 +63,12 @@
 
   function persist() {
     persistLocal();
-    if (applying) return;
+    if (applying || Date.now() < coolUntil) return;
     if (root.BeepNet && root.BeepNet.noteLocalChange) root.BeepNet.noteLocalChange();
   }
 
   function scheduleSave() {
-    if (applying) return;
+    if (applying || Date.now() < coolUntil) return;
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(persist, 400);
   }

@@ -158,6 +158,7 @@
         if (applyJson) {
           applying = true;
           try { applyJson(canonical.json); } finally { applying = false; }
+          coolUntil = now() + 800;
           // Absorb fromJson/toJson drift so a later getJson does not look like an edit.
           if (getJson) {
             var after = pack(getJson());
@@ -183,8 +184,9 @@
     }
   }
 
+  var coolUntil = 0;
   function noteLocalChange() {
-    if (applying || !on || !me.id) return;
+    if (applying || !on || !me.id || now() < coolUntil) return;
     myN += 1;
     publish();
     if (isHost()) {
@@ -235,9 +237,10 @@
   };
 
   root['__beepbox'] = {
-    // host only — song JSON length drifts across fromJson/toJson round-trips
+    // Song row seq only — host id races across hand-off before republish.
     state: function () {
-      return lastSong ? { host: lastSong.host || null } : null;
+      var s = songOf(lastList);
+      return s ? { seq: s.seq | 0 } : null;
     },
     people: function () {
       return on ? playersHere(lastList).map(function (p) { return p.id; }) : [];
