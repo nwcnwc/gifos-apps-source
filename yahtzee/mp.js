@@ -5,25 +5,29 @@
 // row. Nobody writes anybody else's row. When every card is full, highest
 // total wins.
 //
-// Invite is OS chrome. This file only tells the player to press Invite.
+// Who is here is gifos.people(). Invite is OS chrome. This file only tells
+// the player to press Invite.
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 3000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Yahtzee needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
 
   var api = null;
   var room = null;
   var me = { id: null, name: 'You' };
   var on = false;
   var subscribed = false;
-  var hbTimer = 0;
   var round = 1;
   var usedRound = 0;
   var lastList = [];
-  var seenAt = {};
   var roundOver = false;
   var declined = false;
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var lastPubSig = '';
 
   var $ = function (id) { return document.getElementById(id); };
   var now = function () { return Date.now(); };
@@ -33,16 +37,27 @@
     });
   };
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id) return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      var rec = seenAt[p.id];
-      if (t - rec.seen > STALE_MS) return;
-      out.push(p);
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
+      out.push(Object.assign({}, p, { name: names[p.id] || p.name || 'Player' }));
     });
     return out;
   }
@@ -65,24 +80,29 @@
     var g = root.Yahtzee || {};
     return {
       id: me.id,
-      name: me.name,
       round: round,
       total: g.total() || 0,
       filled: g.filled() || 0,
-      gameover: !!g.gameover(),
-      at: now()
+      gameover: !!g.gameover()
     };
   }
 
   function publish() {
-    if (!on || !room || !me.id) return;
-    room.put(snapshot()).catch(function () {});
+    if (!on || !room || !me.id || !PEOPLE) return;
+    var row = snapshot();
+    var sig = JSON.stringify(row);
+    if (sig === lastPubSig) return;
+    lastPubSig = sig;
+    row.name = me.name;
+    row.at = now();
+    room.put(row).catch(function () {});
   }
 
   function applyRound(r) {
     usedRound = r;
     round = r;
     roundOver = false;
+    lastPubSig = '';
     if (root.Yahtzee && root.Yahtzee.resetGame) root.Yahtzee.resetGame();
     publish();
   }
@@ -135,7 +155,9 @@
       roundOver = false;
       again.hidden = true;
       var g = root.Yahtzee || {};
-      if (!others.length) {
+      if (!PEOPLE) {
+        status.textContent = NEEDS_NEWER;
+      } else if (!others.length) {
         status.textContent = 'Waiting for a friend. You can fill your card now — they sit the same round.';
       } else if (g.gameover && g.gameover()) {
         status.textContent = 'Your card is full at ' + (g.total() || 0) + '. Waiting for the others.';
@@ -155,10 +177,29 @@
     render();
   }
 
-  function beat() {
-    if (!on) return;
-    publish();
-    render();
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        if (on) onRoom(lastList);
+        else if (!declined) {
+          var others = live(lastList).filter(function (p) { return p.id && p.id !== me.id; });
+          if (others.length) startTable();
+        }
+      }
+    }, function () {});
   }
 
   function startTable() {
@@ -170,11 +211,9 @@
     round = 1;
     usedRound = 0;
     roundOver = false;
-    seenAt = {};
+    lastPubSig = '';
     if (!usedRound) applyRound(round);
-    beat();
-    if (hbTimer) clearInterval(hbTimer);
-    hbTimer = setInterval(beat, HB_MS);
+    render();
   }
 
   function enter() {
@@ -185,14 +224,16 @@
       if (s) s.textContent = 'Play a friend needs a GifOS room.';
       return;
     }
+    if (!PEOPLE) {
+      $('friend-bar').hidden = false;
+      var s2 = $('friend-status');
+      if (s2) s2.textContent = NEEDS_NEWER;
+      return;
+    }
     room = room || api.db('room');
-    var who = (me.id && me.id !== 'local')
-      ? Promise.resolve(me)
-      : (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' }));
-    who.then(function (id) {
-      if (id && id.id) { me.id = id.id; me.name = id.name || 'You'; }
-      else if (!me.id) { me.id = 'local'; me.name = 'You'; }
-      declined = false;
+    declined = false;
+    readRoom().then(function () {
+      if (!me.id) return;
       watch();
       startTable();
     }).catch(function () {});
@@ -200,11 +241,9 @@
 
   function watch() {
     api = root.gifos;
-    if (!api || !api.db) return;
+    if (!api || !api.db || !PEOPLE) return;
     room = room || api.db('room');
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || me.id || 'local';
-      me.name = (id && id.name) || me.name || 'You';
+    readRoom().then(function () {
       if (subscribed) return;
       subscribed = true;
       room.subscribe(function (list) {
@@ -217,6 +256,7 @@
           onRoom(lastList);
         }
       });
+      setInterval(readRoom, PEOPLE_MS);
     }).catch(function () {});
   }
 
@@ -229,7 +269,6 @@
     $('friend-bar').hidden = true;
     $('friendBtn').hidden = false;
     $('againBtn').hidden = true;
-    if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
     if (room && me.id) room.delete(me.id).catch(function () {});
     if (root.Yahtzee && root.Yahtzee.restoreSolo) root.Yahtzee.restoreSolo();
     else if (root.Yahtzee && root.Yahtzee.resetGame) root.Yahtzee.resetGame();
@@ -258,7 +297,27 @@
     get roundOver() { return roundOver; }
   };
 
-  $('friendBtn').addEventListener('click', function (e) { e.preventDefault(); enter(); });
-  $('leaveBtn').addEventListener('click', function (e) { e.preventDefault(); leave(); });
-  $('againBtn').addEventListener('click', function (e) { e.preventDefault(); playAgain(); });
+  root['__yahtzee'] = {
+    state: function () { return on ? { round: usedRound || round | 0 } : null; },
+    people: function () { return live(lastList).map(function (p) { return p.id; }); },
+    amHost: function () { return on && owner && peopleCount() > 1; }
+  };
+
+  if ($('friendBtn')) {
+    $('friendBtn').addEventListener('click', function (e) { e.preventDefault(); enter(); });
+  }
+  if ($('leaveBtn')) {
+    $('leaveBtn').addEventListener('click', function (e) { e.preventDefault(); leave(); });
+  }
+  if ($('againBtn')) {
+    $('againBtn').addEventListener('click', function (e) { e.preventDefault(); playAgain(); });
+  }
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'yahtzee-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);

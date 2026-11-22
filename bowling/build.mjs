@@ -52,7 +52,7 @@ for (const need of ['vendor/layout.js', 'vendor/COPYING-bowling.txt', 'vendor/UP
   }
 }
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947 — this app needs nothing newer than the store.');
+if (manifest.minBuild !== 5861) throw new Error('minBuild must be 5861 — gifos.people().');
 if (manifest.appId !== 'bowling') throw new Error('appId must be bowling');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');

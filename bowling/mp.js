@@ -1,10 +1,12 @@
 /* Take turns. Each player writes their score on THEIR row. Nobody writes
- * anybody else's. Invite is OS chrome — this file only says to press it. */
+ * anybody else's. Who is here is gifos.people(). Invite is OS chrome —
+ * this file only says to press it. */
 (function (root) {
   'use strict';
 
-  var STALE_MS = 4000;
-  var HB_MS = 1000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Bowling needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var PUBLISH_HZ = 12;
 
   var api = null;
@@ -12,12 +14,14 @@
   var me = { id: null, name: 'You' };
   var on = false;
   var subscribed = false;
-  var hbTimer = 0;
   var lastList = [];
-  var seenAt = {};
   var lastPub = 0;
+  var lastPubSig = '';
   var round = 1;
   var hadOther = false;
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
 
   var now = function () { return Date.now(); };
   var esc = function (s) {
@@ -26,15 +30,21 @@
     });
   };
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id) return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      if (t - seenAt[p.id].seen > STALE_MS) return;
-      out.push(p);
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
+      out.push(Object.assign({}, p, { name: names[p.id] || p.name || 'Friend' }));
     });
     return out;
   }
@@ -81,8 +91,6 @@
   function snapshot(game) {
     var rec = {
       id: me.id,
-      name: me.name,
-      at: now(),
       round: round,
       frames: game ? game.frames : [],
       cur: game ? game.cur : [],
@@ -98,13 +106,15 @@
   }
 
   function publish(game, force) {
-    if (!on || !room || !me.id) return;
+    if (!on || !room || !me.id || !PEOPLE) return;
     var t = now();
-    if (!force) {
-      if (t - lastPub < 1000 / PUBLISH_HZ) return;
-    }
+    if (!force && t - lastPub < 1000 / PUBLISH_HZ) return;
+    var row = snapshot(game);
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
     lastPub = t;
-    room.put(snapshot(game)).catch(function () {});
+    room.put(row).catch(function () {});
   }
 
   var Mp = {
@@ -139,9 +149,25 @@
     if (Mp.onList) Mp.onList(players, hadOther && other);
   }
 
-  function beat(game) {
-    if (!on) return;
-    publish(game, true);
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        if (on) onRoom(lastList);
+      }
+    }, function () {});
   }
 
   function enter(game) {
@@ -150,30 +176,51 @@
       if (Mp.onList) Mp.onList([], false);
       return;
     }
+    if (!PEOPLE) {
+      if (Mp.onList) Mp.onList([], false);
+      return;
+    }
     room = api.db('players');
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
+    readRoom().then(function () {
+      if (!me.id) return;
       on = true;
       hadOther = false;
-      seenAt = {};
       if (!subscribed) {
         subscribed = true;
         room.subscribe(onRoom);
       } else {
         onRoom(lastList);
       }
-      beat(game);
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(function () { beat(game); }, HB_MS);
+      publish(game, true);
+      setInterval(readRoom, PEOPLE_MS);
     }).catch(function () {});
   }
 
   function leave() {
     on = false;
     hadOther = false;
-    if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
   }
 
   root.BowlMp = Mp;
+
+  root['__bowling'] = {
+    state: function () {
+      var players = live(lastList);
+      return on ? { round: adoptedRound(players) | 0, n: players.length } : null;
+    },
+    people: function () { return live(lastList).map(function (p) { return p.id; }); },
+    amHost: function () {
+      var n = 0, id, names = peopleNames();
+      for (id in names) n++;
+      return on && owner && n > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'bowl-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);

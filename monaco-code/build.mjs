@@ -38,8 +38,8 @@ const manifest = JSON.parse(read('manifest.json'));
 const listing = JSON.parse(read('listing.json'));
 
 if (manifest.appId !== 'monaco-code') throw new Error('appId must be monaco-code');
-if (manifest.minBuild !== 1178) {
-  throw new Error('minBuild must be 1178 — gifos.assets() for packed .assets/ workers');
+if (manifest.minBuild !== 5861) {
+  throw new Error('minBuild must be 5861 — gifos.people() + gifos.assets() for packed .assets/ workers');
 }
 if (!manifest.capabilities || manifest.capabilities.db !== true) {
   throw new Error('must declare capabilities.db');

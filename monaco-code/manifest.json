@@ -3,11 +3,15 @@
   "appId": "monaco-code",
   "name": "Monaco Code",
   "shortName": "Monaco",
-  "version": "1.0.0",
-  "minBuild": 1178,
-  "description": "VS Code’s editor. The buffers live in this file. Invite is a pair session.",
+  "version": "1.2.0",
+  "minBuild": 5861,
+  "description": "VS Code\u2019s editor. The buffers live in this file. Invite is a pair session.",
   "entry": "index.html",
-  "accent": [0, 122, 204],
+  "accent": [
+    0,
+    122,
+    204
+  ],
   "help": "help.md",
   "capabilities": {
     "db": true,
@@ -15,9 +19,15 @@
     "wasm": true
   },
   "data": {
-    "files": { "visibility": "read-write" },
-    "cursors": { "visibility": "read-write" },
-    "prefs": { "visibility": "private" }
+    "files": {
+      "visibility": "read-write"
+    },
+    "cursors": {
+      "visibility": "read-write"
+    },
+    "prefs": {
+      "visibility": "private"
+    }
   },
   "launch": {
     "file": {

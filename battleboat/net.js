@@ -10,12 +10,14 @@
  *      positions stay in a private collection — they never leave this
  *      device.
  *   2. Invite is OS chrome: this file never draws an invite button.
+ * Who is here is gifos.people(). Publish only when the snap changes.
  */
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 2000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Battleboat needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var PUBLISH_MS = 200;
 
   var api = null;
@@ -23,9 +25,12 @@
   var others = {};
   var lastSnap = emptySnap();
   var lastPub = 0;
-  var hbTimer = 0;
+  var lastPubSig = '';
   var onChange = null;
   var ready = false;
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
 
   function db(n) { return api.db(n); }
   function now() { return Date.now(); }
@@ -42,17 +47,31 @@
     };
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
   function ingest(list) {
-    var t = now(), seen = {}, i, p;
+    var names = peopleNames(), seen = {}, i, p;
     for (i = 0; i < list.length; i++) {
       p = list[i];
       if (!p || !p.id || p.id === me.id) continue;
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
-      var cur = others[p.id];
-      var moved = !cur || cur.at !== p.at;
       others[p.id] = {
         id: p.id,
-        name: p.name || 'Player',
+        name: names[p.id] || p.name || 'Player',
         round: p.round || 1,
         phase: p.phase || 'place',
         shots: Array.isArray(p.shots) ? p.shots : [],
@@ -60,12 +79,11 @@
         sunk: p.sunk || 0,
         lost: Array.isArray(p.lost) ? p.lost : [],
         result: p.result || '',
-        at: p.at,
-        seen: moved ? t : cur.seen
+        at: p.at
       };
     }
     for (var id in others) {
-      if (!seen[id] || t - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id] || !names[id]) delete others[id];
     }
     if (onChange) onChange(view());
   }
@@ -97,14 +115,11 @@
   }
 
   function putSelf(force) {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     var t = now();
     if (!force && t - lastPub < PUBLISH_MS) return;
-    lastPub = t;
-    db('players').put({
+    var row = {
       id: me.id,
-      name: me.name,
-      at: t,
       round: lastSnap.round || 1,
       phase: lastSnap.phase || 'place',
       shots: lastSnap.shots || [],
@@ -112,7 +127,37 @@
       sunk: lastSnap.sunk || 0,
       lost: lastSnap.lost || [],
       result: lastSnap.result || ''
-    }).catch(function () {});
+    };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPub = t;
+    row.at = t;
+    row.name = me.name;
+    db('players').put(row).catch(function () {});
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Player'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        if (onChange) onChange(view());
+      }
+    }, function () {});
   }
 
   function init(opts) {
@@ -120,14 +165,13 @@
     onChange = opts.onChange || null;
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ ok: false });
-    return api.me().then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Player';
+    if (!PEOPLE) return Promise.resolve({ ok: false });
+    return readRoom().then(function () {
+      if (!me.id) return { ok: false };
       ready = true;
       db('players').subscribe(function (list) { ingest(list || []); });
       putSelf(true);
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(function () { putSelf(true); }, HB_MS);
+      setInterval(readRoom, PEOPLE_MS);
       return { ok: true, me: me };
     }).catch(function () { return { ok: false }; });
   }
@@ -139,10 +183,10 @@
   }
 
   function leave() {
-    if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
     if (api && me.id) db('players').delete(me.id).catch(function () {});
     others = {};
     lastSnap = emptySnap();
+    lastPubSig = '';
     ready = false;
   }
 
@@ -154,5 +198,17 @@
     view: view,
     emptySnap: emptySnap,
     ready: function () { return ready; }
+  };
+
+  root['__battleboat'] = {
+    state: function () {
+      return ready ? { round: lastSnap.round | 0, phase: lastSnap.phase || '' } : null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
+    },
+    amHost: function () { return ready && owner && peopleCount() > 1; }
   };
 })(window);
