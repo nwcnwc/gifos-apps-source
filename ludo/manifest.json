@@ -4,7 +4,7 @@
   "name": "Ludo",
   "shortName": "Ludo",
   "version": "1.2",
-  "minBuild": 5861,
+  "minBuild": 5995,
   "description": "Four seats fill as people open the invite. A six leaves the yard.",
   "entry": "index.html",
   "accent": [42, 138, 74],

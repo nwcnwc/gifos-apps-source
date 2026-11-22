@@ -4,7 +4,7 @@
   "name": "Bowling",
   "shortName": "Bowl",
   "version": "1.1.0",
-  "minBuild": 5861,
+  "minBuild": 5995,
   "entry": "index.html",
   "accent": [
     196,

@@ -14,7 +14,7 @@ rolls and moves on their own page and writes the whole game record with
 seat (open colours are skipped) and the page shows the room's turn; a roll and
 its move keep the turn (`keep`) until the game's own turn changes.
 
-`minBuild` is **5861**. No wasm, no network.
+`minBuild` is **5995** (the 0.9.27.4 build). No wasm, no network.
 
 ```bash
 node apps/ludo/build.mjs
