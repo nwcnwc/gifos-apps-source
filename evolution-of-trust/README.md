@@ -38,11 +38,11 @@ the CC0 original.
 
 | capability | why |
 |---|---|
-| `db` | Chapter / mute in a `private` collection; the host's tournament in a `read-only` one; presence in `watchers`. |
+| `db` | Chapter / mute in a `private` collection; the host's tournament in a `read-only` one; who is here from gifos.people(). |
 | `multiplayer` | The room. Invite is OS chrome. |
 | `links` | Credits open Nicky's site, Patreon, and Explorables in a new tab. |
 
-`minBuild` is **2154** (`capabilities.links`; packed `.assets/` already needed 1206) — files are served into the sandbox
+`minBuild` is **5861** (`capabilities.links`; packed `.assets/` already needed 1206) — files are served into the sandbox
 starting with that runtime. Older GifOS would boot a silent, pictureless
 essay.
 
@@ -57,3 +57,5 @@ node apps/evolution-of-trust/build.mjs   # -> site/apps/evolution-of-trust/evolu
 CC0 1.0, Nicky Case. The notice is packed **inside the GIF** as
 `COPYING.txt`. Futura Handwritten (Billy Snyder) is free for any use; the
 music is Komiku's "Bleu" (CC0). See `vendor/README.md` for the full credits.
+
+Who is here comes from gifos.people(). The app owner hosts; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.

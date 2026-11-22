@@ -1,9 +1,10 @@
 /*
  * Invite: guests watch the host's chapter and the same tournament.
  *
- * The host writes one row on `play` (read-only for guests). Guests never
- * write it. Commands are numbered so a late join catches the latest chapter
- * and the latest sandbox knobs, then follows start/step/reset from there.
+ * The host (app owner) writes one row on `play` (read-only for guests).
+ * Guests never write it. Commands are numbered so a late join catches the
+ * latest chapter and the latest sandbox knobs, then follows start/step/reset
+ * from there. Who is here is gifos.people().
  *
  * Tournament noise and the Random player use TRUST.seed so two people who
  * press Start together see the same winners.
@@ -11,17 +12,45 @@
 (function (root) {
   'use strict';
 
+  var NEEDS_NEWER = 'The Evolution of Trust needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var roomPeople = [];
+  var roomKey = '';
+  var roomRead = false;
+
   var api = null;
   var me = { id: null, name: '' };
   var owner = true;
   var applying = false;
   var seq = 0;
   var lastSeen = 0;
+  var playRec = null;
   var chapters = [];
   var watchers = 0;
   var onCount = null;
+  var hostHooked = false;
+  var peopleTimer = 0;
 
   function db(n) { return api.db(n); }
+
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
 
   function banner(n) {
     var el = document.getElementById('watch-banner');
@@ -81,7 +110,7 @@
   }
 
   function publishPlay(extra) {
-    if (!api || !me.id || !owner) return;
+    if (!PEOPLE || !api || !me.id || !owner) return;
     seq++;
     var rec = {
       id: 'play',
@@ -90,8 +119,7 @@
       chapter: currentChapter(),
       seed: extra && extra.seed != null ? extra.seed : 0,
       cmd: extra && extra.cmd || '',
-      sandbox: sandboxSnapshot(),
-      t: Date.now()
+      sandbox: sandboxSnapshot()
     };
     db('play').put(rec).catch(function () {});
   }
@@ -120,29 +148,22 @@
     for (var i = 0; i < list.length; i++) {
       if (list[i] && list[i].id === 'play') rec = list[i];
     }
-    if (rec) applyPlay(rec);
-  }
-
-  function ingestWatchers(list) {
-    var n = 0, t = Date.now();
-    for (var i = 0; i < (list || []).length; i++) {
-      var p = list[i];
-      if (!p || !p.id) continue;
-      if (p.t && t - p.t > 20000) continue;
-      n++;
+    playRec = rec;
+    if (rec) {
+      if (owner && rec.n && rec.n > seq) seq = rec.n;
+      applyPlay(rec);
     }
-    watchers = n;
-    banner(n);
-    if (onCount) onCount(n);
   }
 
-  function heartbeat() {
-    if (!api || !me.id) return;
-    db('watchers').put({ id: me.id, name: me.name || '', t: Date.now() }).catch(function () {});
+  function refreshWatchers() {
+    watchers = peopleCount();
+    banner(watchers);
+    if (onCount) onCount(watchers);
   }
 
   function hookHost() {
-    if (!owner) return;
+    if (hostHooked || !owner) return;
+    hostHooked = true;
     function send(cmd) {
       if (applying) return;
       var seed = 0;
@@ -168,33 +189,59 @@
     }
   }
 
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      var wasOwner = owner;
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || ''; }
+      document.body.classList.toggle('watching', !owner);
+      if (!wasOwner && owner && roomRead) {
+        // New owner must host after hand-off (P2).
+        hookHost();
+        publishPlay({ cmd: '' });
+      }
+      if (key !== roomKey) {
+        roomKey = key;
+        refreshWatchers();
+      }
+    }, function () {});
+  }
+
   function init(opts) {
     chapters = (opts && opts.chapters) || [];
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
+    if (!PEOPLE) {
+      return Promise.resolve({ owner: true, others: 0, needsNewer: true });
+    }
 
-    var infoP = api.info ? api.info().then(function (i) {
-      owner = !!(i && i.owner);
-      return owner;
-    }).catch(function () { owner = true; return true; }) : Promise.resolve(true);
-
-    return infoP.then(function () { return api.me(); }).then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || '';
+    return readRoom().then(function () {
+      if (!me.id) me.id = 'local';
       var settled = false;
       return new Promise(function (resolve) {
         var done = function () {
           if (settled) return;
           settled = true;
           hookHost();
-          heartbeat();
-          setInterval(heartbeat, 4000);
+          if (peopleTimer) clearInterval(peopleTimer);
+          peopleTimer = setInterval(readRoom, PEOPLE_MS);
           document.body.classList.toggle('watching', !owner);
+          refreshWatchers();
           resolve({ owner: owner, others: Math.max(0, watchers - 1) });
         };
         setTimeout(done, 2500);
         db('play').subscribe(function (list) { ingestPlay(list || []); done(); });
-        db('watchers').subscribe(function (list) { ingestWatchers(list || []); });
       });
     }).catch(function () {
       return { owner: true, others: 0 };
@@ -208,7 +255,31 @@
       publishPlay({ cmd: '' });
     },
     owner: function () { return owner; },
-    live: function () { return !!api && !!me.id; },
+    live: function () { return !!api && !!me.id && PEOPLE; },
     count: function () { return watchers; }
   };
+
+  root['__evolution-of-trust'] = {
+    state: function () {
+      // Shared play row only — local chapter can race ahead of the put (K8).
+      if (!playRec) return null;
+      return { n: playRec.n | 0, chapter: playRec.chapter || '' };
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'eot-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
