@@ -4,9 +4,13 @@
   "name": "Pong",
   "shortName": "Pong",
   "version": "1.1.0",
-  "minBuild": 947,
+  "minBuild": 5861,
   "entry": "index.html",
-  "accent": [90, 220, 110],
+  "accent": [
+    90,
+    220,
+    110
+  ],
   "capabilities": {
     "db": true,
     "multiplayer": true

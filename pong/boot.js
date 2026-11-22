@@ -6,16 +6,19 @@
  * touch, juice on the court, and two-device play over gifos.db.
  *
  * MULTIPLAYER. Invite is OS chrome — this app never draws a share button.
- * Left paddle is the host (the person who opened the app). Right paddle is
- * the friend who opened the invite. Each player writes ONLY their own row:
- * paddle y, and (host only) the ball and the score. The host simulates the
- * ball; the guest sends a paddle and otherwise paints what the host published.
+ * Left paddle is the host (the app owner). Right paddle is the friend who
+ * opened the invite. Each player writes ONLY their own row: paddle y, and
+ * (host only) the ball and the score. The host simulates the ball; the guest
+ * sends a paddle and otherwise paints what the host published. Who is here
+ * is gifos.people(). No heartbeat.
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 20;
-  var STALE_MS = 2500;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Pong needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var KEY = Game.KEY;
   var W = 87, S = 83;
 
@@ -28,6 +31,8 @@
   var me = { id: 'local', name: 'You' };
   var owner = true;
   var others = {};
+  var roomPeople = [];
+  var roomKey = '';
   var opponent = null;
   var hadOpponent = false;
   var acc = 0;
@@ -38,6 +43,7 @@
   var dragPaddle = null;
   var lastDragY = null;
   var netReady = !api;
+  var lastPubSig = '';
   var wins = 0;
   var lastDx = 0;
   var lastScores = [0, 0];
@@ -57,7 +63,23 @@
   function clamp(n, a, b) { return n < a ? a : n > b ? b : n; }
   function db(n) { return api && api.db ? api.db(n) : null; }
   function now() { return Date.now(); }
-  function isMp() { return !!(opponent && (now() - opponent.seen) < STALE_MS); }
+
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function isMp() { return !!(PEOPLE && opponent && peopleNames()[opponent.id]); }
   function myPaddle() { return (!isMp() || owner) ? pong.leftPaddle : pong.rightPaddle; }
 
   /* ------------------------------------------------------------------ */
@@ -334,6 +356,7 @@
     for (var i = 0; i < list.length; i++) {
       var p = list[i];
       if (!p || !p.id || p.id === me.id) continue;
+      if (!peopleNames()[p.id]) continue;
       seen[p.id] = 1;
       var cur = others[p.id];
       var moved = !cur || cur.y !== p.y || cur.stamp !== p.t || cur.host !== p.host;
@@ -350,7 +373,8 @@
         win: p.win
       };
     }
-    for (var id in others) if (!seen[id] || t - others[id].seen > STALE_MS) delete others[id];
+    var names = peopleNames();
+    for (var id in others) if (!seen[id] || !names[id]) delete others[id];
 
     var ids = Object.keys(others).sort();
     if (!owner) {
@@ -388,7 +412,7 @@
 
   function publish(g, dt) {
     var players = db('players');
-    if (!netReady || !players || !me.id || me.id === 'local') return;
+    if (!PEOPLE || !netReady || !players || !me.id || me.id === 'local') return;
     acc += dt;
     if (acc < 1 / PUBLISH_HZ) return;
     acc = 0;
@@ -396,8 +420,7 @@
     var rec = {
       id: me.id,
       name: me.name,
-      y: Math.round(paddle.y),
-      t: now()
+      y: Math.round(paddle.y)
     };
     if (owner) {
       rec.host = 1;
@@ -410,25 +433,49 @@
       rec.playing = g.playing ? 1 : 0;
       rec.win = (g.menu && (g.menu.winner === 0 || g.menu.winner === 1)) ? g.menu.winner : null;
     }
+    var sig = JSON.stringify(rec);
+    if (sig === lastPubSig) return;
+    lastPubSig = sig;
+    rec.t = now();
     players.put(rec).catch(function () {});
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        if (opponent && !names[opponent.id]) opponent = null;
+        maybeSwitchMode();
+        setNames();
+        setHint();
+      }
+    }, function () {});
   }
 
   function bootNet() {
     if (!api || !api.db) return;
-    var ready = [];
-    if (api.me) ready.push(api.me().then(function (m) {
-      me.id = (m && m.id) || 'local';
-      me.name = (m && m.name) || 'You';
-    }).catch(function () {}));
-    if (api.info) ready.push(api.info().then(function (i) {
-      owner = !!(i && i.owner);
-    }).catch(function () {}));
-    Promise.all(ready).then(function () {
+    if (!PEOPLE) return;
+    readRoom().then(function () {
       netReady = true;
       db('players').subscribe(function (list) { ingest(list || []); });
+      setInterval(readRoom, PEOPLE_MS);
       setNames();
       layoutPads();
-    });
+    }).catch(function () {});
   }
 
   /* ------------------------------------------------------------------ */
@@ -612,4 +659,28 @@
   setHint();
   setBest();
   bootNet();
+  root['__pong'] = {
+    state: function () {
+      if (!PEOPLE || !me.id || me.id === 'local') return null;
+      return { playing: !!(pong && pong.playing) ? 1 : 0, sl: pong ? pong.scores[0] : 0, sr: pong ? pong.scores[1] : 0 };
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'pong-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
+
 })(window);
