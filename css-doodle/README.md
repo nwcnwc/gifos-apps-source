@@ -61,3 +61,5 @@ is owned elsewhere.
 css-doodle is MIT, Yuan Chuan, 2017–2025. The notice is packed
 **inside the GIF** as `COPYING-css-doodle.txt` as well as living at
 `vendor/COPYING-css-doodle.txt`.
+
+Who is here comes from the room (gifos.people()). The app owner hosts the shared recipe; GifOS hands that on when they leave. An older GifOS shows a line that CSS Doodle needs a newer build — solo still works.

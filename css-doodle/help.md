@@ -38,3 +38,5 @@ The last pattern (recipe and shuffle seed) lives in this file. Close it, come ba
 ## Credit
 
 Unofficial port of [css-doodle](https://github.com/css-doodle/css-doodle). The square is theirs. The snippets are from their docs.
+
+Who is here comes from the room (gifos.people()). The app owner hosts the shared recipe; GifOS hands that on when they leave. An older GifOS shows a line that CSS Doodle needs a newer build — solo still works.
