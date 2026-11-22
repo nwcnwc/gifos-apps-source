@@ -7,15 +7,17 @@
  * turns over gifos.db.
  *
  * MULTIPLAYER. Invite is OS chrome — this app never draws a share button.
- * Host (the person who opened the app) is player 1 and simulates the balls.
- * The friend writes only their own shot (and, after a foul, where they put
- * the white). Nobody writes anybody else's row.
+ * Host (the app owner) is player 1 and simulates the balls. The friend
+ * writes only their own shot (and, after a foul, where they put the white).
+ * Nobody writes anybody else's row. Who is here is gifos.people(). No heartbeat.
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 20;
-  var STALE_MS = 3500;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Pool needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var PULL_DEAD = 28;
   var PULL_SCALE = 3.6;
   var MIN_SHOT = 7;
@@ -29,10 +31,13 @@
   var me = { id: 'local', name: 'You' };
   var owner = true;
   var others = {};
+  var roomPeople = [];
+  var roomKey = '';
   var opponent = null;
   var hadOpponent = false;
   var acc = 0;
   var netReady = !api;
+  var lastPubSig = '';
   var soundOn = true;
   var actx = null;
   var pulling = false;
@@ -72,7 +77,23 @@
   function clamp(n, a, b) { return n < a ? a : n > b ? b : n; }
   function db(n) { return api && api.db ? api.db(n) : null; }
   function now() { return Date.now(); }
-  function isMp() { return !!(opponent && (now() - opponent.seen) < STALE_MS); }
+
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function isMp() { return !!(PEOPLE && opponent && peopleNames()[opponent.id]); }
   function myTurn() {
     if (!Game.policy) return true;
     if (!isMp()) return !AI_ON || Game.policy.turn !== AI_PLAYER_NUM;
@@ -585,6 +606,7 @@
     for (i = 0; i < list.length; i++) {
       p = list[i];
       if (!p || !p.id || p.id === me.id) continue;
+      if (!peopleNames()[p.id]) continue;
       seen[p.id] = 1;
       var cur = others[p.id];
       var moved = !cur || cur.stamp !== p.at || cur.host !== p.host;
@@ -601,7 +623,8 @@
         shot: p.shot, place: p.place
       };
     }
-    for (var id in others) if (!seen[id] || t - others[id].seen > STALE_MS) delete others[id];
+    var names = peopleNames();
+    for (var id in others) if (!seen[id] || !names[id]) delete others[id];
 
     var ids = Object.keys(others).sort();
     if (!owner) {
@@ -639,7 +662,7 @@
 
   function publish(force) {
     var players = db('players');
-    if (!netReady || !players || !me.id || me.id === 'local') return;
+    if (!PEOPLE || !netReady || !players || !me.id || me.id === 'local') return;
     if (!Game.gameWorld) return;
     if (!force) {
       acc += DELTA;
@@ -648,8 +671,7 @@
     acc = 0;
     var rec = {
       id: me.id,
-      name: me.name,
-      at: now()
+      name: me.name
     };
     if (pendingShot) rec.shot = pendingShot;
     if (pendingPlace) rec.place = pendingPlace;
@@ -675,35 +697,48 @@
       rec.sv = stick.visible ? 1 : 0;
       rec.moving = Game.gameWorld.ballsMoving() ? 1 : 0;
     }
+    var sig = JSON.stringify(rec);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    rec.at = now();
     players.put(rec).catch(function () {});
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        if (opponent && !names[opponent.id]) opponent = null;
+        maybeSwitchMode();
+        setNames();
+        setHint();
+      }
+    }, function () {});
   }
 
   function bootNet() {
     if (!api || !api.db) return;
-    var ready = [];
-    if (api.me) ready.push(api.me().then(function (m) {
-      me.id = (m && m.id) || 'local';
-      me.name = (m && m.name) || 'You';
-    }).catch(function () {}));
-    if (api.info) ready.push(api.info().then(function (i) {
-      owner = !!(i && i.owner);
-    }).catch(function () {}));
-    Promise.all(ready).then(function () {
+    if (!PEOPLE) return;
+    readRoom().then(function () {
       netReady = true;
       db('players').subscribe(function (list) { ingest(list || []); });
+      setInterval(readRoom, PEOPLE_MS);
       setNames();
-      heartbeat();
-      setInterval(heartbeat, 1000);
-    });
-  }
-
-  function heartbeat() {
-    var players = db('players');
-    if (!netReady || !players || !me.id || me.id === 'local') return;
-    if (!menuOn && Game.gameWorld) return;
-    var rec = { id: me.id, name: me.name, at: now() };
-    if (owner) rec.host = 1;
-    players.put(rec).catch(function () {});
+    }).catch(function () {});
   }
 
   /* ------------------------------------------------------------------ */
@@ -958,4 +993,28 @@
   bindPointer();
   setNames();
   bootNet();
+  root['__pool'] = {
+    state: function () {
+      if (!PEOPLE || !me.id || me.id === 'local') return null;
+      return { turn: Game.policy ? Game.policy.turn : 0, won: Game.policy && Game.policy.won ? 1 : 0 };
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'pool-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
+
 })(window);
