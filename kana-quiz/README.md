@@ -65,3 +65,6 @@ elsewhere.
 
 anzzstuff's MIT notice (Copyright (c) 2016 Antti Pilto) is packed **inside
 the GIF** as `COPYING-kanaquiz.txt` (`vendor/COPYING-kanaquiz.txt`).
+
+
+Who is here comes from gifos.people(). The app owner hosts. An older GifOS shows a needs-newer line — solo still works.

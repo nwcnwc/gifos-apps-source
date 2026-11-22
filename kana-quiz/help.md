@@ -26,6 +26,8 @@ Each correct answer is one point. The bar is how far you are through the deck. A
 
 ## A live friend
 
+Who is here comes from gifos.people(). The app owner hosts the shared deck; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.
+
 Press **Play a friend**, then **Invite** in the bar **above** the app — that link is the room. You both get the **same** shuffled deck.
 
 - **First to 10** — first to ten right wins (or fewer if the deck is smaller).
