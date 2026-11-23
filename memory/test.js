@@ -1,7 +1,7 @@
 // MEMORY HAS TO PLAY THE SEQUENCE.
 //
 // Mnimi's rules (4 pads, extra at 7 and 14, speed 2500→550) shipped as a
-// DOM toy with no suite. A guest Invite Start rolled a private seed, so the
+// DOM toy with no suite. Before Tier B a guest Invite Start rolled a private seed, so the
 // "same sequence" race was a lie, and a tap was a click — late on a phone.
 // This suite PLAYS the exported engine: start, demo → play, tap the sequence,
 // miss the wrong pad, keep best, keep a seed identical across two devices.
@@ -347,8 +347,17 @@ function fakeWindow(html, o) {
   const winL = {};
   const timers = [];
   const images = dom.imgSrcs;
+  const meRow = o.me || { id: 'me', name: 'Tester' };
+  const peopleList = () => {
+    if (Array.isArray(o.people)) return o.people.map((p) => Object.assign({}, p));
+    // Solo default: only me, here.
+    return [{ id: meRow.id, name: meRow.name || 'You', me: true, here: 'here' }];
+  };
   const gifos = Object.assign({
-    db, onBack: (f) => { backHandler = f; }, info: async () => ({ owner: o.owner !== false }), me: async () => (o.me || { id: 'me', name: 'Tester' }),
+    db, onBack: (f) => { backHandler = f; },
+    info: async () => ({ owner: o.owner === true || (o.owner !== false && !Array.isArray(o.people)) }),
+    me: async () => meRow,
+    people: async () => peopleList(),
     takePhoto: async () => { traps.photo = (traps.photo || 0) + 1; return { bytes: new Uint8Array([255, 216, 255]), mime: 'image/jpeg' }; },
     launch: () => Promise.resolve(o.launch || null), ready: () => {}, setTitle: () => {}, haptic: () => {}, vibrate: () => {},
   }, o.gifos || {});
@@ -475,24 +484,52 @@ async function shell() {
   check('…a stopped round takes no more taps', num(B.$('score')) === 0);
   check('…and Back again lets the OS close', B.back() === false);
 
-  // Invite: two devices share the match + players dbs. The GUEST presses
-  // Start; the seed it publishes starts the HOST on the same sequence.
+  // Invite: two devices share match + players. people()/owner — only the
+  // app owner publishes the seed; both race the same sequence.
   const shared = { match: new Map(), players: new Map() };
-  const host = bootApp(APP, { dbs: Object.assign({}, shared), me: { id: 'host', name: 'Avery' }, extra: { Math: fixedMath(0.75) } });
-  const guest = bootApp(APP, { dbs: Object.assign({}, shared), me: { id: 'guest', name: 'Blake' }, extra: { Math: fixedMath(0.25) } });
+  const room = [
+    { id: 'host', name: 'Avery', me: false, here: 'here' },
+    { id: 'guest', name: 'Blake', me: false, here: 'here' },
+  ];
+  const hostPeople = [
+    { id: 'host', name: 'Avery', me: true, here: 'here' },
+    { id: 'guest', name: 'Blake', me: false, here: 'here' },
+  ];
+  const guestPeople = [
+    { id: 'host', name: 'Avery', me: false, here: 'here' },
+    { id: 'guest', name: 'Blake', me: true, here: 'here' },
+  ];
+  const host = bootApp(APP, {
+    dbs: Object.assign({}, shared),
+    me: { id: 'host', name: 'Avery' },
+    owner: true,
+    people: hostPeople,
+    extra: { Math: fixedMath(0.25) },
+  });
+  const guest = bootApp(APP, {
+    dbs: Object.assign({}, shared),
+    me: { id: 'guest', name: 'Blake' },
+    owner: false,
+    people: guestPeople,
+    extra: { Math: fixedMath(0.75) },
+  });
   await flushAsync(40);
   check('two players in the room see the versus row', host.$('versus').hidden === false && guest.$('versus').hidden === false);
   guest.$('start').click();
-  await flushAsync(10);
-  const round = shared.match.get('round');
-  check('Invite: whoever Starts publishes the seed (here the guest)', !!round && round.seed === SEED, round);
+  await flushAsync(20);
+  check('guest Start does not publish the shared seed', [...shared.match.values()].length === 0);
+  host.$('start').click();
+  await flushAsync(40);
+  const round = [...shared.match.values()].find((r) => r.id === 'round');
+  check('Invite: the app owner publishes the seed', !!round && round.seed === SEED, round);
   await wait(450);
-  host.$('board').children[seq1[0]].dispatch('pointerdown');
-  guest.$('board').children[seq1[0]].dispatch('pointerdown');
-  check('…and both boards race the SAME sequence (the host clears it with the guest\'s seed)', num(host.$('score')) === 1 && num(guest.$('score')) === 1, [host.$('score').textContent, guest.$('score').textContent]);
+  const seqShare = R.sequenceOf(SEED, 1);
+  host.$('board').children[seqShare[0]].dispatch('pointerdown');
+  guest.$('board').children[seqShare[0]].dispatch('pointerdown');
+  check('…and both boards race the SAME sequence', num(host.$('score')) === 1 && num(guest.$('score')) === 1, [host.$('score').textContent, guest.$('score').textContent]);
   check('Invite is OS chrome: the page has no invite control', host.$('invite') === null && !host.dom.document.querySelector('[id*=invite]'));
   const all = [W, R2, B, host, guest].map((x) => x.traps);
-  check('no network / eval in play', all.every((t) => t.fetch + t.xhr + t.ws + t.eval + t.fn === 0), all);
+  check('no network / eval in play', all.every((t) => t.fetch + t.xhr + t.ws + t.eval + t.fn + t.gum + t.worker === 0), all);
   [W, R2, B, host, guest].forEach((x) => x.stop());
 }
 
