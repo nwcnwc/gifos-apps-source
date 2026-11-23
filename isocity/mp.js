@@ -492,6 +492,7 @@
       return out;
     },
     amHost: function () {
+      if (api && PEOPLE) readRoom();
       return PEOPLE && owner && peopleCount() > 1;
     }
   };

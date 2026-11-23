@@ -889,12 +889,16 @@
   window['__math-race'] = {
     state: function () {
       var m = mp.match;
-      return m ? { phase: m.phase, seq: m.seq | 0, q: m.q | 0 } : null;
+      // Lobby with no seq is "not started" — null so copies agree before play (K8).
+      if (!m || (m.phase === 'lobby' && !(m.seq | 0) && !(m.q | 0))) return null;
+      return { phase: m.phase, seq: m.seq | 0, q: m.q | 0 };
     },
     people: function () {
+      if (api && PEOPLE) readRoom();
       return (mp.people || []).map(function (p) { return p.id; });
     },
     amHost: function () {
+      if (api && PEOPLE) readRoom();
       return PEOPLE && mp.owner && peopleCount() > 1;
     }
   };
