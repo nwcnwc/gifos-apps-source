@@ -51,7 +51,7 @@ for (const need of ['world.js', 'game.js', 'mp.js', 'touch.js', 'boot.js',
   if (!existsSync(join(dir, need))) throw new Error(need + ' is missing');
 }
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947 — this app needs nothing newer than the store.');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861');
 if (manifest.appId !== 'mykonos') throw new Error('appId must be mykonos');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
