@@ -36,7 +36,9 @@ There is no up or down. The cannon stays on the ground.
 
 ## Solo or a friend
 
-On your own you are the only cannon. Press **Invite** in the bar above the app and send the link: extra cannons appear on the same ground, each person aiming their own, everyone shooting the same wave. There is no lobby. The host of the room runs the swarm; if they leave, the wave waits.
+On your own you are the only cannon. Who is here comes from gifos.people(). The app owner hosts the swarm; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.
+
+Press **Invite** in the bar above the app and send the link: extra cannons appear on the same ground, each person aiming their own, everyone shooting the same wave. There is no lobby. The host of the room runs the swarm; if they leave, the wave waits.
 
 Invite is not a button inside this game.
 
