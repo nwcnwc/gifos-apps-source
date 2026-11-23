@@ -43,7 +43,7 @@ for (const need of [
   if (!existsSync(join(dir, need))) throw new Error(need + ' is missing');
 }
 
-if (manifest.minBuild !== 947 || manifest.appId !== 'regexr') throw new Error('manifest');
+if (manifest.minBuild !== 5861 || manifest.appId !== 'regexr') throw new Error('manifest');
 if (!manifest.capabilities.db || !manifest.capabilities.multiplayer) throw new Error('caps');
 if (manifest.capabilities.network) throw new Error('no network');
 if (!manifest.data.save || manifest.data.save.visibility !== 'private') throw new Error('save private');
@@ -53,7 +53,7 @@ if (listing.basedOn.blessed !== false || listing.basedOn.name !== 'RegExr') thro
 if (listing.basedOn.url !== 'https://github.com/gskinner/regexr') throw new Error('basedOn.url');
 if (listing.author.name !== 'Grant Skinner' || listing.porter.name !== 'GifOS') throw new Error('author');
 if (listing.license !== 'GPL-3.0') throw new Error('license');
-if (!listing.homepage.includes('/apps/regexr')) throw new Error('homepage');
+if (listing.homepage !== 'https://github.com/nwcnwc/gifos-apps-source/tree/main/regexr') throw new Error('homepage');
 if (!listing.description.toLowerCase().includes('offline')) throw new Error('listing offline');
 if (!listing.description.includes('Invite')) throw new Error('listing invite');
 if (!listing.description.toLowerCase().includes('unofficial')) throw new Error('unofficial');
@@ -215,13 +215,21 @@ if (!files['COPYING.txt'].includes('GNU GENERAL PUBLIC LICENSE')) throw new Erro
     getAll() { return Promise.resolve(listOf()); },
     subscribe(cb) { subs.push(cb); this.getAll().then(cb); }
   };
+  const roster = Object.create(null);
   function client(id, name, owner, state) {
     const ctx = { console, Date, Promise, JSON };
     ctx.window = ctx;
+    roster[id] = { id, name, here: 'here', me: false };
     ctx.gifos = {
       db() { return room; },
       me() { return Promise.resolve({ id, name }); },
-      info() { return Promise.resolve({ owner }); }
+      info() { return Promise.resolve({ owner }); },
+      people() {
+        return Promise.resolve(Object.keys(roster).map((k) => {
+          const p = roster[k];
+          return { id: p.id, name: p.name, here: p.here, me: k === id };
+        }));
+      }
     };
     vm.createContext(ctx);
     vm.runInContext(files['net.js'], ctx);
