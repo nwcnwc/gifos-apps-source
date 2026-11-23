@@ -4,12 +4,15 @@
  * Upstream is a canvas engine that listens for window keydown (arrows / space).
  * This file sizes the cabinet, keeps a d-pad under a thumb, saves the high
  * score and furthest maze in gifos.db, and publishes a cabinet roster when
- * Invite is used. Invite is OS chrome — this app never draws a share button.
+ * friends are in the room (gifos.people()). Invite is OS chrome.
  */
 (function (root) {
   'use strict';
 
   var api = typeof gifos !== 'undefined' ? gifos : null;
+  var NEEDS_NEWER = 'Pac-Man needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(api && api.people);
   var saveDb = null, playersDb = null;
   try {
     if (api && api.db) {
@@ -32,8 +35,12 @@
   var bestLevel = 1;
   var me = { id: 'local', name: 'You' };
   var others = {};
+  var lastPlayerRows = [];
   var started = false;
   var lastPub = 0;
+  var lastPubSig = '';
+  var roomPeople = [];
+  var owner = false;
   var held = 0;
   var WASD = { KeyW: 38, KeyA: 37, KeyS: 40, KeyD: 39 };
   var KEY_ORI = { 39: 0, 40: 1, 37: 2, 38: 3 };
@@ -106,6 +113,51 @@
     persistScore(s);
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      ingestPlayers(lastPlayerRows);
+    }, function () {});
+  }
+  function ingestPlayers(list) {
+    lastPlayerRows = list || [];
+    var names = peopleNames(), seen = {};
+    others = {};
+    lastPlayerRows.forEach(function (p) {
+      if (!p || !p.id || p.id === me.id) return;
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
+      seen[p.id] = 1;
+      others[p.id] = Object.assign({}, p, { name: names[p.id] || p.name || 'Player' });
+    });
+    paintRoster();
+    fit();
+  }
   function roster() {
     var list = [{ id: me.id, name: me.name, mine: true, score: scoreNow(), life: lifeNow(), maze: mazeNow() }];
     Object.keys(others).forEach(function (id) {
@@ -134,14 +186,17 @@
   }
 
   function publish() {
-    if (!started || !playersDb || !me.id || me.id === 'local') return;
-    var now = Date.now();
-    if (now - lastPub < 400) return;
-    lastPub = now;
-    playersDb.put({
-      id: me.id, name: me.name,
-      score: scoreNow(), life: lifeNow(), maze: mazeNow(), t: now
-    }).catch(function () {});
+    if (!PEOPLE || !started || !playersDb || !me.id || me.id === 'local') return;
+    if (peopleCount() < 2) return;
+    var row = {
+      id: me.id,
+      score: scoreNow(), life: lifeNow(), maze: mazeNow()
+    };
+    var sig = JSON.stringify(row);
+    if (sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPub = Date.now();
+    playersDb.put(row).catch(function () {});
   }
 
   document.addEventListener('keydown', function (e) {
@@ -290,24 +345,34 @@
 
   function bootNet() {
     if (!api || !api.db || !playersDb) return;
-    api.me().then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
-      if (me.id === 'local') return;
+    if (!PEOPLE) return;
+    readRoom().then(function () {
+      if (!me.id || me.id === 'local') return;
       started = true;
-      playersDb.subscribe(function (list) {
-        var seen = {};
-        (list || []).forEach(function (p) {
-          if (!p || !p.id || p.id === me.id) return;
-          seen[p.id] = 1;
-          others[p.id] = p;
-        });
-        Object.keys(others).forEach(function (id) { if (!seen[id]) delete others[id]; });
-        paintRoster();
-        fit();
-      });
+      playersDb.subscribe(function (list) { ingestPlayers(list || []); });
       publish();
+      setInterval(readRoom, PEOPLE_MS);
     }).catch(function () {});
+  }
+
+  root['__pacman'] = {
+    state: function () {
+      return started ? { score: scoreNow() | 0, maze: mazeNow() | 0 } : null;
+    },
+    people: function () {
+      return roster().map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'pacman-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
   }
 
   function load() {
