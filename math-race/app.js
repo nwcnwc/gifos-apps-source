@@ -21,7 +21,10 @@
     });
   };
 
-  var PRES_TTL = 9000, HB_MS = 3000, TICK_MS = 250, FLASH_MS = 420;
+  var PEOPLE_MS = 500;
+  var PEOPLE = !!(typeof gifos !== 'undefined' && gifos && gifos.people);
+  var NEEDS_NEWER = 'Math Race needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var TICK_MS = 250, FLASH_MS = 420;
   var MAX_CHARS = 5, HISTORY_N = 8;
 
   var api = typeof gifos !== 'undefined' ? gifos : null;
@@ -370,7 +373,7 @@
         $('statusLine').className = 'statusline' + (mineWin ? ' good' : '');
         $('statusLine').textContent = line;
         setChip('ready', 'Time');
-        showEnd(myScore, mineWin ? 'You win' : 'Time', isHost(mp.people));
+        showEnd(myScore, mineWin ? 'You win' : 'Time', isHost());
       } else if (m.phase === 'playing') {
         hideEnd();
         if (m.q !== seenQ) {
@@ -462,7 +465,7 @@
   $('soloBtn').onclick = startSolo;
   $('againBtn').onclick = function () {
     if (mp.on) {
-      if (isHost(mp.people)) hostStart();
+      if (isHost()) hostStart();
       return;
     }
     startSolo();
@@ -496,38 +499,54 @@
   // match row: host only. players row: id = me.id only.
   var mp = {
     on: false, id: null, name: 'You', row: null, match: null, people: [],
-    hb: 0, sub: false, duration: 60, difficulty: 'easy', streak: 0
+    peopleTimer: 0, sub: false, duration: 60, difficulty: 'easy', streak: 0,
+    owner: false, roomPeople: [], roomKey: '', roomRead: false
   };
   var _matchItems = [], _playerItems = [];
 
-  function isHost(people) {
-    var list = people && people.length ? people : [{ id: mp.id }];
-    var m = list[0].id, i;
-    for (i = 0; i < list.length; i++) if (list[i].id < m) m = list[i].id;
-    return mp.id === m;
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < mp.roomPeople.length; i++) {
+      p = mp.roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
   }
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < mp.roomPeople.length; i++) {
+      p = mp.roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+  function isHost() { return PEOPLE && mp.owner; }
   function livePeople(items) {
-    var t = nowMs(), out = [], i, it;
+    var names = peopleNames(), out = [], i, it;
     for (i = 0; i < (items || []).length; i++) {
       it = items[i];
       if (!it || !it.id || it.id === 'match') continue;
-      if (it.at && t - it.at < PRES_TTL) out.push(it);
+      if (!names[it.id]) continue;
+      out.push(it);
     }
-    if (mp.id && !out.some(function (p) { return p.id === mp.id; })) {
-      out.push(mp.row || { id: mp.id, name: mp.name, at: t });
+    if (mp.id && names[mp.id] && !out.some(function (p) { return p.id === mp.id; })) {
+      out.push(mp.row || { id: mp.id });
     }
     return out;
   }
   function putMe(extra) {
-    if (!playersDb || !mp.id || mp.id === 'local') return;
-    var row = { id: mp.id, name: mp.name, at: nowMs(), intent: null };
+    if (!PEOPLE || !playersDb || !mp.id || mp.id === 'local') return;
+    if (!mp.on) return;
+    var row = { id: mp.id, intent: null };
     if (mp.row && mp.row.intent) row.intent = mp.row.intent;
     if (extra && extra.intent !== undefined) row.intent = extra.intent;
     mp.row = row;
+    // Only write when intent is set or forced by extra (K3: no heartbeat).
+    if (row.intent == null && !(extra && 'intent' in extra)) return;
     playersDb.put(row).catch(function () {});
   }
   function putMatch(m) {
-    if (!matchDb) return;
+    if (!PEOPLE || !matchDb || !mp.owner) return;
     mp.match = m;
     matchDb.put(m).catch(function () {});
   }
@@ -558,15 +577,43 @@
     m.lastWinner = null;
   }
 
-  $('friendBtn').onclick = mpEnter;
-  function mpEnter() {
-    if (!matchDb || !playersDb) {
+  if ($('friendBtn')) {
+    if (!PEOPLE) { $('friendBtn').disabled = true; $('friendBtn').title = NEEDS_NEWER; }
+    $('friendBtn').onclick = function () { mpEnter(true); };
+  }
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      var handed = !mp.owner && !!info.owner && mp.roomRead;
+      mp.roomPeople = ppl;
+      mp.owner = !!info.owner;
+      mp.roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { mp.id = mine.id; mp.name = mine.name || 'You'; }
+      if (handed && !mp.on) mpEnter(true);
+      else if (key !== mp.roomKey) {
+        mp.roomKey = key;
+        if (mp.on) mpRefresh();
+        else if (peopleCount() > 1) mpEnter(false);
+      }
+    }, function () {});
+  }
+
+  function mpEnter(fromHand) {
+    if (!PEOPLE || !matchDb || !playersDb) {
       setChip('warn', 'Needs GifOS');
-      $('bestLine').textContent = 'Play a friend needs the invite bar — open this inside GifOS.';
+      $('bestLine').textContent = NEEDS_NEWER;
       return;
     }
-    (api && api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (me) {
-      mp.id = me.id; mp.name = me.name || 'You'; mp.on = true; mp.row = null;
+    readRoom().then(function () {
+      mp.on = true; mp.row = null;
       solo = null;
       mp.duration = setup.duration;
       mp.difficulty = setup.difficulty;
@@ -574,19 +621,22 @@
       setChip('ready', 'A friend');
       if (!mp.sub) {
         mp.sub = true;
-        matchDb.subscribe(function (items) { _matchItems = items || []; mpRefresh(); });
+        matchDb.subscribe(function (items) { _matchItems = items || []; mp.matchSeen = true; mpRefresh(); });
         playersDb.subscribe(function (items) { _playerItems = items || []; mpRefresh(); });
       }
-      putMe();
-      if (mp.hb) clearInterval(mp.hb);
-      mp.hb = setInterval(function () { if (mp.on) putMe(); }, HB_MS);
+      if (mp.peopleTimer) clearInterval(mp.peopleTimer);
+      mp.peopleTimer = setInterval(readRoom, PEOPLE_MS);
+      // No putMe on enter — write only when answering (K3).
       mpRenderLobby();
     });
   }
   function mpLeave() {
     mp.on = false;
     stopTick();
-    if (mp.hb) clearInterval(mp.hb); mp.hb = 0;
+    if (mp.peopleTimer) clearInterval(mp.peopleTimer); mp.peopleTimer = 0;
+  mp.matchSeen = false;
+    mp.match = null;
+    clearTimeout(mp._freshTimer);
     if (playersDb && mp.id && mp.id !== 'local') playersDb.delete(mp.id).catch(function () {});
     show('setup');
     setChip('ready', 'Ready');
@@ -608,11 +658,19 @@
       for (i = 0; i < people.length; i++) if (people[i].id === mp.id) mp.row = people[i];
     }
     if (!match) {
-      if (isHost(people)) putMatch(freshMatch(mp.id, mp.duration, mp.difficulty));
+      // Wait for the first subscribe snapshot so a late joiner / new host does not
+      // overwrite a live playing match with a fresh lobby (kit K8).
+      if (isHost() && mp.matchSeen) {
+        // Defer so a subscribe delivering a live match wins over a fresh lobby (K8).
+        clearTimeout(mp._freshTimer);
+        mp._freshTimer = setTimeout(function () {
+          if (!mp.match && isHost()) putMatch(freshMatch(mp.id, mp.duration, mp.difficulty));
+        }, 500);
+      }
       mpRenderLobby();
       return;
     }
-    if (isHost(people)) {
+    if (isHost()) {
       var next = mpReconcile(match, people);
       if (next) { putMatch(next); return; }
     }
@@ -694,7 +752,7 @@
     if (mp.match.phase !== 'playing') return;
     var rem = remainingOf(mp.match.endsAt, nowMs());
     paintClock(rem, true, mp.match.duration);
-    if (isHost(mp.people) && rem <= 0) {
+    if (isHost() && rem <= 0) {
       var next = mpReconcile(mp.match, mp.people);
       if (next) putMatch(next);
     }
@@ -718,7 +776,7 @@
   }
 
   function hostStart() {
-    if (!isHost(mp.people)) return;
+    if (!isHost()) return;
     var m = mp.match ? JSON.parse(JSON.stringify(mp.match)) : freshMatch(mp.id, mp.duration, mp.difficulty);
     var now = nowMs();
     m.phase = 'playing';
@@ -747,7 +805,7 @@
   $('fStart').onclick = hostStart;
 
   bindSeg('fDurSeg', 'data-dur', function (v) {
-    if (!isHost(mp.people)) return;
+    if (!isHost()) return;
     mp.duration = parseInt(v, 10) || 60;
     setSeg($('fDurSeg'), 'data-dur', mp.duration);
     if (mp.match && mp.match.phase === 'lobby') {
@@ -757,7 +815,7 @@
     }
   });
   bindSeg('fDiffSeg', 'data-diff', function (v) {
-    if (!isHost(mp.people)) return;
+    if (!isHost()) return;
     mp.difficulty = v === 'medium' || v === 'hard' ? v : 'easy';
     setSeg($('fDiffSeg'), 'data-diff', mp.difficulty);
     if (mp.match && mp.match.phase === 'lobby') {
@@ -769,7 +827,7 @@
 
   function mpRenderLobby() {
     var people = mp.people || [];
-    var host = isHost(people);
+    var host = isHost();
     var m = mp.match;
     $('fHostBits').hidden = !host || (m && m.phase === 'playing');
     setSeg($('fDurSeg'), 'data-dur', (m && m.duration) || mp.duration);
@@ -781,7 +839,7 @@
       var mine = p.id === mp.id ? ' me' : '';
       var tag = (m && m.host === p.id) || (host && p.id === mp.id) ? 'host' : 'here';
       if (ended || (m && m.phase === 'playing')) tag = String(scores[p.id] || 0);
-      html += '<li class="' + mine + '"><span>' + esc(p.id === mp.id ? 'You' : (p.name || 'Player')) +
+      html += '<li class="' + mine + '"><span>' + esc(p.id === mp.id ? 'You' : (peopleNames()[p.id] || 'Player')) +
         '</span><span class="n">' + esc(tag) + '</span></li>';
     });
     $('fPeople').innerHTML = html;
@@ -827,4 +885,34 @@
       renderBest();
     }).catch(function () {});
   }
+
+  window['__math-race'] = {
+    state: function () {
+      var m = mp.match;
+      // Lobby with no seq is "not started" — null so copies agree before play (K8).
+      if (!m || (m.phase === 'lobby' && !(m.seq | 0) && !(m.q | 0))) return null;
+      return { phase: m.phase, seq: m.seq | 0, q: m.q | 0 };
+    },
+    people: function () {
+      if (api && PEOPLE) readRoom();
+      return (mp.people || []).map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      if (api && PEOPLE) readRoom();
+      return PEOPLE && mp.owner && peopleCount() > 1;
+    }
+  };
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'mr-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  } else if (api) {
+    readRoom().then(function () {
+      if (mp.peopleTimer) clearInterval(mp.peopleTimer);
+      mp.peopleTimer = setInterval(readRoom, PEOPLE_MS);
+    });
+  }
+
 })();
