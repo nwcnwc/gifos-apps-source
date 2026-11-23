@@ -1,22 +1,26 @@
 /* Optional meeting: the same card, on everyone else's screen.
- * Each person writes THEIR own row. The live host (lowest id) is the
- * card that is shown. Nobody writes anybody else's row.
- * Invite is OS chrome — this file only says to press it. */
+ * Each person writes THEIR own row. Nobody writes anybody else's row.
+ * The app owner hosts the live card (else lowest id). Who is here is
+ * gifos.people(). Invite is OS chrome. */
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 3000;
+  var NEEDS_NEWER = 'WiFi Card needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
 
   var api = null;
   var room = null;
   var me = { id: null, name: 'You' };
   var on = false;
   var subscribed = false;
-  var hbTimer = 0;
   var lastList = [];
-  var seenAt = {};
   var guest = false;
+  var lastPub = 0;
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var roomRead = false;
 
   var now = function () { return Date.now(); };
   var esc = function (s) {
@@ -25,34 +29,43 @@
     });
   };
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id) return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      if (t - seenAt[p.id].seen > STALE_MS) return;
-      out.push(p);
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
+      out.push(Object.assign({}, p, { name: names[p.id] || p.name || 'Friend' }));
     });
     return out;
   }
 
   function hostOf(players) {
     if (!players.length) return null;
-    var h = players[0];
-    for (var i = 1; i < players.length; i++) {
-      if (players[i].id < h.id) h = players[i];
+    var i, a = null;
+    if (owner && me.id) {
+      for (i = 0; i < players.length; i++) if (players[i].id === me.id) { a = players[i]; break; }
     }
-    return h;
+    if (a) return a;
+    a = players[0];
+    for (i = 1; i < players.length; i++) {
+      if (players[i].id < a.id) a = players[i];
+    }
+    return a;
   }
 
   function snapshot() {
     var card = Mp.getCard ? Mp.getCard() : {};
     return {
       id: me.id,
-      name: me.name,
-      at: now(),
       ssid: card.ssid || '',
       password: card.password || '',
       encryptionMode: card.encryptionMode || 'WPA',
@@ -66,7 +79,10 @@
   }
 
   function publish() {
-    if (!on || !room || !me.id) return;
+    if (!on || !room || !me.id || !PEOPLE) return;
+    var t = now();
+    if (t - lastPub < 80) return;
+    lastPub = t;
     room.put(snapshot()).catch(function () {});
   }
 
@@ -109,10 +125,26 @@
     applyHost(live(lastList));
   }
 
-  function beat() {
-    if (!on) return;
-    publish();
-    applyHost(live(lastList));
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        if (on) applyHost(live(lastList));
+      }
+    }, function () {});
   }
 
   function watch() {
@@ -123,19 +155,20 @@
       }
       return;
     }
+    if (!PEOPLE) {
+      if (Mp.onStatus) Mp.onStatus(NEEDS_NEWER, false, 0);
+      return;
+    }
     room = room || api.db('room');
-    var who = api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' });
-    who.then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
+    readRoom().then(function () {
       on = true;
       if (!subscribed) {
         subscribed = true;
         room.subscribe(onRoom);
       }
-      beat();
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(beat, HB_MS);
+      publish();
+      applyHost(live(lastList));
+      setInterval(readRoom, PEOPLE_MS);
     }).catch(function () {});
   }
 
@@ -151,4 +184,31 @@
   };
 
   root.WifiMp = Mp;
+
+  root['__wifi-card'] = {
+    state: function () {
+      var h = hostOf(live(lastList));
+      if (!h) return null;
+      return { ssid: h.ssid || '' };
+    },
+    people: function () {
+      return live(lastList).map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      var n = 0, i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') n++;
+      }
+      return on && owner && n > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'wifi-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
