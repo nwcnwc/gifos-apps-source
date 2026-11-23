@@ -183,6 +183,7 @@
   var match = null;
   var vsRound = 0;
   var peopleTimer = 0;
+  var lastPubSig = '';
   var roomPeople = [];
   var roomKey = '';
   var owner = false;
@@ -930,7 +931,7 @@
     if (!G.friend) return;
     var tgt = targetOf();
     var done = !!G.doneAt || (G.i >= G.deck.length || (G.race === 'firstN' && G.score >= tgt));
-    playersDb.put({
+    var row = {
       id: me.id,
       score: G.score,
       wrong: G.wrong,
@@ -941,7 +942,11 @@
       ready: !!G.ready,
       race: G.race,
       friend: !!G.friend
-    }).catch(function () {});
+    };
+    var sig = JSON.stringify(row);
+    if (sig === lastPubSig) return;
+    lastPubSig = sig;
+    playersDb.put(row).catch(function () {});
   }
 
   function ingestPlayers(list) {
