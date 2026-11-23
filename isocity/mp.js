@@ -485,11 +485,10 @@
       return c ? { seq: c.seq | 0, mode: c.mode || mode } : null;
     },
     people: function () {
-      var out = [], i, p;
-      for (i = 0; i < roomPeople.length; i++) {
-        p = roomPeople[i];
-        if (p && p.id && p.here && p.here !== 'gone') out.push(p.id);
-      }
+      // Kick a fresh room read so a leave is visible within the kit P1 settle.
+      if (api && PEOPLE) readRoom();
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
       return out;
     },
     amHost: function () {
