@@ -100,8 +100,8 @@ if (listing.author && /gifos/i.test(listing.author.name || '')) {
 if (!manifest.capabilities || !manifest.capabilities.db || !manifest.capabilities.multiplayer) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
 }
-if (manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947 — this app needs nothing newer than the store');
+if (manifest.minBuild !== 5861) {
+  throw new Error('minBuild must be 5861 — this app needs nothing newer than the store');
 }
 
 for (const [n, s] of Object.entries(files)) {
