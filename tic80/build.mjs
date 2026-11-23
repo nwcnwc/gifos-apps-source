@@ -130,7 +130,7 @@ if (helpMd.trim().length < 400) throw new Error('help.md is too short');
 if (listing.license !== 'MIT') throw new Error('listing.license must be MIT');
 if (!listing.basedOn || listing.basedOn.blessed !== false) throw new Error('basedOn.blessed must be false');
 if (listing.author && /gifos/i.test(listing.author.name)) throw new Error('author is them, not GifOS');
-if (manifest.minBuild < 1178) throw new Error('minBuild must be ≥ 1178 — gifos.assets() for packed .assets/ files');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be ≥ 5861 — gifos.assets() for packed .assets/ files');
 if (!manifest.capabilities || manifest.capabilities.db !== true) throw new Error('capabilities.db');
 if (!manifest.capabilities.wasm) throw new Error('capabilities.wasm');
 if (!manifest.capabilities.multiplayer) throw new Error('capabilities.multiplayer');
