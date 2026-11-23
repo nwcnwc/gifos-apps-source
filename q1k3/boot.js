@@ -254,6 +254,10 @@
     });
 
     go.addEventListener('click', function () { startPlaying(0); });
+  // EARLY_PEOPLE_INIT: kit K4 needs people() before Play; gate stays for UX.
+  if (root.gifos && root.gifos.people && root.Net && root.Net.init) {
+    try { root.Net.init(); } catch (e) {}
+  }
     if (cont) cont.addEventListener('click', function () { startPlaying(prefs.map | 0); });
     root.addEventListener('keydown', function (ev) {
       if (starting || go.disabled) return;

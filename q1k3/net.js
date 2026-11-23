@@ -9,23 +9,31 @@
  *   2. NOBODY WRITES TO ANYBODY ELSE'S ROW. Each player owns one record in
  *      `players`. Hits ride on the shooter's row; the target applies them.
  *
- * This is extra bodies in the same halls, not competitive netcode.
+ * Who is here is gifos.people(). This is extra bodies in the same halls,
+ * not competitive netcode. Publish only when the pose changes — no idle
+ * keep-alive (kit K3).
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 6;
-  var STALE_MS = 9000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Q1K3 needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var HIT_RING = 24;
   var CLAIM_TTL = 12000;
 
   var api = null;
   var me = { id: null, name: 'Player' };
   var others = {};
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
   var seq = 0;
   var pendingHits = [];
   var appliedClaims = {};
   var lastPublished = 0;
+  var lastPubSig = '';
   var onHit = null;
   var onKill = null;
   var onRoster = null;
@@ -42,12 +50,53 @@
     return h % 3;
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Player'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        if (onRoster) onRoster(roster());
+      }
+    }, function () {});
+  }
+
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve(null);
-    return api.me().then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Player';
+    if (!PEOPLE) return Promise.resolve(null);
+    return readRoom().then(function () {
+      if (!me.id) return null;
       var settled = false;
       return new Promise(function (resolve) {
         var done = function (list) { if (!settled) { settled = true; resolve(list || []); } };
@@ -56,12 +105,13 @@
           ingest(list || []);
           done(list || []);
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () { return null; });
   }
 
   function ingest(list) {
-    var t = now(), seen = {};
+    var t = now(), seen = {}, names = peopleNames();
     for (var i = 0; i < list.length; i++) {
       var p = list[i];
       if (!p || !p.id) continue;
@@ -69,16 +119,16 @@
         if (p.k > self.k) self.k = p.k;
         continue;
       }
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
       drainClaims(p);
       var cur = others[p.id];
-      var moved = !cur || cur.x !== p.x || cur.y !== p.y || cur.z !== p.z || cur.stamp !== p.t;
       others[p.id] = {
-        id: p.id, name: p.name || 'Player',
+        id: p.id, name: names[p.id] || p.name || 'Player',
         x: p.x, y: p.y, z: p.z, yaw: p.yaw || 0, pitch: p.pitch || 0,
         mv: !!p.mv, alive: p.alive !== false, hp: p.hp == null ? 100 : p.hp,
         k: p.k || 0, d: p.d || 0, spawn: p.sp || 0,
-        stamp: p.t, seen: moved ? t : cur.seen, t: t, kind: tintFor(p.id),
+        stamp: p.t, t: t, kind: tintFor(p.id),
         prev: cur ? { x: cur.x, y: cur.y, z: cur.z, yaw: cur.yaw, t: cur.t } : null
       };
       if (p.lastKilledBy && p.lastKilledBy.by === me.id) {
@@ -91,7 +141,7 @@
       }
     }
     for (var id in others) {
-      if (!seen[id] || now() - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id] || !names[id]) delete others[id];
     }
     if (onRoster) onRoster(roster());
   }
@@ -113,7 +163,7 @@
   }
 
   function claimHit(targetId, dmg, targetSpawn) {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     pendingHits.push({ to: targetId, d: Math.round(dmg), n: ++seq, sp: targetSpawn });
     if (pendingHits.length > HIT_RING) pendingHits.shift();
     publish(true);
@@ -139,23 +189,27 @@
   }
 
   function publish(force) {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     var t = now();
     if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
     var po = pose();
     if (!po) return;
-    lastPublished = t;
-    db('players').put({
-      id: me.id, name: me.name,
+    var row = {
+      id: me.id,
       x: r1(po.x), y: r1(po.y), z: r1(po.z),
       yaw: r2(po.yaw), pitch: r2(po.pitch),
       mv: po.mv ? 1 : 0,
       alive: po.alive, hp: Math.round(po.hp),
       k: self.k, d: self.d, sp: self.spawn,
       lastKilledBy: self.lastKilledBy,
-      hits: pendingHits.slice(),
-      t: t
-    }).catch(function () {});
+      hits: pendingHits.slice()
+    };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPublished = t;
+    row.t = t;
+    db('players').put(row).catch(function () {});
   }
 
   function poseOf(o) {
@@ -172,17 +226,20 @@
   }
 
   function tick() {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     var p = typeof game_entity_player !== 'undefined' ? game_entity_player : null;
     if (p) {
       self.hp = p._health;
       self.alive = !p._dead;
     }
-    publish(false);
+    // Write only while moving (or force via claim) — no idle keep-alive.
+    var po = pose();
+    if (po && po.mv) publish(false);
   }
 
   function roster() {
     var p = typeof game_entity_player !== 'undefined' ? game_entity_player : null;
+    var names = peopleNames();
     var list = [{
       id: me.id, name: me.name, me: true,
       k: self.k, d: self.d,
@@ -190,7 +247,7 @@
     }];
     for (var id in others) {
       var o = others[id];
-      list.push({ id: o.id, name: o.name, me: false, k: o.k, d: o.d, alive: o.alive });
+      list.push({ id: o.id, name: names[o.id] || o.name, me: false, k: o.k, d: o.d, alive: o.alive });
     }
     list.sort(function (a, b) { return (b.k - a.k) || a.name.localeCompare(b.name); });
     return list;
@@ -213,9 +270,33 @@
     others: function () { return others; },
     me: function () { return me; },
     count: function () { return countOthers() + (me.id ? 1 : 0); },
-    live: function () { return !!api && !!me.id; },
+    live: function () { return PEOPLE && !!me.id; },
     onHit: function (fn) { onHit = fn; },
     onKill: function (fn) { onKill = fn; },
     onRoster: function (fn) { onRoster = fn; }
   };
+
+  root['__q1k3'] = {
+    state: function () {
+      // No shared world doc — pose rows are each player's own.
+      return null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'q1k3-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
