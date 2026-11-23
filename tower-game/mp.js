@@ -8,27 +8,31 @@
  * the original game.
  *
  * A subscriber re-downloads the whole collection on every change, so we
- * publish slowly (~4 Hz) with small numbers.
+ * publish slowly (~4 Hz) with small numbers. Who is here is gifos.people().
+ * The app owner hosts the seed (else lowest id). No heartbeat.
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 4;
-  var STALE_MS = 9000;
-  var HB_MS = 2500;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Tower Game needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
 
   var api = null;
   var room = null;
   var me = { id: null, name: 'You' };
   var subscribed = false;
   var lastPublished = 0;
-  var hbTimer = 0;
+  var lastPubSig = '';
   var mySeed = 0;
   var usedSeed = null;
   var round = 1;
   var usedRound = 0;
   var lastList = [];
-  var seenAt = {};
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
   var roundOver = false;
   var origRandom = Math.random;
 
@@ -60,22 +64,33 @@
     });
   }
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id) return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.t;
-      if (changed) seenAt[p.id] = { stamp: p.t, seen: t };
-      if (t - seenAt[p.id].seen > STALE_MS) return;
-      out.push(p);
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
+      out.push(Object.assign({}, p, { name: names[p.id] || p.name || 'Player' }));
     });
     return out;
   }
 
-  // Authority for (round, seed): the highest round anyone has published, then
-  // the lexicographically smallest id on that round. Deterministic, and it
-  // never needs a shared row — each player only ever puts their own id.
+  // Authority for (round, seed): highest round, then the app owner on that
+  // round (else lowest id). Deterministic; never needs a shared row.
   function adopted(list) {
     var players = live(list);
     if (!players.length) return null;
@@ -83,8 +98,15 @@
     players.forEach(function (p) { if ((p.round || 1) > maxR) maxR = p.round || 1; });
     var cand = players.filter(function (p) { return (p.round || 1) === maxR && p.seed != null; });
     if (!cand.length) return null;
-    cand.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
-    return { round: maxR, seed: cand[0].seed, by: cand[0].id };
+    var i, a = null;
+    if (owner && me.id) {
+      for (i = 0; i < cand.length; i++) if (cand[i].id === me.id) { a = cand[i]; break; }
+    }
+    if (!a) {
+      cand.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
+      a = cand[0];
+    }
+    return { round: maxR, seed: a.seed, by: a.id };
   }
 
   function snap() {
@@ -95,14 +117,12 @@
     var playing = !!(g && g.getVariable('GAME_START_NOW'));
     return {
       id: me.id,
-      name: me.name,
       seed: mySeed,
       round: round,
       floors: floors | 0,
       score: score | 0,
       failed: failed | 0,
-      over: !playing && failed >= 3,
-      t: now()
+      over: !playing && failed >= 3
     };
   }
 
@@ -111,11 +131,16 @@
   }
 
   function publish(force) {
-    if (!room || !me.id) return;
+    if (!room || !me.id || !PEOPLE) return;
     var t = now();
     if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
+    var row = snap();
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
     lastPublished = t;
-    try { room.put(snap()).catch(function () {}); } catch (e) {}
+    row.t = t;
+    try { room.put(row).catch(function () {}); } catch (e) {}
   }
 
   function pickSeed() {
@@ -220,29 +245,41 @@
     paintHud();
   }
 
-  function beat() {
-    publish(true);
-    paintHud();
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        if (subscribed) onRoom(lastList);
+      }
+    }, function () {});
   }
 
   function init() {
     api = root.gifos || null;
-    if (!api || !api.db) return;
+    if (!api || !api.db || !PEOPLE) return;
     try { room = api.db('room'); } catch (e) { return; }
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
+    readRoom().then(function () {
+      if (!me.id) return;
       if (!mySeed) mySeed = newSeed();
       if (!subscribed) {
         subscribed = true;
         room.subscribe(onRoom);
       }
       publish(true);
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(beat, HB_MS);
-    }).catch(function () {
-      me.id = 'local';
-    });
+      setInterval(readRoom, PEOPLE_MS);
+    }).catch(function () {});
   }
 
   root.TowerMp = {
@@ -273,6 +310,26 @@
       return roundOver || !snap().over;
     }
   };
+
+  root['__tower-game'] = {
+    state: function () {
+      var ad = adopted(lastList);
+      if (ad) return { round: ad.round | 0, seed: ad.seed | 0 };
+      return PEOPLE && me.id ? { round: (usedRound || round || 0) | 0, seed: (usedSeed || mySeed || 0) | 0 } : null;
+    },
+    people: function () { return live(lastList).map(function (p) { return p.id; }); },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'tg-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 
   init();
 })(window);
