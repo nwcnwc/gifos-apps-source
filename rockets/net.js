@@ -7,19 +7,20 @@
  *
  *   players  read-write  — each rocket writes ONLY its own row (pose, score,
  *                          a short ring of star claims). Nobody else's.
- *   sky      read-only   — the host alone writes the starfield (seed, stars,
+ *   sky      read-only   — the app owner alone writes the starfield (seed, stars,
  *                          round clock, bump resolutions, awards).
  *
- * A subscriber re-downloads the whole collection on every change, so publish
- * is slow (8 Hz) with interpolation, not a datagram stream. Star coordinates
- * are numbers — never a per-frame bitmap.
+ * Who is here is gifos.people(). A subscriber re-downloads the whole collection
+ * on every change, so publish is slow (8 Hz) with interpolation, only on change.
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 8;
   var SKY_HZ = 8;
-  var STALE_MS = 9000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Rockets needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var CLAIM_RING = 8;
   var AWARD_RING = 12;
   var BUMP_RING = 8;
@@ -28,12 +29,16 @@
   var api = null;
   var me = { id: null, name: 'Rocket' };
   var others = {};
-  var owner = true;
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
   var sky = null;
   var seq = 0;
   var claims = [];
   var lastPublished = 0;
+  var lastPubSig = '';
   var lastSky = 0;
+  var lastSkySig = '';
   var onRoster = null;
   var onSky = null;
   var onAward = null;
@@ -42,6 +47,7 @@
   var appliedBumps = {};
   var selfScore = 0;
   var selfRound = 1;
+  var skySeq = 0;
 
   function db(n) { return api.db(n); }
   function now() { return Date.now(); }
@@ -50,19 +56,50 @@
 
   function tintFor(id) { return root.Rockets ? root.Rockets.hueFor(id) : 0.08; }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Rocket';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Rocket'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        if (onRoster) onRoster(roster());
+      }
+    }, function () {});
+  }
+
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ owner: true, others: 0 });
-    var infoP = api.info ? api.info().then(function (i) {
-      owner = !!(i && i.owner);
-      return owner;
-    }).catch(function () { owner = true; return true; }) : Promise.resolve(true);
-
-    return infoP.then(function () {
-      return api.me();
-    }).then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Rocket';
+    if (!PEOPLE) return Promise.resolve({ owner: true, others: 0 });
+    return readRoom().then(function () {
+      if (!me.id) return { owner: owner, others: 0 };
       var settled = false;
       return new Promise(function (resolve) {
         var done = function () {
@@ -78,20 +115,21 @@
         db('sky').subscribe(function (list) {
           ingestSky(list || []);
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () {
-      owner = true;
       return { owner: true, others: 0 };
     });
   }
 
   function ingestPlayers(list) {
-    var t = now(), seen = {}, pending = [];
-    var i, p, id, cur, moved;
+    var t = now(), seen = {}, pending = [], names = peopleNames();
+    var i, p, id, cur;
     for (i = 0; i < list.length; i++) {
       p = list[i];
       if (!p || !p.id) continue;
       if (p.id === me.id) continue;
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
       if (owner && p.claims && p.claims.length) {
         for (var c = 0; c < p.claims.length; c++) {
@@ -101,19 +139,18 @@
         }
       }
       cur = others[p.id];
-      moved = !cur || cur.x !== p.x || cur.y !== p.y || cur.stamp !== p.t;
       others[p.id] = {
-        id: p.id, name: p.name || 'Rocket',
+        id: p.id, name: names[p.id] || p.name || 'Rocket',
         x: p.x, y: p.y, vx: p.vx || 0, vy: p.vy || 0,
         angle: p.a == null ? 0 : p.a,
         score: p.score || 0, thrusting: !!p.th,
-        stamp: p.t, seen: moved ? t : cur.seen, t: t,
+        stamp: p.t, t: t,
         hue: tintFor(p.id),
         prev: cur ? { x: cur.x, y: cur.y, angle: cur.angle, t: cur.t } : null
       };
     }
     for (id in others) {
-      if (!seen[id] || now() - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id] || !names[id]) delete others[id];
     }
     if (owner && pending.length) honorClaims(pending);
     if (onRoster) onRoster(roster());
@@ -164,6 +201,7 @@
     }
     if (!rec) return;
     sky = rec;
+    skySeq = rec.seq | 0;
     drainAwards(rec);
     drainBumps(rec);
     if (onSky) onSky(rec);
@@ -197,7 +235,7 @@
   }
 
   function claimStar(starId) {
-    if (!me.id) return;
+    if (!me.id || !PEOPLE) return;
     claims.push({ s: starId, n: ++seq, t: now() });
     if (claims.length > CLAIM_RING) claims.shift();
     if (owner && sky) {
@@ -210,13 +248,12 @@
   function setRound(n) { selfRound = n | 0; }
 
   function publish(force) {
-    if (!api || !me.id || !root.__ROCKETS_POSE__) return;
+    if (!api || !me.id || !PEOPLE || !root.__ROCKETS_POSE__) return;
     var t = now();
     if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
-    lastPublished = t;
     var p = root.__ROCKETS_POSE__();
     if (!p) return;
-    db('players').put({
+    var row = {
       id: me.id, name: me.name,
       x: r1(p.x), y: r1(p.y),
       vx: r2(p.vx || 0), vy: r2(p.vy || 0),
@@ -224,16 +261,20 @@
       score: selfScore | 0,
       th: !!p.thrusting,
       round: selfRound,
-      claims: claims.slice(),
-      t: t
-    }).catch(function () {});
+      claims: claims.slice()
+    };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPublished = t;
+    row.t = t;
+    db('players').put(row).catch(function () {});
   }
 
   function publishSky(force) {
-    if (!api || !me.id || !owner || !sky) return;
+    if (!api || !me.id || !owner || !sky || !PEOPLE) return;
     var t = now();
     if (!force && t - lastSky < 1000 / SKY_HZ) return;
-    lastSky = t;
     var slim = [];
     var i, s;
     if (sky.stars) {
@@ -242,7 +283,7 @@
         slim.push({ id: s.id, x: r1(s.x), y: r1(s.y), k: s.k | 0, by: s.by || null });
       }
     }
-    db('sky').put({
+    var snap = {
       id: 'sky',
       by: me.id,
       seed: sky.seed,
@@ -256,13 +297,19 @@
       awards: (sky.awards || []).slice(-AWARD_RING),
       bumps: (sky.bumps || []).slice(-BUMP_RING),
       bumpN: sky.bumpN || 0,
-      overAt: sky.overAt || 0,
-      t: t
-    }).catch(function () {});
+      overAt: sky.overAt || 0
+    };
+    var sig = JSON.stringify(snap);
+    if (!force && sig === lastSkySig) return;
+    lastSkySig = sig;
+    lastSky = t;
+    skySeq = (sky.seq | 0);
+    snap.t = t;
+    db('sky').put(snap).catch(function () {});
   }
 
   function noteBumps(events) {
-    if (!owner || !sky || !events || !events.length) return;
+    if (!owner || !sky || !events || !events.length || !PEOPLE) return;
     if (!sky.bumps) sky.bumps = [];
     var i, e;
     for (i = 0; i < events.length; i++) {
@@ -290,11 +337,12 @@
   }
 
   function roster() {
+    var names = peopleNames();
     var list = [{ id: me.id, name: me.name, score: selfScore, me: true, hue: tintFor(me.id || 'local') }];
     var id;
     for (id in others) {
       list.push({
-        id: id, name: others[id].name, score: others[id].score,
+        id: id, name: names[id] || others[id].name, score: others[id].score,
         me: false, hue: others[id].hue
       });
     }
@@ -309,7 +357,7 @@
   }
 
   function tick() {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     publish(false);
     if (owner) publishSky(false);
   }
@@ -333,12 +381,35 @@
     others: function () { return others; },
     me: function () { return me; },
     owner: function () { return owner; },
-    count: function () { return countOthers() + 1; },
-    live: function () { return !!api && !!me.id; },
+    count: function () { return countOthers() + (me.id ? 1 : 0); },
+    live: function () { return PEOPLE && !!me.id; },
     tintFor: tintFor,
     onRoster: function (fn) { onRoster = fn; },
     onSky: function (fn) { onSky = fn; },
     onAward: function (fn) { onAward = fn; },
     onBump: function (fn) { onBump = fn; }
   };
+
+  root['__rockets'] = {
+    state: function () {
+      return skySeq ? { seq: skySeq | 0 } : null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'rockets-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
