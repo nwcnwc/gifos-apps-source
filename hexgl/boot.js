@@ -526,6 +526,8 @@
       loadPackedAssets(function (err) {
         if (err && !Object.keys(root.HEXGL_URLS || {}).length) {
           bootNote('The track did not arrive. Reopen the app.');
+          // Still join the room: who-is-here must not wait on gifos.assets (kit K4).
+          if (root.gifos && root.gifos.people) boot();
           return;
         }
         boot();

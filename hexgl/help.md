@@ -22,6 +22,8 @@ Three laps. Checkpoints are automatic. Finish time and each lap show on the resu
 
 ## Ghosts from a link
 
+Who is here comes from gifos.people(). The app owner hosts. An older GifOS shows a needs-newer line — solo still works.
+
 Press **Invite** in the bar above the app and send the link. Extra ships appear as translucent ghosts on the same track — everyone races their own run, nobody collides with anybody else. Times show on the board. There is no in-app share button.
 
 ## What is saved

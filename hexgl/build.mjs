@@ -119,7 +119,7 @@ if (/type=["']module["']/.test(html)) throw new Error('no type=module');
 if (/https?:\/\//i.test(html.replace(/<!--[\s\S]*?-->/g, ''))) throw new Error('external URL in html');
 if (/<button\b[^>]*>\s*Invite\s*</i.test(html) || /id=["']invite/i.test(html)) throw new Error('Invite is OS chrome');
 
-if (manifest.minBuild !== 1314) throw new Error('minBuild must be 1314 — capabilities.fullscreen (assets already need 1206)');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861 — gifos.people + capabilities.fullscreen');
 if (manifest.appId !== 'hexgl') throw new Error('appId');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('db + multiplayer required');
