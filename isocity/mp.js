@@ -485,7 +485,12 @@
       return c ? { seq: c.seq | 0, mode: c.mode || mode } : null;
     },
     people: function () {
-      return live(lastList).map(function (p) { return p.id; });
+      var out = [], i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') out.push(p.id);
+      }
+      return out;
     },
     amHost: function () {
       return PEOPLE && owner && peopleCount() > 1;
@@ -498,6 +503,13 @@
     _n.textContent = NEEDS_NEWER;
     if (document.body) document.body.appendChild(_n);
     else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  } else {
+    // Kit K4 needs people() before Share/Compare; auto-enter when company arrives.
+    api = root.gifos;
+    readRoom().then(function () {
+      if (peopleTimer) clearInterval(peopleTimer);
+      peopleTimer = setInterval(readRoom, PEOPLE_MS);
+    });
   }
 
 })(window);
