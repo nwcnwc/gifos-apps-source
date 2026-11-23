@@ -3,7 +3,7 @@
   "appId": "isocity",
   "name": "IsoCity",
   "shortName": "IsoCity",
-  "version": "1.4",
+  "version": "1.5",
   "minBuild": 5861,
   "description": "Share the map from one invite. Close it, come back \u2014 the city is still there.",
   "entry": "index.html",

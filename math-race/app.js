@@ -21,7 +21,7 @@
     });
   };
 
-  var PEOPLE_MS = 2000;
+  var PEOPLE_MS = 500;
   var PEOPLE = !!(typeof gifos !== 'undefined' && gifos && gifos.people);
   var NEEDS_NEWER = 'Math Race needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var TICK_MS = 250, FLASH_MS = 420;
@@ -635,6 +635,8 @@
     stopTick();
     if (mp.peopleTimer) clearInterval(mp.peopleTimer); mp.peopleTimer = 0;
   mp.matchSeen = false;
+    mp.match = null;
+    clearTimeout(mp._freshTimer);
     if (playersDb && mp.id && mp.id !== 'local') playersDb.delete(mp.id).catch(function () {});
     show('setup');
     setChip('ready', 'Ready');
@@ -658,7 +660,13 @@
     if (!match) {
       // Wait for the first subscribe snapshot so a late joiner / new host does not
       // overwrite a live playing match with a fresh lobby (kit K8).
-      if (isHost() && mp.matchSeen) putMatch(freshMatch(mp.id, mp.duration, mp.difficulty));
+      if (isHost() && mp.matchSeen) {
+        // Defer so a subscribe delivering a live match wins over a fresh lobby (K8).
+        clearTimeout(mp._freshTimer);
+        mp._freshTimer = setTimeout(function () {
+          if (!mp.match && isHost()) putMatch(freshMatch(mp.id, mp.duration, mp.difficulty));
+        }, 500);
+      }
       mpRenderLobby();
       return;
     }

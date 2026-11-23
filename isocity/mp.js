@@ -10,7 +10,7 @@
 (function (root) {
   'use strict';
 
-  var PEOPLE_MS = 800;
+  var PEOPLE_MS = 250;
   var PEOPLE = !!(root.gifos && root.gifos.people);
   var NEEDS_NEWER = 'IsoCity needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var PUB_MS = 120;
@@ -336,7 +336,7 @@
       var info = r[1] || {};
       var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
       var handed = !owner && !!info.owner && roomRead;
-      roomPeople = ppl;
+      roomPeople = ppl.filter(function (p) { return p && p.id && p.here !== 'gone'; });
       owner = !!info.owner;
       roomRead = true;
       var mine = null, i;
