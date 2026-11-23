@@ -2,18 +2,25 @@
  * Tanks — netplay. Upstream's room IS a Node process with sockets.
  * That process stays behind. Each player owns exactly one row.
  * The shooter claims a hit; the target applies it to itself.
+ * Who is here is gifos.people(). Publish only when pose/claims change
+ * — no idle keep-alive (kit K3).
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 8;
-  var STALE_MS = 9000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Tanks needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var HIT_RING = 8;
   var SHOT_RING = 6;
 
   var api = null;
   var me = { id: null, name: 'Player' };
   var others = {};
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
   var seq = 0;
   var shotSeq = 0;
   var pendingHits = [];
@@ -25,7 +32,8 @@
   var onRoster = null;
   var onShot = null;
   var lastPublished = 0;
-  var self = { lives: 3, k: 0, d: 0, alive: true, spawn: 0, lastKilledBy: null, killAck: {} };
+  var lastPubSig = '';
+  var self = { lives: 3, k: 0, d: 0, alive: true, spawn: 0, lastKilledBy: null, killAck: {}, x: 0, y: 0, rot: 0, tur: 0 };
   var started = false;
 
   function db(n) { return api.db(n); }
@@ -37,12 +45,53 @@
     return (h % 360) / 360;
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Player';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Player'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        if (onRoster) onRoster(roster());
+      }
+    }, function () {});
+  }
+
   function init() {
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve(null);
-    return api.me().then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Player';
+    if (!PEOPLE) return Promise.resolve(null);
+    return readRoom().then(function () {
+      if (!me.id) return null;
       var settled = false;
       return new Promise(function (resolve) {
         var done = function (list) { if (!settled) { settled = true; resolve(list || []); } };
@@ -51,28 +100,29 @@
           ingest(list || []);
           done(list || []);
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () { return null; });
   }
 
   function ingest(list) {
-    var t = now(), seen = {}, i, p, cur, moved, id;
+    var t = now(), seen = {}, names = peopleNames(), i, p, cur, id;
     for (i = 0; i < list.length; i++) {
       p = list[i];
       if (!p || !p.id) continue;
       if (p.id === me.id) { if (p.k > self.k) self.k = p.k; continue; }
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
       drainClaims(p);
       drainShots(p);
       cur = others[p.id];
-      moved = !cur || cur.x !== p.x || cur.y !== p.y || cur.stamp !== p.t;
       others[p.id] = {
-        id: p.id, name: p.name || 'Player',
+        id: p.id, name: names[p.id] || p.name || 'Player',
         x: p.x, y: p.y, rot: p.rot || 0, tur: p.tur || 0,
         alive: p.alive !== false,
         lives: p.lives == null ? 3 : p.lives,
         k: p.k || 0, d: p.d || 0, spawn: p.sp || 0,
-        stamp: p.t, seen: moved ? t : cur.seen, t: t, hue: tintFor(p.id),
+        stamp: p.t, t: t, hue: tintFor(p.id),
         prev: cur ? { x: cur.x, y: cur.y, rot: cur.rot, tur: cur.tur, t: cur.t } : null
       };
       if (p.lastKilledBy && p.lastKilledBy.by === me.id) {
@@ -85,7 +135,7 @@
       }
     }
     for (id in others) {
-      if (!seen[id] || now() - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id] || !names[id]) delete others[id];
     }
     if (onRoster) onRoster(roster());
   }
@@ -107,12 +157,6 @@
       if (!self.alive) continue;
       onHit(h.d || 1, p.id, p.name || 'Player');
     }
-    /* Forget a claim only when the SHOOTER's row no longer carries it. The
-       old prune was a 12s clock — but the shooter republishes its hit ring
-       with EVERY row at 8 Hz, so the moment the clock forgot a claim the
-       next delivery re-applied it: one bullet dealt its damage again every
-       12s until the victim was dead. (seenShots never pruned, which is why
-       muzzle flashes never replayed — the two maps now agree.) */
     for (key in appliedClaims) {
       if (key.lastIndexOf(p.id + ':', 0) === 0 && !live[key]) delete appliedClaims[key];
     }
@@ -173,31 +217,36 @@
   }
 
   function publish(force) {
-    if (!started || !api || !me.id) return;
+    if (!started || !api || !me.id || !PEOPLE) return;
     var t = now();
     if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
-    lastPublished = t;
     var row = {
-      id: me.id, name: me.name,
+      id: me.id,
       x: r2(self.x), y: r2(self.y), rot: r2(self.rot), tur: r2(self.tur),
       alive: self.alive, lives: self.lives, k: self.k, d: self.d,
-      sp: self.spawn, t: t,
+      sp: self.spawn,
       hits: pendingHits.slice(), shots: pendingShots.slice(),
       lastKilledBy: self.lastKilledBy
     };
+    var sig = JSON.stringify(row);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPublished = t;
+    row.t = t;
     db('players').put(row).catch(function () {});
   }
 
   function tick(x, y, rot, tur) {
+    var moved = !started || self.x !== x || self.y !== y || self.rot !== rot || self.tur !== tur;
     self.x = x; self.y = y; self.rot = rot; self.tur = tur;
     started = true;
-    publish(false);
+    if (moved) publish(false);
   }
 
   function interpolate(p, t) {
     if (!p.prev) return p;
     var dt = Math.max(16, (p.t || t) - (p.prev.t || t));
-    var u = Math.min(1, (t - p.seen) / dt);
+    var u = Math.min(1, (t - (p.stamp || p.t || t)) / dt);
     return {
       x: p.prev.x + (p.x - p.prev.x) * u,
       y: p.prev.y + (p.y - p.prev.y) * u,
@@ -208,9 +257,9 @@
 
   function roster() {
     var out = [{ id: me.id, name: me.name, k: self.k, d: self.d, lives: self.lives, alive: self.alive, me: true }];
-    var id;
+    var id, names = peopleNames();
     for (id in others) {
-      out.push({ id: id, name: others[id].name, k: others[id].k, d: others[id].d, lives: others[id].lives, alive: others[id].alive, me: false });
+      out.push({ id: id, name: names[id] || others[id].name, k: others[id].k, d: others[id].d, lives: others[id].lives, alive: others[id].alive, me: false });
     }
     return out;
   }
@@ -239,4 +288,28 @@
     onRoster: function (fn) { onRoster = fn; },
     onShot: function (fn) { onShot = fn; }
   };
+
+  root['__tanks'] = {
+    state: function () {
+      // Deathmatch has no shared world row; copies agree on null.
+      return null;
+    },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'tanks-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
