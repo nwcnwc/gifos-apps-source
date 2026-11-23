@@ -350,5 +350,11 @@
     _n.textContent = NEEDS_NEWER;
     if (document.body) document.body.appendChild(_n);
     else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  } else {
+    // EARLY_PEOPLE_POLL: kit K4 needs people() before Play/WebGL.
+    api = root.gifos;
+    readRoom().then(function () {
+      setInterval(readRoom, PEOPLE_MS);
+    });
   }
 })(window);
