@@ -62,7 +62,7 @@ for (const need of [...VENDOR_JS, 'vendor/main.css', 'vendor/COPYING-pixel-paint
   }
 }
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947 — this app needs nothing newer than the store.');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861 — this app needs nothing newer than the store.');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
 }
