@@ -1116,23 +1116,25 @@
     }).catch(function () { render(); });
   }
 
-  boot();
-
   root['__kana-quiz'] = {
     state: function () {
       if (!match || !match.deck) return null;
       return { round: match.round | 0, race: match.race || G.race, seed: match.seed | 0 };
     },
     people: function () {
-      var names = peopleNames(), out = [], i;
-      if (me.id && names[me.id]) out.push(me.id);
-      for (i = 0; i < others.length; i++) if (names[others[i].id]) out.push(others[i].id);
+      var out = [], i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') out.push(p.id);
+      }
       return out;
     },
     amHost: function () {
-      return PEOPLE && owner && peopleCount() > 1 && !!G.friend;
+      return PEOPLE && owner && peopleCount() > 1;
     }
   };
+
+  boot();
 
   if (!PEOPLE) {
     var _n = document.createElement('p');

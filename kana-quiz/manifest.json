@@ -3,7 +3,7 @@
   "appId": "kana-quiz",
   "name": "Kana Quiz",
   "shortName": "Kana",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "minBuild": 5861,
   "description": "Hiragana and katakana drill. Race a friend from one link.",
   "entry": "index.html",
