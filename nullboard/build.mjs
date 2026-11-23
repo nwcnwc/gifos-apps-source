@@ -50,7 +50,7 @@ for (const need of [
 ]) {
   if (!existsSync(join(dir, need))) throw new Error(need + ' is missing');
 }
-if (manifest.minBuild !== 2154) throw new Error('minBuild must be 2154 — capabilities.links');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861');
 if (manifest.appId !== 'nullboard') throw new Error('appId must be nullboard');
 if (!manifest.capabilities || manifest.capabilities.db !== true) throw new Error('must declare capabilities.db');
 if (!manifest.capabilities.multiplayer) throw new Error('must declare capabilities.multiplayer');
