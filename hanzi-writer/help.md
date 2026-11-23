@@ -27,6 +27,8 @@ A **clean** trace is every stroke first time. The chip is how many clean traces 
 
 ## A live friend
 
+Who is here comes from gifos.people(). The app owner hosts the shared deck; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.
+
 Press **Play a friend**, then **Invite** in the bar **above** the app. You both get the **same** shuffled deck and the **same** character at the same time. First to ten clean traces wins.
 
 You only write your own score. Waiting for a friend shows in the lobby until someone opens the link.

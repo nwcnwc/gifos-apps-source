@@ -42,7 +42,7 @@ for (const need of [
   if (!existsSync(join(dir, need))) throw new Error(need + ' is missing');
 }
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('manifest must declare capabilities.db and capabilities.multiplayer');
 }

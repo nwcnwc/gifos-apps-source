@@ -8,7 +8,9 @@
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000, HB_MS = 3000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Hanzi Writer needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var TARGET_N = 10;
   var DATA = root.HANZI_DATA || {};
   var LEX = root.HANZI_LEX || {};
@@ -92,7 +94,12 @@
   var others = [];
   var match = null;
   var vsRound = 0;
-  var hbTimer = 0;
+  var peopleTimer = 0;
+  var lastPubSig = '';
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var roomRead = false;
   var saveTimer = 0;
   var writer = null;
   var sized = 0;
@@ -101,11 +108,23 @@
 
   function versusOn() { return others.length > 0; }
   function now() { return Date.now(); }
-  function iAmManager() {
-    var ids = [me.id].concat(others.map(function (p) { return p.id; }));
-    ids.sort();
-    return ids[0] === me.id;
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
   }
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+  function iAmManager() { return PEOPLE && owner; }
   function racing() { return G.friend && versusOn(); }
   function targetOf() { return TARGET_N; }
   function currentChar() { return G.deck[G.i] || ''; }
@@ -418,7 +437,8 @@
     if (canResume) {
       $('continueBtn').textContent = 'Continue  ' + (G.solo.i + 1) + ' / ' + G.solo.deck.length;
     }
-    $('friendBtn').hidden = !api;
+    $('friendBtn').hidden = !api || !PEOPLE;
+    if ($('friendBtn') && !PEOPLE) $('friendBtn').disabled = true;
     $('scoreChip').textContent = '';
     $('outlineBtn').classList.toggle('on', G.outline);
     $('outlineBtn').setAttribute('aria-pressed', G.outline ? 'true' : 'false');
@@ -745,12 +765,12 @@
   }
 
   function publishMe() {
-    if (!playersDb || !me.id || me.id === 'local') return;
-    var t = targetOf();
-    var done = !!G.doneAt || (G.friend && G.score >= t);
-    playersDb.put({
+    if (!PEOPLE || !playersDb || !me.id || me.id === 'local') return;
+    if (!G.friend) return;
+    var tgt = targetOf();
+    var done = !!G.doneAt || (G.score >= tgt);
+    var row = {
       id: me.id,
-      name: me.name,
       score: G.score,
       wrong: G.wrong,
       i: G.i,
@@ -760,23 +780,25 @@
       doneChar: !!G.charDone,
       done: done,
       doneAt: G.doneAt || 0,
-      at: now(),
-      seen: now(),
       round: vsRound,
       ready: !!G.ready,
       friend: !!G.friend
-    }).catch(function () {});
+    };
+    var sig = JSON.stringify(row);
+    if (sig === lastPubSig) return;
+    lastPubSig = sig;
+    playersDb.put(row).catch(function () {});
   }
 
   function ingestPlayers(list) {
-    var t = now();
+    var names = peopleNames();
     others = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id || p.id === me.id) return;
-      if (!p.seen || t - p.seen > STALE_MS) return;
+      if (!names[p.id]) return;
       others.push({
         id: p.id,
-        name: p.name || 'Friend',
+        name: names[p.id] || 'Friend',
         score: p.score || 0,
         wrong: p.wrong || 0,
         i: p.i || 0,
@@ -786,10 +808,8 @@
         doneChar: !!p.doneChar,
         done: !!p.done,
         doneAt: p.doneAt || 0,
-        at: p.at || 0,
         round: p.round || 0,
         ready: !!p.ready,
-        seen: p.seen,
         friend: !!p.friend
       });
     });
@@ -848,7 +868,7 @@
   }
 
   function ensureMatch(force) {
-    if (!matchDb) return;
+    if (!PEOPLE || !matchDb) return;
     if (match && match.deck && match.deck.length && !force) {
       applyMatch(match);
       return;
@@ -929,7 +949,43 @@
     render();
   }
 
-  function beat() { if (G.friend || versusOn()) publishMe(); }
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      var handed = !owner && !!info.owner && roomRead;
+      roomPeople = ppl;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (key !== roomKey || handed) {
+        roomKey = key;
+        if (handed && peopleCount() > 1 && !G.friend) {
+          G.friend = true;
+          show('lobby');
+          ensureMatch(true);
+          publishMe();
+        } else if (!G.friend && peopleCount() > 1) {
+          G.friend = true;
+          show('lobby');
+          ensureMatch(false);
+          publishMe();
+        }
+        if (playersDb) {
+          /* roster refresh via last subscribe snapshot happens on next put; force render */
+          render();
+        }
+      }
+    }, function () {});
+  }
+
 
   function takeLaunch() {
     if (!api || !api.launch || launched) return;
@@ -949,21 +1005,22 @@
   function boot() {
     G.stats = {};
     renderHome();
-    var who = api && api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' });
-    who.then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
-      var pPrefs = prefsDb ? prefsDb.getAll() : Promise.resolve([]);
-      return pPrefs.then(function (rows) {
-        restorePrefs(rows);
-        render();
-        if (playersDb) playersDb.subscribe(function (list) { ingestPlayers(list || []); });
-        if (matchDb) matchDb.subscribe(function (list) { ingestMatch(list || []); });
-        publishMe();
-        if (hbTimer) clearInterval(hbTimer);
-        hbTimer = setInterval(beat, HB_MS);
-        takeLaunch();
-      });
+    if (!PEOPLE) {
+      render();
+      takeLaunch();
+      return;
+    }
+    var pPrefs = prefsDb ? prefsDb.getAll() : Promise.resolve([]);
+    pPrefs.then(function (rows) {
+      restorePrefs(rows);
+      return readRoom();
+    }).then(function () {
+      render();
+      if (playersDb) playersDb.subscribe(function (list) { ingestPlayers(list || []); });
+      if (matchDb) matchDb.subscribe(function (list) { ingestMatch(list || []); });
+      if (peopleTimer) clearInterval(peopleTimer);
+      peopleTimer = setInterval(readRoom, PEOPLE_MS);
+      takeLaunch();
     }).catch(function () { render(); takeLaunch(); });
   }
 
@@ -972,4 +1029,29 @@
   } else {
     boot();
   }
+
+  root['__hanzi-writer'] = {
+    state: function () {
+      if (!match || !match.deck) return null;
+      return { round: match.round | 0, i: match.i | 0, seed: match.seed | 0 };
+    },
+    people: function () {
+      var names = peopleNames(), out = [], i;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (i = 0; i < others.length; i++) if (names[others[i].id]) out.push(others[i].id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1 && !!G.friend;
+    }
+  };
+
+  if (!PEOPLE) {
+    var _n = document.createElement('p');
+    _n.id = 'hanzi-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
+
 })(typeof window !== 'undefined' ? window : this);
