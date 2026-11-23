@@ -390,8 +390,7 @@
         onRoom(lastList);
       }
       // No publish/heartbeat on enter — write only when tiles are placed (K3).
-      if (peopleTimer) clearInterval(peopleTimer);
-      peopleTimer = setInterval(readRoom, PEOPLE_MS);
+      if (!peopleTimer) peopleTimer = setInterval(readRoom, PEOPLE_MS);
       render();
     }).catch(function () {});
   }
@@ -413,7 +412,7 @@
       for (var i = 0; i < (cells || []).length; i++) if (cells[i]) n++;
       $('hint').hidden = n > 0;
     }
-    if (peopleTimer) { clearInterval(peopleTimer); peopleTimer = 0; }
+    /* keep peopleTimer — who-is-here/host must stay live after leave */
     if (pubTimer) { clearTimeout(pubTimer); pubTimer = 0; }
     if (room && me.id) room.delete(me.id).catch(function () {});
     if (root.IsoCity.restoreSave) root.IsoCity.restoreSave();
@@ -507,8 +506,7 @@
     // Kit K4 needs people() before Share/Compare; auto-enter when company arrives.
     api = root.gifos;
     readRoom().then(function () {
-      if (peopleTimer) clearInterval(peopleTimer);
-      peopleTimer = setInterval(readRoom, PEOPLE_MS);
+      if (!peopleTimer) peopleTimer = setInterval(readRoom, PEOPLE_MS);
     });
   }
 
