@@ -2,7 +2,9 @@
 
 Old-school raycasting in a small tiled hall: a checkerboard floor that
 brightens as it recedes, mint walls with dark windows, a line of keys and a
-bomb on the ground. Walk, pick them up, throw the bomb. Send the invite and
+bomb on the ground. Walk, pick them up, throw the bomb. Who is here comes from gifos.people(). The app owner hosts; GifOS hands that on when they leave. An older GifOS shows a needs-newer line — solo still works.
+
+Send the invite and
 other people appear down the same corridor.
 
 An unofficial port of **[Koil](https://github.com/tsoding/koil)** by tsoding

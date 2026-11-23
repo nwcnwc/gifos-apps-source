@@ -159,7 +159,10 @@
     }
   });
 
+  var entered = false;
   function go() {
+    if (entered) return;
+    entered = true;
     var gate = document.getElementById('gate');
     gate.classList.add('gone');
     var btn = document.getElementById('gate-go');
@@ -171,4 +174,10 @@
   }
 
   document.getElementById('gate-go').addEventListener('click', go);
+  // Who is here must be read at boot (kit K4). The Walk-in gate stays for solo UX,
+  // but with gifos.people we enter immediately so people()/owner are live.
+  if (root.gifos && root.gifos.people) {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
+    else go();
+  }
 })(window);
