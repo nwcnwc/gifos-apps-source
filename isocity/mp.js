@@ -10,7 +10,7 @@
 (function (root) {
   'use strict';
 
-  var PEOPLE_MS = 2000;
+  var PEOPLE_MS = 800;
   var PEOPLE = !!(root.gifos && root.gifos.people);
   var NEEDS_NEWER = 'IsoCity needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var PUB_MS = 120;
@@ -488,7 +488,7 @@
       var out = [], i, p;
       for (i = 0; i < roomPeople.length; i++) {
         p = roomPeople[i];
-        if (p && p.id && p.here !== 'gone') out.push(p.id);
+        if (p && p.id && p.here && p.here !== 'gone') out.push(p.id);
       }
       return out;
     },
