@@ -3,17 +3,25 @@
   "appId": "particle-life",
   "name": "Particle Life",
   "shortName": "Life",
-  "version": "1.0.0",
-  "minBuild": 947,
+  "version": "1.0.1",
+  "minBuild": 5861,
   "description": "Life-like particles. Touch to stir. Share the jar with a friend.",
   "entry": "index.html",
-  "accent": [0, 196, 204],
+  "accent": [
+    0,
+    196,
+    204
+  ],
   "capabilities": {
     "db": true,
     "multiplayer": true
   },
   "data": {
-    "save": { "visibility": "private" },
-    "room": { "visibility": "read-write" }
+    "save": {
+      "visibility": "private"
+    },
+    "room": {
+      "visibility": "read-write"
+    }
   }
 }

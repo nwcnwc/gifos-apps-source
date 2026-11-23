@@ -3,16 +3,17 @@
  *
  * Shared (round, seed, colors, count) so every device starts the same jar.
  * Each player publishes a poke on THEIR own row. Nobody writes anybody
- * else's row. The seed lives on those rows too: everyone adopts the seed
- * of the lowest-id player on the current round.
+ * else's row. Everyone adopts the app owner's seed on the current round
+ * (else lowest id). Who is here is gifos.people().
  *
  * Invite is OS chrome. This file never draws a share sheet.
  */
 (function (root) {
   'use strict';
 
-  var STALE_MS = 9000;
-  var HB_MS = 3000;
+  var NEEDS_NEWER = 'Particle Life needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
+  var PEOPLE_MS = 250;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
   var PL = root.ParticleLife;
 
   var api = null;
@@ -20,7 +21,7 @@
   var me = { id: null, name: 'You' };
   var on = false;
   var subscribed = false;
-  var hbTimer = 0;
+  var declined = false;
   var mySeed = 0;
   var round = 1;
   var usedSeed = null;
@@ -28,11 +29,15 @@
   var usedColors = 0;
   var usedCount = 0;
   var lastList = [];
-  var seenAt = {};
   var pokeSeq = 0;
   var lastPoke = null;
   var applied = {};
   var lastPub = 0;
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
+  var roomRead = false;
+  var peopleTimer = 0;
 
   var $ = function (id) { return document.getElementById(id); };
   var now = function () { return Date.now(); };
@@ -44,21 +49,25 @@
 
   function newSeed() { return (Math.random() * 0x100000000) >>> 0; }
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id) return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.at;
-      if (changed) seenAt[p.id] = { stamp: p.at, seen: t };
-      if (t - seenAt[p.id].seen > STALE_MS) return;
-      out.push(p);
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
+      out.push(Object.assign({}, p, { name: names[p.id] || p.name || 'Friend' }));
     });
     return out;
   }
 
-  // Highest round anyone has published, then the lexicographically smallest
-  // id on that round. Deterministic; never needs a shared row.
   function adopted(list) {
     var players = live(list);
     if (!players.length) return null;
@@ -66,8 +75,14 @@
     players.forEach(function (p) { if ((p.round || 1) > maxR) maxR = p.round || 1; });
     var cand = players.filter(function (p) { return (p.round || 1) === maxR && p.seed != null; });
     if (!cand.length) return null;
-    cand.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
-    var a = cand[0];
+    var i, a = null;
+    if (owner && me.id) {
+      for (i = 0; i < cand.length; i++) if (cand[i].id === me.id) { a = cand[i]; break; }
+    }
+    if (!a) {
+      cand.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
+      a = cand[0];
+    }
     return {
       round: maxR,
       seed: a.seed,
@@ -80,13 +95,11 @@
   function snapshot() {
     var row = {
       id: me.id,
-      name: me.name,
       seed: mySeed,
       round: round,
       colors: PL.settings.numColors,
       count: PL.settings.atoms.count,
-      pokeSeq: pokeSeq,
-      at: now()
+      pokeSeq: pokeSeq
     };
     if (lastPoke) {
       row.px = lastPoke.x;
@@ -97,7 +110,7 @@
   }
 
   function publish() {
-    if (!on || !room || !me.id) return;
+    if (!on || !room || !me.id || !PEOPLE) return;
     var t = now();
     if (t - lastPub < 80) return;
     lastPub = t;
@@ -119,7 +132,7 @@
     if (colors) colors.value = String(ad.colors);
     if (count) {
       count.value = String(ad.count);
-      $('countN').textContent = String(ad.count);
+      if ($('countN')) $('countN').textContent = String(ad.count);
     }
     if (root.PLApp) root.PLApp.paintSeed();
     lastPub = 0;
@@ -152,7 +165,6 @@
         '</li>';
     });
     if (scores) scores.innerHTML = html || '<li><span class="name">Just you so far</span></li>';
-
     var others = players.filter(function (p) { return p.id !== me.id; });
     if (!status) return;
     if (!others.length) {
@@ -175,11 +187,57 @@
     renderMp();
   }
 
-  function beat() {
-    if (!on) return;
-    lastPub = 0;
-    publish();
-    renderMp();
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      var handed = !owner && !!info.owner && roomRead;
+      owner = !!info.owner;
+      roomRead = true;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      if (handed && !on && !declined) {
+        var n = 0, id, names = peopleNames();
+        for (id in names) if (id !== me.id) n++;
+        if (n > 0) enter();
+      } else if (key !== roomKey) {
+        roomKey = key;
+        if (on) onRoom(lastList);
+        else maybeEnterFromPeople();
+      }
+    }, function () {});
+  }
+
+  function maybeEnterFromPeople() {
+    if (on || declined || !PEOPLE) return;
+    var names = peopleNames(), id, n = 0;
+    for (id in names) { if (id !== me.id) n++; }
+    if (n > 0) enter();
+  }
+
+  function watch() {
+    api = root.gifos;
+    if (!api || !api.db || !PEOPLE) return;
+    room = room || api.db('room');
+    readRoom().then(function () {
+      if (subscribed) return;
+      subscribed = true;
+      room.subscribe(function (list) {
+        lastList = list || [];
+        if (on) { onRoom(lastList); return; }
+        if (declined) return;
+        maybeEnterFromPeople();
+      });
+      if (!peopleTimer) peopleTimer = setInterval(readRoom, PEOPLE_MS);
+      maybeEnterFromPeople();
+    }).catch(function () {});
   }
 
   function enter() {
@@ -190,11 +248,17 @@
       if (s) s.textContent = 'Share the jar needs a GifOS room.';
       return true;
     }
+    if (!PEOPLE) {
+      $('friend-bar').hidden = false;
+      var s2 = $('friend-status');
+      if (s2) s2.textContent = NEEDS_NEWER;
+      return true;
+    }
     if (on) return true;
-    room = api.db('room');
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
+    declined = false;
+    room = room || api.db('room');
+    readRoom().then(function () {
+      if (!me.id) return;
       on = true;
       document.body.classList.add('friend');
       $('friend-bar').hidden = false;
@@ -208,7 +272,6 @@
       usedCount = 0;
       pokeSeq = 0;
       lastPoke = null;
-      seenAt = {};
       applied = {};
       if (!subscribed) {
         subscribed = true;
@@ -223,19 +286,17 @@
         count: PL.settings.atoms.count,
         by: me.id
       });
-      beat();
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(beat, HB_MS);
+      else publish();
     }).catch(function () {});
     return true;
   }
 
   function leave() {
     on = false;
+    declined = true;
     document.body.classList.remove('friend');
     $('friend-bar').hidden = true;
     $('shareBtn').hidden = false;
-    if (hbTimer) { clearInterval(hbTimer); hbTimer = 0; }
     if (room && me.id) room.delete(me.id).catch(function () {});
   }
 
@@ -243,6 +304,7 @@
     if (!on) return;
     pokeSeq += 1;
     lastPoke = { x: nx, y: ny, sign: sign < 0 ? -1 : 1 };
+    lastPub = 0;
     publish();
   }
 
@@ -250,6 +312,9 @@
     if (!on) return false;
     mySeed = newSeed();
     round = (usedRound || round || 1) + 1;
+    pokeSeq = 0;
+    lastPoke = null;
+    applied = {};
     applyWorld({
       seed: mySeed,
       round: round,
@@ -262,12 +327,11 @@
 
   function onRecipe(chg) {
     if (!on) return false;
-    if (chg.colors) PL.settings.numColors = chg.colors;
-    if (chg.count) PL.settings.atoms.count = chg.count;
-    mySeed = PL.getSeed();
+    if (chg && chg.colors != null) PL.settings.numColors = chg.colors | 0;
+    if (chg && chg.count != null) PL.settings.atoms.count = chg.count | 0;
     round = (usedRound || round || 1) + 1;
     applyWorld({
-      seed: mySeed,
+      seed: mySeed || PL.getSeed() || newSeed(),
       round: round,
       colors: PL.settings.numColors,
       count: PL.settings.atoms.count,
@@ -277,18 +341,7 @@
   }
 
   function onReset() {
-    if (!on) return false;
-    // A reset is a new mix of the same seed — bump the round so everyone
-    // re-pours the jar from the opening positions.
-    round = (usedRound || round || 1) + 1;
-    applyWorld({
-      seed: mySeed || PL.getSeed(),
-      round: round,
-      colors: PL.settings.numColors,
-      count: PL.settings.atoms.count,
-      by: me.id
-    });
-    return true;
+    return onNewMix();
   }
 
   root.PLMp = {
@@ -301,14 +354,42 @@
     busy: function () { return on; }
   };
 
+  root['__particle-life'] = {
+    state: function () {
+      var ad = adopted(lastList);
+      if (ad) return { round: ad.round | 0, seed: ad.seed >>> 0 };
+      return on ? { round: (usedRound || round || 0) | 0, seed: (usedSeed || mySeed || 0) >>> 0 } : null;
+    },
+    people: function () {
+      if (api && PEOPLE) readRoom();
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      if (api && PEOPLE) readRoom();
+      var n = 0, i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') n++;
+      }
+      return PEOPLE && owner && n > 1;
+    }
+  };
+
   $('shareBtn').addEventListener('click', function (e) { e.preventDefault(); enter(); });
   $('leaveBtn').addEventListener('click', function (e) { e.preventDefault(); leave(); });
 
-  // A guest who arrived through Invite is already in a room — sit down.
-  // The owner still presses Share the jar; gifos.db exists on a solo open too.
-  if (root.gifos && root.gifos.info) {
-    root.gifos.info().then(function (i) {
-      if (!on && i && i.owner === false) enter();
-    }).catch(function () {});
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'particle-life-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
+
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watch);
+    else watch();
   }
 })(window);
