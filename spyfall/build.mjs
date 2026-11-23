@@ -89,8 +89,8 @@ if (manifest.capabilities.wasm) {
 if (manifest.capabilities.network) {
   throw new Error('spyfall has no network path. The Node room stays behind.');
 }
-if (!Number.isInteger(manifest.minBuild) || manifest.minBuild !== 947) {
-  throw new Error('minBuild must be 947');
+if (!Number.isInteger(manifest.minBuild) || manifest.minBuild < 5861) {
+  throw new Error('minBuild must be >= 5861');
 }
 if (!manifest.data || !manifest.data.role || manifest.data.role.visibility !== 'private') {
   throw new Error('manifest.data.role must be private — the card never leaves this tab');

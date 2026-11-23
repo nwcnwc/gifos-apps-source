@@ -14,7 +14,9 @@
   };
   var DEL = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>';
 
-  var PRES_TTL = 9000, HB_MS = 3000;
+  var PEOPLE_MS = 250;
+  var PEOPLE = !!(typeof gifos !== 'undefined' && gifos && gifos.people);
+  var NEEDS_NEWER = 'Spyfall needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var view = 'home';
   var minutes = 8;
   var roleDb = null, votesDb = null;
@@ -227,25 +229,53 @@
   // The host (lowest live id) is the one who deals: they publish a seed on
   // THEIR row. Each player derives their card and writes it to private `role`.
   // Location and player marks stay local. They are never put on the row.
-  var mp = { on: false, id: null, name: 'You', row: null, people: [], hb: 0, sub: false, hidden: true, adopted: null, strikeLoc: {}, strikeSpy: {} };
+  var mp = { on: false, id: null, name: 'You', row: null, people: [], roomPeople: [], owner: false, peopleTimer: 0, sub: false, hidden: true, adopted: null, strikeLoc: {}, strikeSpy: {} };
   var _items = [];
 
-  function livePeople(items, t) {
-    t = t || nowMs();
-    var out = [], i, it;
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < mp.roomPeople.length; i++) {
+      p = mp.roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+  function peopleCount() {
+    var n = 0, i, p;
+    for (i = 0; i < mp.roomPeople.length; i++) {
+      p = mp.roomPeople[i];
+      if (p && p.id && p.here !== 'gone') n++;
+    }
+    return n;
+  }
+  function readRoom() {
+    if (!PEOPLE || typeof gifos === 'undefined' || !gifos) return Promise.resolve();
+    return Promise.all([
+      gifos.people(),
+      gifos.info ? gifos.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      mp.roomPeople = ppl;
+      mp.owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { mp.id = mine.id; mp.name = mine.name || 'You'; }
+      if (mp.on) mpRefresh();
+    }, function () {});
+  }
+  function livePeople(items) {
+    var names = peopleNames(), out = [], i, it;
     for (i = 0; i < (items || []).length; i++) {
       it = items[i];
       if (!it || !it.id) continue;
-      if (it.at && t - it.at >= PRES_TTL) continue;
-      out.push(it);
+      if (!Object.prototype.hasOwnProperty.call(names, it.id)) continue;
+      out.push(Object.assign({}, it, { name: names[it.id] || it.name || 'Friend' }));
     }
     return out;
   }
-  function isHost(people) {
-    if (!people.length) return true;
-    var m = people[0].id, i;
-    for (i = 1; i < people.length; i++) if (people[i].id < m) m = people[i].id;
-    return mp.id === m;
+  function isHost() {
+    return PEOPLE && mp.owner;
   }
   function adoptedDeal(people) {
     var maxR = 0, i, p, cand = [];
@@ -259,17 +289,24 @@
       if ((p.round || 0) === maxR && p.seed && p.playerIds) cand.push(p);
     }
     if (!cand.length) return null;
-    cand.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
+    var pick = null, i2;
+    if (mp.owner && mp.id) {
+      for (i2 = 0; i2 < cand.length; i2++) if (cand[i2].id === mp.id) { pick = cand[i2]; break; }
+    }
+    if (!pick) {
+      cand.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
+      pick = cand[0];
+    }
     var src = {
-      id: cand[0].id,
-      round: cand[0].round,
-      seed: cand[0].seed,
-      startedAt: cand[0].startedAt,
-      duration: cand[0].duration,
-      playerIds: cand[0].playerIds,
-      phase: cand[0].phase || 'play',
-      paused: !!cand[0].paused,
-      left: cand[0].left
+      id: pick.id,
+      round: pick.round,
+      seed: pick.seed,
+      startedAt: pick.startedAt,
+      duration: pick.duration,
+      playerIds: pick.playerIds,
+      phase: pick.phase || 'play',
+      paused: !!pick.paused,
+      left: pick.left
     };
     for (i = 0; i < cand.length; i++) {
       if (cand[i].phase === 'ended') src.phase = 'ended';
@@ -289,11 +326,10 @@
   }
 
   function putMe(extra) {
-    if (!votesDb || !mp.id) return;
+    if (!PEOPLE || !votesDb || !mp.id) return;
+    if (peopleCount() < 2 && !(extra && Object.keys(extra).length)) return;
     var row = {
       id: mp.id,
-      name: mp.name,
-      at: nowMs(),
       ready: true
     };
     if (mp.row) {
@@ -316,9 +352,13 @@
       setChip('', 'No room');
       return;
     }
-    (window.gifos && gifos.me ? gifos.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (me) {
-      mp.id = (me && me.id) || 'local';
-      mp.name = (me && me.name) || 'You';
+    if (!PEOPLE) {
+      $('lobbyStatus').textContent = NEEDS_NEWER;
+      show('lobby');
+      setChip('', 'Needs update');
+      return;
+    }
+    readRoom().then(function () {
       mp.on = true;
       mp.row = null;
       mp.adopted = null;
@@ -333,14 +373,14 @@
         votesDb.subscribe(function (items) { _items = items || []; mpRefresh(); });
       }
       putMe({ phase: 'lobby', round: 0, seed: null, playerIds: null });
-      if (mp.hb) clearInterval(mp.hb);
-      mp.hb = setInterval(function () { if (mp.on) putMe(); }, HB_MS);
+      if (mp.peopleTimer) clearInterval(mp.peopleTimer);
+      mp.peopleTimer = setInterval(readRoom, PEOPLE_MS);
       mpRefresh();
     }).catch(function () {});
   }
   function mpLeave() {
     mp.on = false;
-    if (mp.hb) { clearInterval(mp.hb); mp.hb = 0; }
+    /* keep peopleTimer — who-is-here/host must stay live after leave */
     if (votesDb && mp.id) votesDb.delete(mp.id).catch(function () {});
     show('home');
     setChip('', 'Ready');
@@ -357,7 +397,7 @@
     if (!people.some(function (p) { return p.id === mp.id; })) {
       people.push(mp.row || { id: mp.id, name: mp.name, at: nowMs() });
     }
-    if (!isHost(people)) return;
+    if (!isHost()) return;
     if (people.length < 3) return;
     var ids = people.map(function (p) { return p.id; });
     ids.sort();
@@ -389,7 +429,7 @@
     }
     if (!mp.on || !mp.adopted) return;
     var people = livePeople(_items);
-    if (!isHost(people)) return;
+    if (!isHost()) return;
     putMe({ phase: 'ended' });
   };
 
@@ -422,7 +462,7 @@
     }
     if (!mp.on || !mp.adopted) return;
     var people = livePeople(_items);
-    if (!isHost(people)) return;
+    if (!isHost()) return;
     if (mp.adopted.phase === 'ended') return;
     if (mp.row && mp.row.paused) {
       putMe({ paused: false, startedAt: nowMs(), duration: mp.row.left || remaining(mp.adopted) });
@@ -502,7 +542,7 @@
   }
 
   function renderLobby(people) {
-    var html = '', i, p, host = isHost(people);
+    var html = '', i, p, host = isHost();
     people.sort(function (a, b) { return a.id < b.id ? -1 : 1; });
     for (i = 0; i < people.length; i++) {
       p = people[i];
@@ -559,7 +599,7 @@
       strikeLoc = mp.strikeLoc;
       strikeSpy = mp.strikeSpy;
       $('playLeave').textContent = '← Leave';
-      $('endBtn').hidden = !isHost(mp.people);
+      $('endBtn').hidden = !isHost();
       $('playTitle').textContent = 'Round ' + (mp.adopted.round || 1);
       $('lookBtn').hidden = true;
       $('roleWrap').hidden = false;
@@ -652,4 +692,40 @@
 
   renderHsNames();
   setChip('', 'Ready');
+
+
+  function mpWatch() {
+    if (!PEOPLE || typeof gifos === 'undefined' || !gifos) return;
+    readRoom().then(function () {
+      if (!mp.peopleTimer) mp.peopleTimer = setInterval(readRoom, PEOPLE_MS);
+    }).catch(function () {});
+  }
+
+  window['__spyfall'] = {
+    state: function () {
+      var a = mp.adopted;
+      if (!a) return null;
+      return { round: a.round | 0, phase: a.phase || '', seed: a.seed | 0 };
+    },
+    people: function () {
+      if (PEOPLE && typeof gifos !== 'undefined' && gifos) readRoom();
+      var names = peopleNames(), out = [], id;
+      for (id in names) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      if (PEOPLE && typeof gifos !== 'undefined' && gifos) readRoom();
+      return PEOPLE && mp.owner && peopleCount() > 1;
+    }
+  };
+
+  if (PEOPLE) mpWatch();
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'spyfall-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
+
 })();
