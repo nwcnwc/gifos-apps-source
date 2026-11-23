@@ -240,9 +240,8 @@
     // Write only while the cannon acts (golden: no idle keep-alive).
     var moving = !!(player.isMovingLeft || player.isMovingRight || player.isShooting);
     if (moving) publish(false);
-    // Host publishes the swarm only while someone is acting — idle AI ticks
-    // are not shared writes (kit K3).
-    if (owner && G.sim && !G.over && moving) publishWorld(false);
+    // Host publishes while acting; also once when over flips (sig dedupes).
+    if (owner && G.sim && (moving || G.over)) publishWorld(false);
   }
 
   function drawCannons(ctx) {
@@ -307,10 +306,10 @@
 
   root['__invaderz'] = {
     state: function () {
-      // Wave/over only — live worldSeq races across copies (kit K8).
+      // over from the last shared world row (host force-publishes on over).
       var G = root.InvaderZ;
       if (!G) return null;
-      return { wave: (G.wave | 0), over: G.over ? 1 : 0 };
+      return { over: G.over ? 1 : 0 };
     },
     people: function () {
       var names = peopleNames(), out = [], id;

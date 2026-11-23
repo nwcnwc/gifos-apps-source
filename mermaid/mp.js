@@ -264,7 +264,7 @@
         p = roomPeople[i];
         if (p && p.id && p.here !== 'gone') n++;
       }
-      return on && owner && n > 1;
+      return owner && n > 1;
     }
   };
 

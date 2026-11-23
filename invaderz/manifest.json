@@ -3,7 +3,7 @@
   "appId": "invaderz",
   "name": "InvaderZ",
   "shortName": "InvaderZ",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "minBuild": 5861,
   "entry": "index.html",
   "accent": [

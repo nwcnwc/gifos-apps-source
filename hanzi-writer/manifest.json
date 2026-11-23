@@ -3,7 +3,7 @@
   "appId": "hanzi-writer",
   "name": "Hanzi Writer",
   "shortName": "Hanzi",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "minBuild": 5861,
   "description": "Trace Chinese characters in stroke order. Progress stays in the file. One invite, the same character.",
   "entry": "index.html",
@@ -30,7 +30,7 @@
   "launch": {
     "char": {
       "label": "Trace this character",
-      "detail": "A Chinese character, for example 好."
+      "detail": "A Chinese character, for example \u597d."
     }
   }
 }
