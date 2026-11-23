@@ -56,7 +56,7 @@ function pin(rel, want) {
 }
 for (const [rel, want] of Object.entries(PINS)) pin(rel, want);
 
-if (manifest.minBuild !== 947) throw new Error('minBuild must be 947');
+if (manifest.minBuild < 5861) throw new Error('minBuild must be >= 5861');
 if (manifest.appId !== 'polygon-shredder') throw new Error('appId');
 if (!manifest.capabilities || manifest.capabilities.db !== true || manifest.capabilities.multiplayer !== true) {
   throw new Error('db + multiplayer required');

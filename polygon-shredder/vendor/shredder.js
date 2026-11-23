@@ -298,6 +298,7 @@
   }
 
   function render() {
+    if (!sim || !controls || !renderer || !mesh) return;
     controls.update();
     scale += (nScale - scale) * 0.01;
     plane.lookAt(camera.position);
