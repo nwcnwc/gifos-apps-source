@@ -43,7 +43,7 @@ for (const need of ['vendor/lrc-parser.js', 'vendor/COPYING-lrc-parser.txt', 've
   const hex = createHash('sha256').update(buf).digest('hex');
   if (hex !== JS_SHA) throw new Error('lrc-parser.js sha256 ' + hex + ' ≠ pin');
 }
-if (manifest.minBuild !== 947 || manifest.appId !== 'lrc-maker') throw new Error('manifest');
+if (manifest.minBuild < 5861 || manifest.appId !== 'lrc-maker') throw new Error('manifest');
 if (!manifest.capabilities.db || !manifest.capabilities.multiplayer) throw new Error('caps');
 if (manifest.capabilities.network) throw new Error('no network');
 if (listing.basedOn.blessed !== false || listing.basedOn.name !== 'lrc-maker') throw new Error('basedOn');
