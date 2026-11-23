@@ -10,18 +10,25 @@
  *      in `players`. Ghosts are poses, not a shared sim — everyone fights
  *      their own grove. Solo is the original game.
  *
- * The room link is OS chrome. This file never draws a share control.
+ * Who is here is gifos.people(). The room link is OS chrome. This file
+ * never draws a share control. Publish only when the pose changes.
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 8;
-  var STALE_MS = 9000;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'Stolen Sword needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
 
   var api = null;
   var me = { id: null, name: 'Sword' };
   var others = {};
+  var roomPeople = [];
+  var roomKey = '';
+  var owner = false;
   var lastPublished = 0;
+  var lastPubSig = '';
   var onRoster = null;
   var skel = null;
   var hooked = false;
@@ -48,6 +55,44 @@
     ];
   }
 
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Sword';
+    }
+    return m;
+  }
+
+  function peopleCount() {
+    var n = 0, id, names = peopleNames();
+    for (id in names) n++;
+    return n;
+  }
+
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      var key = JSON.stringify(ppl.map(function (p) { return [p.id, p.name, p.here]; })) + (info.owner ? '|o' : '');
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'Sword'; }
+      if (key !== roomKey) {
+        roomKey = key;
+        var names = peopleNames(), id;
+        for (id in others) if (!names[id]) delete others[id];
+        if (onRoster) onRoster(roster());
+      }
+    }, function () {});
+  }
+
   function ss() { return root.StolenSword; }
 
   function myPose() {
@@ -67,37 +112,39 @@
   }
 
   function publish(force) {
-    if (!api || !me.id) return;
+    if (!api || !me.id || !PEOPLE) return;
     var t = now();
     if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
-    lastPublished = t;
     var p = myPose();
     var rec = {
       id: me.id,
-      name: me.name,
       x: r1(p.x),
       y: r1(p.y),
       f: p.facing < 0 ? -1 : 1,
       st: p.stage | 0,
       wv: p.wave | 0,
       hp: p.health | 0,
-      on: !!p.started,
-      t: t
+      on: !!p.started
     };
+    var sig = JSON.stringify(rec);
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPublished = t;
+    rec.t = t;
     try { db('players').put(rec).catch(function () {}); } catch (e) {}
   }
 
   function ingest(list) {
-    var t = now(), seen = {};
+    var t = now(), seen = {}, names = peopleNames();
     for (var i = 0; i < list.length; i++) {
       var p = list[i];
       if (!p || !p.id || p.id === me.id) continue;
+      if (!names[p.id]) continue;
       seen[p.id] = 1;
       var cur = others[p.id];
-      var moved = !cur || cur.x !== p.x || cur.y !== p.y || cur.stamp !== p.t;
       others[p.id] = {
         id: p.id,
-        name: p.name || 'Sword',
+        name: names[p.id] || p.name || 'Sword',
         x: p.x || 0,
         y: p.y || 0,
         facing: p.f < 0 ? -1 : 1,
@@ -106,14 +153,13 @@
         health: p.hp == null ? 2 : p.hp | 0,
         started: !!p.on,
         stamp: p.t,
-        seen: moved ? t : cur.seen,
         t: t,
         hue: tintFor(p.id),
         prev: cur ? { x: cur.x, y: cur.y, t: cur.t } : null
       };
     }
     for (var id in others) {
-      if (!seen[id] || now() - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id] || !names[id]) delete others[id];
     }
     if (onRoster) onRoster(roster());
   }
@@ -162,6 +208,7 @@
 
   function roster() {
     var mine = myPose();
+    var names = peopleNames();
     var rows = [{
       id: me.id || 'local',
       name: me.name || 'You',
@@ -174,7 +221,7 @@
     for (var id in others) {
       var o = others[id];
       rows.push({
-        id: o.id, name: o.name, me: false,
+        id: o.id, name: names[o.id] || o.name, me: false,
         stage: o.stage, wave: o.wave, health: o.health, started: o.started
       });
     }
@@ -189,9 +236,9 @@
     hookDraw();
     api = root.gifos;
     if (!api || !api.db) return Promise.resolve({ others: 0 });
-    return api.me().then(function (id) {
-      me.id = id && id.id ? id.id : 'local';
-      me.name = (id && id.name) || 'Sword';
+    if (!PEOPLE) return Promise.resolve({ others: 0 });
+    return readRoom().then(function () {
+      if (!me.id) return { others: 0 };
       var settled = false;
       return new Promise(function (resolve) {
         var done = function () {
@@ -205,6 +252,7 @@
           ingest(list || []);
           done();
         });
+        setInterval(readRoom, PEOPLE_MS);
       });
     }).catch(function () {
       return { others: 0 };
@@ -215,6 +263,27 @@
     init: init,
     roster: roster,
     onRoster: function (fn) { onRoster = fn; },
-    live: function () { return Object.keys(others).length > 0; }
+    live: function () { return PEOPLE && Object.keys(others).length > 0; }
   };
+
+  root['__stolen-sword'] = {
+    state: function () { return null; },
+    people: function () {
+      var names = peopleNames(), out = [], id;
+      if (me.id && names[me.id]) out.push(me.id);
+      for (id in others) if (names[id]) out.push(id);
+      return out;
+    },
+    amHost: function () {
+      return PEOPLE && owner && peopleCount() > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'ssword-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 })(window);
