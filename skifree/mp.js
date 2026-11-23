@@ -4,18 +4,18 @@
  * Upstream is a solo ski. Everything multiplayer is here: each skier
  * publishing pose + metres + lives on their own row, ghosts of the others
  * on your slope, a farthest-wins race, and (when you are alone) a ghost of
- * your best run. Nobody writes anybody else's row. Invite chrome is the
- * OS's, not ours. Solo without a tape is the original game.
+ * your best run. Who is here is gifos.people(). Invite is OS chrome.
  *
  * A subscriber re-downloads the whole collection on every change, so we
- * publish slowly (~8 Hz) with small numbers.
+ * publish slowly (~8 Hz) only when pose/score changes.
  */
 (function (root) {
   'use strict';
 
   var PUBLISH_HZ = 8;
-  var STALE_MS = 9000;
-  var HB_MS = 2500;
+  var PEOPLE_MS = 2000;
+  var PEOPLE = !!(root.gifos && root.gifos.people);
+  var NEEDS_NEWER = 'SkiFree needs a newer GifOS to play with friends. Reload the page to update. Solo works on this device.';
   var TAPE_MS = 125;
 
   var api = null;
@@ -23,15 +23,16 @@
   var me = { id: null, name: 'You' };
   var subscribed = false;
   var lastPublished = 0;
-  var hbTimer = 0;
+  var lastPubSig = '';
   var round = 1;
   var lastList = [];
-  var seenAt = {};
   var others = {};
   var roundOver = false;
   var tape = null;
   var tapeStart = 0;
   var tapeArmed = false;
+  var roomPeople = [];
+  var owner = false;
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -52,15 +53,21 @@
 
   function tintFor(id) { return hashId(id) % 360; }
 
-  function live(list, t) {
-    t = t || now();
-    var out = [];
+  function peopleNames() {
+    var m = {}, i, p;
+    for (i = 0; i < roomPeople.length; i++) {
+      p = roomPeople[i];
+      if (p && p.id && p.here !== 'gone') m[p.id] = p.name || 'Friend';
+    }
+    return m;
+  }
+
+  function live(list) {
+    var names = peopleNames(), out = [];
     (list || []).forEach(function (p) {
       if (!p || !p.id) return;
-      var changed = !seenAt[p.id] || seenAt[p.id].stamp !== p.t;
-      if (changed) seenAt[p.id] = { stamp: p.t, seen: t };
-      if (t - seenAt[p.id].seen > STALE_MS) return;
-      out.push(p);
+      if (!Object.prototype.hasOwnProperty.call(names, p.id)) return;
+      out.push(Object.assign({}, p, { name: names[p.id] || p.name || 'Friend' }));
     });
     return out;
   }
@@ -69,7 +76,6 @@
     var s = (root.Ski && root.Ski.snap) ? root.Ski.snap() : {};
     return {
       id: me.id,
-      name: me.name,
       round: round,
       x: Math.round(s.x || 0),
       y: Math.round(s.y || 0),
@@ -92,11 +98,18 @@
   }
 
   function publish(force) {
-    if (!room || !me.id) return;
-    var t = now();
-    if (!force && t - lastPublished < 1000 / PUBLISH_HZ) return;
-    lastPublished = t;
-    try { room.put(snap()).catch(function () {}); } catch (e) {}
+    if (!PEOPLE || !room || !me.id) return;
+    var t0 = now();
+    if (!force && t0 - lastPublished < 1000 / PUBLISH_HZ) return;
+    var row = snap();
+    var sig = JSON.stringify({
+      id: row.id, round: row.round, x: row.x, y: row.y, part: row.part,
+      dist: row.dist, lives: row.lives, over: row.over, jumping: row.jumping, hit: row.hit
+    });
+    if (!force && sig === lastPubSig) return;
+    lastPubSig = sig;
+    lastPublished = t0;
+    try { room.put(row).catch(function () {}); } catch (e) {}
   }
 
   function ingest(list) {
@@ -126,7 +139,7 @@
       };
     }
     for (var id in others) {
-      if (!seen[id] || t - others[id].seen > STALE_MS) delete others[id];
+      if (!seen[id] || !Object.prototype.hasOwnProperty.call(peopleNames(), id)) delete others[id];
     }
     paintHud();
   }
@@ -302,25 +315,34 @@
     }
   }
 
-  function beat() {
-    publish(true);
-    paintHud();
+  function readRoom() {
+    if (!PEOPLE || !api) return Promise.resolve();
+    return Promise.all([
+      api.people(),
+      api.info ? api.info() : Promise.resolve({})
+    ]).then(function (r) {
+      var ppl = (r[0] || []).filter(function (p) { return p && p.id; });
+      var info = r[1] || {};
+      roomPeople = ppl;
+      owner = !!info.owner;
+      var mine = null, i;
+      for (i = 0; i < ppl.length; i++) if (ppl[i].me) mine = ppl[i];
+      if (mine) { me.id = mine.id; me.name = mine.name || 'You'; }
+      ingest(lastList);
+    }, function () {});
   }
 
   function init() {
     api = root.gifos || null;
-    if (!api || !api.db) return;
+    if (!api || !api.db || !PEOPLE) return;
     try { room = api.db('room'); } catch (e) { return; }
-    (api.me ? api.me() : Promise.resolve({ id: 'local', name: 'You' })).then(function (id) {
-      me.id = (id && id.id) || 'local';
-      me.name = (id && id.name) || 'You';
+    readRoom().then(function () {
       if (!subscribed) {
         subscribed = true;
-        room.subscribe(function (list) { ingest(list || []); });
+        room.subscribe(function (list) { lastList = list || []; ingest(lastList); });
       }
       publish(true);
-      if (hbTimer) clearInterval(hbTimer);
-      hbTimer = setInterval(beat, HB_MS);
+      setInterval(readRoom, PEOPLE_MS);
     }).catch(function () {
       me.id = 'local';
     });
@@ -361,6 +383,31 @@
       return roundOver || !snap().over;
     }
   };
+
+  root['__skifree'] = {
+    state: function () {
+      return PEOPLE && me.id ? { round: round | 0 } : null;
+    },
+    people: function () {
+      return roster().map(function (p) { return p.id; });
+    },
+    amHost: function () {
+      var n = 0, i, p;
+      for (i = 0; i < roomPeople.length; i++) {
+        p = roomPeople[i];
+        if (p && p.id && p.here !== 'gone') n++;
+      }
+      return PEOPLE && owner && n > 1;
+    }
+  };
+
+  if (!PEOPLE && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    var _n = document.createElement('p');
+    _n.id = 'ski-needs';
+    _n.textContent = NEEDS_NEWER;
+    if (document.body) document.body.appendChild(_n);
+    else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(_n); });
+  }
 
   init();
 })(window);
