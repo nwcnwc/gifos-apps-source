@@ -10,7 +10,7 @@
  */
 (function () {
   'use strict';
-  var POLL_MS = 2000, ORDER_WAIT_MS = 45000, HOST_GONE_MS = 60000, EMPTY_MS = 20000;
+  var POLL_MS = 2000, ORDER_WAIT_MS = 45000, HOST_GONE_MS = 60000, EMPTY_MS = 20000, STT_RETRY_MS = 3000;
   var T = window.MeetingTranscriber = { active: {}, log: [], audioHeld: 0, last: null };
   var el = function (id) { return document.getElementById(id); };
   if (!gifos.meet || typeof gifos.meet.hostBot !== 'function' || typeof gifos.meet.onHostWake !== 'function') {
@@ -50,10 +50,10 @@
   function record(w) {
     var room = String(w.room || w.link || '');
     if (!w.link || T.active[room]) return;
-    var job = T.active[room] = { room: room, tok: w.tok, host: w.host || '', started: Date.now(), clips: [], id: '', seen: {}, phase: 'joining' };
+    var job = T.active[room] = { room: room, tok: w.tok, host: w.host || '', started: Date.now(), clips: [], captions: [], id: '', seen: {}, phase: 'joining' };
     var name = (el('hb-name').value || '').trim() || 'Meeting Bot';
     note('Joining ' + (w.host ? w.host + "'s" : 'your') + ' meeting to transcribe it.');
-    return gifos.meet.join(w.link, w.password || '', name, { bot: true }).then(function (sess) {
+    return gifos.meet.join(w.link, w.password || '', name, { bot: true, guest: true }).then(function (sess) {
       job.id = sess.meetingId;
       // Keep the room's transcript on this seat: the share pictures are taken only where a transcript is kept.
       return gifos.meet.transcribe(job.id, false).catch(function () {});
@@ -130,20 +130,45 @@
     return out;
   }
   function transcribeAll(job) {
-    var lines = [], i = 0, prompt = names(job).join(', ');
+    var prompt = names(job).join(', ');
     job.clips.sort(function (a, b) { return a.at - b.at; });
-    var next = function () {
-      if (i >= job.clips.length) return Promise.resolve(lines);
-      var c = job.clips[i++];
-      note('Writing down ' + i + ' of ' + job.clips.length + (c.name ? ' (' + c.name + ')' : '') + '…');
-      return gifos.ai.stt({ bytes: c.bytes, mime: c.mime, language: c.lang || 'auto', prompt: prompt }).then(function (r) {
-        var text = String((r && r.text) || '').replace(/\[[^\]]*\]|\([^)]*\)|[♪♫*]/g, ' ').replace(/\s+/g, ' ').trim();
-        if (text) lines.push({ at: c.at, end: c.end, byId: c.id, by: c.name || 'Someone', lang: (r && r.language) || c.lang || '', text: text });
-      }, function (e) {
-        lines.push({ at: c.at, end: c.end, byId: c.id, by: c.name || 'Someone', lang: c.lang || '', text: '', error: String(e && e.message || e) });
-      }).then(function () { c.bytes = null; T.audioHeld = countAudio(); return next(); });
+    var said = {}, failed = {};
+    var clean = function (t) { return String(t || '').replace(/\[[^\]]*\]|\([^)]*\)|[\u266a\u266b*]/g, ' ').replace(/\s+/g, ' ').trim(); };
+    // One pass over the clips; a clip that fails (the model may still be arriving on this device on the first calls)
+    // waits for a second pass, when the model is here. Each clip's audio is dropped as soon as it is written.
+    var pass = function (list, n) {
+      var i = 0;
+      var next = function () {
+        if (i >= list.length) return Promise.resolve();
+        var c = list[i++];
+        note('Writing down ' + i + ' of ' + list.length + (n ? ' (again)' : '') + (c.name ? ' (' + c.name + ')' : '') + '\u2026');
+        return gifos.ai.stt({ bytes: c.bytes, mime: c.mime, language: c.lang || 'auto', prompt: prompt }).then(function (r) {
+          said[c.at + c.id] = { c: c, text: clean(r && r.text), lang: (r && r.language) || c.lang || '' };
+          delete failed[c.at + c.id];
+          c.bytes = null;
+        }, function (e) { failed[c.at + c.id] = { c: c, error: String(e && e.message || e) }; }).then(function () { T.audioHeld = countAudio(); return next(); });
+      };
+      return next();
     };
-    return next();
+    return pass(job.clips, 0).then(function () {
+      var again = Object.keys(failed).map(function (k) { return failed[k].c; });
+      return again.length ? wait(STT_RETRY_MS).then(function () { return pass(again, 1); }) : null;
+    }).then(function () {
+      var lines = [];
+      job.clips.forEach(function (c) {
+        var k = c.at + c.id, ok = said[k], bad = failed[k];
+        c.bytes = null;
+        if (ok) { if (ok.text) lines.push({ at: c.at, end: c.end, byId: c.id, by: c.name || 'Someone', lang: ok.lang, text: ok.text }); return; }
+        // The speech model could not write this clip: the meeting's own caption lines from that person at that time
+        // stand in (said so in the line), and the audio is still deleted.
+        var from = (job.captions || []).filter(function (x) { return x.by === c.name && x.at >= c.at - 2000 && x.at <= c.end + 6000 && !x.used; });
+        from.forEach(function (x) { x.used = true; });
+        var text = from.map(function (x) { return x.text; }).join(' ').trim();
+        lines.push({ at: c.at, end: c.end, byId: c.id, by: c.name || 'Someone', lang: c.lang || '', text: text, src: text ? 'captions' : '', error: bad ? bad.error : 'not written' });
+      });
+      T.audioHeld = countAudio();
+      return lines;
+    });
   }
   function countAudio() {
     var n = 0;
@@ -179,6 +204,13 @@
     });
   }
   gifos.meet.onHostWake(function (w) { record(w); });
+  // The meeting's live caption lines, kept only as a stand-in for a clip the speech model could not write.
+  gifos.meet.onTranscriptLine(function (ev) {
+    Object.keys(T.active).forEach(function (k) {
+      var j = T.active[k];
+      if (j.id && ev && ev.meetingId === j.id && ev.line && ev.line.text && !ev.line.self) j.captions.push({ at: ev.line.at || Date.now(), by: ev.line.by || '', text: String(ev.line.text) });
+    });
+  });
 
   // REVIEW: the meetings kept here, newest first.
   function fmtTime(ms) { var d = new Date(ms); return d.toLocaleString(); }

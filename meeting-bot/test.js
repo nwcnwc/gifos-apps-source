@@ -26,6 +26,14 @@ check('app does not fetch or open a socket', !/\bfetch\s*\(/.test(app) && !/WebS
 check('page has the launch form and the control panel', /id="mode-run"/.test(html) && /id="mode-control"/.test(html) && /id="rules"/.test(html) && /id="ctrl"/.test(html));
 
 const control = fs.readFileSync(path.join(APP, 'CONTROL.md'), 'utf8');
+const tr = fs.readFileSync(path.join(APP, 'transcriber.js'), 'utf8');
+check('setup: "Join and transcribe every meeting I host" with the consent line', /Join and transcribe every meeting I host/.test(html) && /responsible for getting consent to record where the law requires it/.test(html));
+check('the transcriber reaches no network and loads after the app', !/\bfetch\s*\(/.test(tr) && !/WebSocket/.test(tr) && html.indexOf('transcriber.js') > html.indexOf('app.js'));
+check('the host bot joins as a guest bot seat and records only on the host order with its token', /\{ bot: true, guest: true \}/.test(tr) && /o\.on && o\.tok === job\.tok/.test(tr));
+check('each clip is written in its speaker language with the names as prompt, and a failed clip is tried again', /language: c\.lang \|\| 'auto', prompt: prompt/.test(tr) && /pass\(again, 1\)/.test(tr));
+check('the audio is dropped and checked (page and app)', /audio: \{ deleted: job\.sessionHeld === 0 && appHeld === 0/.test(tr));
+check('Speech to text is a declared AI role', manifest.capabilities.ai.indexOf('stt') >= 0);
+check('the download is transcript.txt/.md/.html and shots/ in one zip', /'transcript\.txt'/.test(tr) && /'transcript\.md'/.test(tr) && /'transcript\.html'/.test(tr) && /'shots\/'/.test(tr));
 check('launch key start for headless runs', !!(manifest.launch && manifest.launch.start));
 check('listing has cover art on disk', listing.cover === 'screenshot.png' && fs.statSync(path.join(APP, 'screenshot.png')).size > 1000);
 const API = ['start', 'status', 'list', 'create', 'join', 'leave', 'end', 'record', 'transcribe', 'say', 'people', 'transcript', 'chatFile', 'recording', 'setVoice', 'interject', 'stopSpeaking', 'raiseHand', 'setMic', 'setCamera', 'meetingState', 'snapshot', 'watch'];
