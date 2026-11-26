@@ -57,12 +57,29 @@
   .tail, .cmds, .errs { margin: 0; padding-left: 1.1rem; }
   .muted { color: #a8adc4; }
   .person { display: inline-block; margin: 2px 6px 2px 0; }
+  .hb-item { display: block; width: 100%; text-align: left; }
+  .hb-line { margin: 6px 0; }
+  .hb-shot { margin: 10px 0; }
 </style>
 <main>
   <h1>Meeting Bot</h1>
   <p class="lead">RUN is this computer's bot. CONTROL drives that bot from here, with the same name and password.</p>
   <div id="warn"></div>
   <p id="suggest"></p>
+  <fieldset id="hostbot">
+    <legend>Every meeting I host</legend>
+    <label><input type="checkbox" id="hb-on"> Join and transcribe every meeting I host</label>
+    <label>Bot name <input id="hb-name" type="text" autocomplete="off" maxlength="40" value="Meeting Bot"></label>
+    <p class="muted">When you host a meeting on this device, the bot joins it, records each speaker and writes a transcript with pictures of shared screens. Everyone in the meeting sees a recording notice from you. The audio is deleted after the transcript is made, and the transcript stays here.</p>
+    <p class="muted"><b>You're responsible for getting consent to record where the law requires it.</b></p>
+    <p id="hb-status" class="muted"></p>
+    <p id="hb-active" class="muted"></p>
+  </fieldset>
+  <section id="history">
+    <h2>Past meetings</h2>
+    <div id="hb-list"></div>
+    <div id="hb-view"></div>
+  </section>
   <fieldset id="launch">
     <legend>Launch</legend>
     <div class="row">
@@ -141,3 +158,4 @@
 <script src="protocol.js"></script>
 <script src="voice.js"></script>
 <script src="app.js"></script>
+<script src="transcriber.js"></script>

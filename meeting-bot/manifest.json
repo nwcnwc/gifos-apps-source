@@ -3,16 +3,24 @@
   "appId": "meeting-bot",
   "name": "Meeting Bot",
   "shortName": "Meet Bot",
-  "version": "0.9.25.2",
+  "version": "0.9.28.1",
   "minBuild": 2723,
-  "description": "Sits in meetings for you. You control it from another device with the same name and password.",
+  "description": "Sits in meetings for you. Set it up once to join and transcribe every meeting you host, or control it from another device with the same name and password.",
   "entry": "index.html",
-  "accent": [92, 160, 255],
+  "accent": [
+    92,
+    160,
+    255
+  ],
   "capabilities": {
     "db": true,
     "meet": true,
     "remote": true,
-    "ai": ["smartest", "tts"]
+    "ai": [
+      "smartest",
+      "tts",
+      "stt"
+    ]
   },
   "launch": {
     "mode": {
@@ -33,6 +41,8 @@
     }
   },
   "data": {
-    "save": { "visibility": "private" }
+    "save": {
+      "visibility": "private"
+    }
   }
 }
