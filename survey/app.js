@@ -513,6 +513,8 @@
     if (tally.anonymous) who.textContent = 'Anonymous votes. Names stay off the results.';
     else if (tally.names.length) who.textContent = 'Voted: ' + tally.names.join(', ');
     else who.textContent = survey.open ? 'No votes yet.' : 'No votes.';
+    // Phone-first: whoever has answered, and the person running the survey, sees the counts before the choices.
+    live.classList.toggle('resfirst', !!runner || !!myVote());
     paintResults(tally);
     paintMine();
     var dock = $('dock');

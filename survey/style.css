@@ -84,3 +84,7 @@ button.go.done{background:transparent;color:var(--accent,#409cd6);border-color:v
   button.choice{min-height:44px;margin-bottom:6px}
   h2{font-size:20px}
 }
+/* Counts first for a voter and for the runner (Survey 1.2); the choices follow. */
+#live.resfirst > #results{order:1}
+#live.resfirst > #mine{order:2}
+#live.resfirst > #dock{order:3}
