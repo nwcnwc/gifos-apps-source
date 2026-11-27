@@ -30,6 +30,10 @@ Chat stays chat. A spoken line is a separate request, and it interrupts whatever
 
 You can open a tile that shows the meeting through the bot's eyes and ears. You can watch and listen. That tile has no microphone and no camera for you. Only the bot talks.
 
+## Your own channel
+
+The bot can run a channel: host a broadcast on this device (gifos.app/cast), let the bot join that broadcast's link, then under **Play videos on the Stage** pick video files and press Play. It rebroadcasts them one after another, starting again after the last one if you like, exactly as a host pressing Rebroadcast would; viewers see Prerecorded. The files stay on this computer. Publish the broadcast to gifos.tv from the broadcast page to list it.
+
 ## Out of scope
 
 The bot has no avatar. Hand, microphone, camera, and speech are honored by the meeting page on this computer. A build of GifOS that does not know those requests reports that, and the meeting is left as it is.

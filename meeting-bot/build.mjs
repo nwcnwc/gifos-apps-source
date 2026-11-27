@@ -44,7 +44,7 @@ if (!listing.tagline || !listing.description) throw new Error('listing');
 const help = read('help.md');
 if (help.length < 400) throw new Error('help.md is too short');
 if (!/window\.MeetingBot/.test(read('CONTROL.md'))) throw new Error('CONTROL.md must document window.MeetingBot');
-for (const src of ['app.js', 'protocol.js', 'voice.js', 'transcriber.js', 'index.html']) {
+for (const src of ['app.js', 'protocol.js', 'voice.js', 'transcriber.js', 'stage.js', 'index.html']) {
   const text = read(src);
   if (/\bfetch\s*\(/.test(text) || /WebSocket/.test(text) || /\beval\s*\(/.test(text)) throw new Error(src + ' reaches the network');
 }
@@ -57,6 +57,7 @@ const files = {
   'protocol.js': read('protocol.js'),
   'voice.js': read('voice.js'),
   'transcriber.js': read('transcriber.js'),
+  'stage.js': read('stage.js'),
   'host-voice.js': read('host-voice.js'),
   'help.md': help,
   'CONTROL.md': read('CONTROL.md'),
