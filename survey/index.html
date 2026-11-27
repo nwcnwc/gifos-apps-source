@@ -15,12 +15,17 @@
   <div class="wrap">
     <p class="lede" id="lede">Ask the room. Everyone sees the counts.</p>
     <p class="note" id="note" role="status"></p>
+    <section id="wait" class="wait" hidden>
+      <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      <p id="wait-text" role="status"></p>
+    </section>
     <section id="live" hidden>
+      <p class="newer" id="newer" role="status" hidden></p>
       <h2 id="title"></h2>
       <p class="who" id="who"></p>
-      <div id="results"></div>
       <div id="mine"></div>
       <div class="dock" id="dock"></div>
+      <div id="results"></div>
     </section>
     <section id="build"></section>
   </div>

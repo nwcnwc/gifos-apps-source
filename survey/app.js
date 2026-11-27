@@ -24,6 +24,13 @@
   var pending = {};
   var painted = '';
   var noteTimer = null;
+  // The runner is the person who opened Survey in the meeting (the app's owner
+  // copy). Only the runner sets a survey up, closes, reopens or replaces it;
+  // everyone else sees who is setting it up, then votes. Outside a meeting the
+  // one copy is the runner.
+  var runner = !(window.gifos && gifos.info);
+  var setup = null;      // the runner's "setting up" record, as everyone reads it
+  var setupSent = '';
 
   function blankQuestion() {
     return { text: '', kind: 'single', options: ['', ''], free: false };
@@ -49,6 +56,18 @@
   function beat() {
     if (!presDb || !myId()) return;
     presDb.put({ id: 'p:' + me.id, name: me.name || '', since: since, ts: Date.now() }).catch(function () {});
+  }
+
+  // Tell the room the runner is at the form (on) or is not (off).
+  function sayBuilding(on) {
+    if (!runner || !surveyDb) return;
+    var key = (on ? '1' : '0') + ':' + (me.name || '');
+    if (key === setupSent) return;
+    setupSent = key;
+    surveyDb.put({ id: 'setup', on: !!on, name: me.name || '', at: Date.now() }).catch(function () { setupSent = ''; });
+  }
+  function setupName() {
+    return (setup && setup.name) ? setup.name : 'Someone';
   }
 
   function readDraft() {
@@ -208,7 +227,7 @@
       cancel.type = 'button';
       cancel.className = 'sm';
       cancel.textContent = 'Cancel';
-      cancel.onclick = function () { mode = 'live'; render(); };
+      cancel.onclick = function () { mode = 'live'; sayBuilding(false); render(); };
       actions.appendChild(cancel);
     }
     actions.appendChild(addQ);
@@ -227,6 +246,7 @@
       painted = '';
       mode = 'live';
       say('');
+      sayBuilding(false);
       render();
     };
     if (!surveyDb) { apply(); return; }
@@ -284,6 +304,10 @@
   function paintResults(tally) {
     var box = $('results');
     box.innerHTML = '';
+    var lab = document.createElement('h3');
+    lab.className = 'reshead';
+    lab.textContent = 'Results';
+    box.appendChild(lab);
     tally.questions.forEach(function (q) {
       var card = document.createElement('div');
       card.className = 'q';
@@ -348,8 +372,12 @@
       card.className = 'q';
       card.setAttribute('data-qid', q.id);
       var h = document.createElement('h3');
-      h.textContent = q.kind === 'multi' ? 'Your choices' : 'Your choice';
+      h.textContent = q.text;
       card.appendChild(h);
+      var hint = document.createElement('p');
+      hint.className = 'hint';
+      hint.textContent = q.kind === 'multi' ? 'Pick any number.' : 'Pick one.';
+      card.appendChild(hint);
       q.options.forEach(function (label, i) {
         var b = document.createElement('button');
         b.type = 'button';
@@ -421,13 +449,26 @@
   }
 
   function render() {
+    if (!runner && mode === 'build') mode = 'live';
     var live = $('live');
     var showLive = mode === 'live' && !!survey;
+    var waiting = !runner && !survey;
     live.hidden = !showLive;
-    $('lede').hidden = showLive;
+    $('lede').hidden = showLive || waiting;
+    var wait = $('wait');
+    wait.hidden = !waiting;
+    if (waiting) {
+      $('wait-text').textContent = setup && setup.on
+        ? setupName() + ' is setting up a survey\u2026'
+        : 'Waiting for the survey. The person who opened Survey sets it up.';
+    }
+    var newer = $('newer');
+    newer.hidden = !(showLive && !runner && setup && setup.on);
+    if (!newer.hidden) newer.textContent = setupName() + ' is setting up a new survey\u2026';
     renderBuild();
+    if (runner && mode === 'build') sayBuilding(true);
     if (!showLive) {
-      $('chip').textContent = 'Ready';
+      $('chip').textContent = waiting ? 'Waiting' : 'Setting up';
       return;
     }
     var tally = S.svTally(survey, votes);
@@ -450,6 +491,7 @@
       save.onclick = onSave;
       dock.appendChild(save);
     }
+    if (!runner) return;
     var toggle = document.createElement('button');
     toggle.type = 'button';
     toggle.className = 'sm';
@@ -478,12 +520,16 @@
   }
   function onSurveyRows(list) {
     var row = null;
-    (list || []).forEach(function (x) { if (x && x.id === 'current') row = x; });
+    (list || []).forEach(function (x) {
+      if (x && x.id === 'current') row = x;
+      else if (x && x.id === 'setup' && (!setup || (x.at | 0) >= (setup.at | 0))) setup = x;
+    });
     var prevEpoch = survey && survey.epoch;
     var next = S.svMergeSurvey(survey, row);
     // A blank form follows the room. A form someone has started typing stays
     // put; Cancel (shown once a survey exists) returns to the shared survey.
-    if (next && mode === 'build') {
+    var moved = !!next && (!survey || (next.v | 0) !== (survey.v | 0) || (next.at | 0) !== (survey.at | 0));
+    if (next && moved && mode === 'build' && runner) {
       if (document.querySelector('#build .qtext')) readDraft();
       if (draftBlank()) mode = 'live';
     }
@@ -501,14 +547,24 @@
     var hello = function (m) {
       me = { id: (m && m.id) || 'local', name: (m && m.name) || '' };
       beat();
+      setupSent = '';
+      if (runner && mode === 'build') sayBuilding(true);
       if (survey) { painted = ''; render(); }
     };
+    if (window.gifos && gifos.info) {
+      gifos.info().then(function (i) {
+        runner = !(i && i.owner === false);
+        if (runner && !survey) mode = 'build';
+        render();
+      }, function () { runner = true; render(); });
+    }
     if (window.gifos && gifos.me) gifos.me().then(hello, function () { hello(null); });
     if (window.gifos && gifos.onIdentity) gifos.onIdentity(function (m) { if (m && m.id) hello(m); });
     if (surveyDb) surveyDb.subscribe(onSurveyRows);
     if (voteDb) voteDb.subscribe(onVoteRows);
     setInterval(beat, 3000);
     window.addEventListener('pagehide', function () {
+      if (runner && surveyDb && mode === 'build') surveyDb.put({ id: 'setup', on: false, name: me.name || '', at: Date.now() }).catch(function () {});
       if (presDb && myId()) presDb.delete('p:' + me.id).catch(function () {});
     });
   }
