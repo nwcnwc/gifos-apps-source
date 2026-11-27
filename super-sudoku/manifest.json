@@ -3,7 +3,7 @@
   "appId": "super-sudoku",
   "name": "Super Sudoku",
   "shortName": "Sudoku",
-  "version": "1.0",
+  "version": "1.1",
   "minBuild": 947,
   "description": "A full sudoku. Play alone, or race a friend on the same puzzle.",
   "entry": "index.html",
