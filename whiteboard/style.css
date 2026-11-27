@@ -181,3 +181,9 @@ html[data-compact] .wb-menu { bottom: 50px; padding: 4px; }
 html[data-compact] .wb-item { min-height: var(--gifos-tap, 44px); padding: 8px 10px; font-size: max(var(--gifos-text-min, 13px), calc(14px * var(--gifos-scale, 1))); }
 html[data-compact] .wb-item.sw { width: var(--gifos-tap, 44px); height: var(--gifos-tap, 44px); }
 html[data-compact] .wb-menu:has(.sw) { width: 150px; }
+/* A phone on its side: full-size tools do not fit one column, so the bar
+   holds them two by two along the right edge. */
+@media (max-height: 520px) and (min-width: 641px) {
+  html[data-compact] #wb-rail { display: grid; grid-template-columns: repeat(2, var(--gifos-tap, 44px)); gap: 0; max-height: calc(100vh - 16px); }
+  html[data-compact] #wb-status { grid-column: 1 / -1; width: auto; height: 24px; }
+}

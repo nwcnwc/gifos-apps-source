@@ -3,7 +3,7 @@
   "appId": "whiteboard",
   "name": "Whiteboard",
   "shortName": "Whiteboard",
-  "version": "1.1",
+  "version": "1.2",
   "minBuild": 947,
   "description": "A shared whiteboard for workshops: draw, sticky notes, shapes, frames, dot votes. Export to PowerPoint.",
   "entry": "index.html",

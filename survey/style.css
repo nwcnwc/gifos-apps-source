@@ -110,9 +110,9 @@ button.go.done{background:transparent;color:var(--accent,#409cd6);border-color:v
    small words never go under --gifos-text-min, fields keep 16px (so a phone never zooms in on them) and every
    button stays a full tap target (--gifos-tap). Elsewhere nothing changes. */
 html[data-compact] body{font-size:max(var(--gifos-text-min,13px),calc(17px*var(--gifos-scale,1)))}
-html[data-compact] header{gap:8px;padding:8px 12px;padding-top:max(8px,env(safe-area-inset-top))}
+html[data-compact] header{gap:8px;padding:6px 12px;padding-top:max(6px,env(safe-area-inset-top))}
 html[data-compact] header h1{font-size:calc(18px*var(--gifos-scale,1))}
-html[data-compact] main{padding:10px 12px max(20px,env(safe-area-inset-bottom))}
+html[data-compact] main{padding:8px 12px max(20px,env(safe-area-inset-bottom))}
 html[data-compact] .wrap{gap:10px}
 html[data-compact] .lede,html[data-compact] .texts li,html[data-compact] .newer{font-size:max(var(--gifos-text-min,13px),calc(15px*var(--gifos-scale,1)))}
 html[data-compact] .note,html[data-compact] .who,html[data-compact] .hint,html[data-compact] label.field,html[data-compact] .qhead b,html[data-compact] .reshead,html[data-compact] #live.resfirst > #mine::before{font-size:max(var(--gifos-text-min,13px),calc(14px*var(--gifos-scale,1)))}
