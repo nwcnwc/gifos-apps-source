@@ -396,7 +396,7 @@
         var area = document.createElement('textarea');
         area.maxLength = 500;
         area.value = (pending[q.id] && pending[q.id].text) || '';
-        area.oninput = function () { pending[q.id].text = area.value; };
+        area.oninput = function () { pending[q.id].text = area.value; paintSave(); };
         lab.appendChild(area);
         card.appendChild(lab);
       }
@@ -419,6 +419,17 @@
     });
   }
 
+  // The Save button says whether what is picked is what the room has: "Saved" right after a save, "Save my answers"
+  // once a pick changes.
+  function paintSave() {
+    var b = $('save');
+    if (!b) return;
+    var mine = myVote();
+    var same = !!mine && JSON.stringify(mine.answers || {}) === JSON.stringify((S.svCast(survey, mine, { id: me.id, name: me.name }, answersFromPending(), 0).vote || {}).answers || {});
+    b.textContent = same ? 'Saved \u2713' : 'Save my answers';
+    b.classList.toggle('done', same);
+  }
+
   function togglePick(q, i) {
     var p = pending[q.id] || { picks: [], text: '' };
     pending[q.id] = p;
@@ -431,6 +442,7 @@
     }
     p.picks.sort(function (a, b) { return a - b; });
     syncChoices();
+    paintSave();
   }
 
   function onSave() {
@@ -441,6 +453,9 @@
       votes = S.svMergeVotes(votes, [row]);
       say('Saved.');
       render();
+      // The voter sees the counts their vote just joined.
+      var res = $('results');
+      if (res && res.scrollIntoView) { try { res.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { res.scrollIntoView(); } }
     };
     if (!voteDb) { apply(); return; }
     voteDb.put(row).then(apply, function (err) {
@@ -491,6 +506,7 @@
       save.textContent = 'Save my answers';
       save.onclick = onSave;
       dock.appendChild(save);
+      paintSave();
     }
     if (!runner) return;
     var toggle = document.createElement('button');

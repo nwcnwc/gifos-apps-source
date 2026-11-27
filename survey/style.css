@@ -71,3 +71,6 @@ button:disabled{opacity:.4;cursor:default}
 #build > .row:last-child .go{flex:1 1 160px}
 main:has(#build:not([hidden]) > .row){padding-bottom:0}
 @media(min-width:800px){#build > .row:last-child{margin:0 -24px;padding-left:24px;padding-right:24px}}
+button.go.done{background:transparent;color:var(--accent,#409cd6);border-color:var(--accent,#409cd6)}
+/* Inside a meeting the app bar already names the app: a slimmer header leaves room for the question. */
+@media(max-height:620px){header{padding-top:max(6px,env(safe-area-inset-top));padding-bottom:6px}header h1{font-size:16px}main{padding-top:10px}}
