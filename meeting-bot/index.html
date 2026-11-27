@@ -141,6 +141,15 @@
       </div>
       <button type="button" id="ops-stop" class="primary">Stop speaking</button>
     </section>
+    <fieldset id="stagebox" hidden>
+      <legend>Play videos on the Stage</legend>
+      <p class="muted">When this bot hosts a broadcast (it joined a /cast link of a room this device hosts), it can rebroadcast videos from this device, one after another. Viewers see Prerecorded.</p>
+      <label>Broadcast <select id="stage-meeting"></select></label>
+      <label>Videos <input id="stage-files" type="file" accept="video/*" multiple></label>
+      <label><input type="checkbox" id="stage-loop" checked> Start again after the last one</label>
+      <p><button id="stage-play" class="primary" type="button" disabled>Play</button> <button id="stage-stop" type="button" disabled>Stop</button></p>
+      <p id="stage-now" class="muted"></p>
+    </fieldset>
   </section>
   <section id="ctrl" hidden>
     <h2>Control</h2>
@@ -159,3 +168,4 @@
 <script src="voice.js"></script>
 <script src="app.js"></script>
 <script src="transcriber.js"></script>
+<script src="stage.js"></script>

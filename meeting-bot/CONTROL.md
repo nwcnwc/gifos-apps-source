@@ -63,6 +63,9 @@ Every method returns a Promise, except `status`, which is synchronous. A failure
 | `snapshot(id)` | `{ id, hand, mic, camera, people }` | Same fields as `meetingState`. Read-only. It does not change the meeting and it does not open a browser. A connector may also save a PNG of the Meet Bot page it already has open. |
 | `watch(id, on)` | `{ id, watch }` | Opens a tile that shows this meeting through the bot's eyes and ears when `on` is true, and closes it when `on` is false. A person can watch and listen. The tile has no microphone and no camera for that person. Only the bot talks. |
 | `thinking(id, on)` | `{ id, thinking }` | Shows a blinking thought bubble on the bot's tile for everyone when `on` is true, and hides it when `on` is false. The bubble shows through blur. The bot's next spoken line hides it, and so does `stopSpeaking`. The meeting page also hides it after 60 s. A connector that composes its own answer calls this before it starts and then speaks with `interject`. Rejects when the meeting page cannot show it. |
+| `playlist(id, files, { loop?, start?, at?, blur? })` | `stage()` | Plays video `File`s (for example from `#stage-files`, which a headless driver fills with `setInputFiles`) one after another on the Stage of meeting `id`, with the broadcast's own Rebroadcast. Only when the bot is the host of a broadcast: it joined a `/cast` link of a room this device hosts. Viewers see Prerecorded. `loop` (default true) starts again after the last file; `start` is the first index, `at` its first second. `blur` is the rebroadcast bar's pick, `none` (the default: in a room whose clear right lets viewers tap to unblur, they may), `min` or `max`. A real end plays the next file; after the meeting page reloads the same film goes on at its second; a file the page cannot play is skipped; a person pressing Stop on the meeting page stops the list. Rejects with `not-host: …`, `not-broadcast: …` or `busy: …`, or "Playing videos on the Stage needs a newer GifOS." on an older GifOS. |
+| `stopPlaylist()` | `stage()` | Stops the film and the list. |
+| `stage()` | `{ on, id, index, count, title, loop, startedAt, at, plays, error }` | Synchronous. `status().stage` holds the same. |
 | `onTranscript(fn)` | an unsubscribe function | Called with `{ id, by, text, at }` for each kept line, including a line the bot spoke. `by` is the bot's name on those lines. A repeat of the same spoken line is not delivered again. |
 
 ### `setVoice`
@@ -91,6 +94,8 @@ When the bot answers a line itself (`speak` on), it first says "One moment while
 
 The app frame cannot `fetch`. Smartest and Text to speech are GifOS AI roles declared on the manifest as `capabilities.ai`. The host holds the key. The app asks `gifos.ai.chat` and `gifos.ai.tts` and never sees a URL. The manifest does not put those roles in `requires`, so the bot can still join while speech stays quiet until Settings is filled in.
 
+Video on the Stage is the broadcast's Rebroadcast button: `gifos.meet.rebroadcast(id, file, { title, at, blur })` (a `File` or `Blob`, passed by reference, never copied), `gifos.meet.stopRebroadcast(id)`, and `gifos.meet.onRebroadcast(cb)` with `{ meetingId, state: 'started' | 'ended' | 'stopped' | 'error', why, title, pos, dur }`. GifOS opens a `/cast` link as the broadcast page; only its host may rebroadcast, as for a person. GifOS plays on past a false early end of a film itself.
+
 Meeting control is the same `capabilities.meet` grant as joining. The new ops are the Meet buttons, plus playing audio the app already produced, plus the watch tile and the thought bubble: `gifos.meet.raiseHand(id, on)`, `gifos.meet.setMic(id, on)`, `gifos.meet.setCamera(id, on, blur)` (blur 0 No, 1 Min, 2 Max; GifOS turns a camera on only with one of the three), `gifos.meet.speak(id, { bytes, mime, text, filler? })`, `gifos.meet.stopSpeaking(id)`, `gifos.meet.watch(id, on)`, and `gifos.meet.thinking(id, on)`. A published GifOS build that does not know one of these answers "Unknown meet op." `raiseHand`, `setMic`, `setCamera`, `interject`, `watch`, and `thinking` then reject, and the room is left as it is. A build without `thinking` still plays the filler and the answer.
 
 In every meeting the bot picks No blur, so it consents to clear video. It is never the reason a password room stays blurred.
@@ -114,6 +119,7 @@ A line the bot spoke is stored and announced, with `by` set to the bot's name. T
 | `get_meeting_state` | `people(id)` and `meetingState(id)` |
 | `snapshot` | `snapshot(id)`. Read-only. |
 | `share` / `send_chat` | `say(id, text)` posts text or a link into the meeting chat. The bot cannot share a screen. |
+| `play_video` | `playlist(id, files)` in a broadcast the bot hosts (Rebroadcast). |
 | `say` (spoken) | `interject(id, text)`. `say` stays chat. |
 | `set_voice` | `setVoice({ respond_to_command, speak, listen })` |
 | `watch` | `watch(id, on)` |

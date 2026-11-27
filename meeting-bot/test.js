@@ -494,6 +494,61 @@ function runningBot(opts) {
     };
   });
 }
+// stage.js: the playlist on a stub host. Files go by reference; the list moves only on a real end, resumes the same film
+// at its second after a page reload, skips an unplayable file, stops with a person's Stop.
+function stageCase() {
+  const src = fs.readFileSync(path.join(APP, 'stage.js'), 'utf8');
+  check('stage.js reaches no network and loads after the app', !/\bfetch\s*\(/.test(src) && !/WebSocket/.test(src) && html.indexOf('stage.js') > html.indexOf('app.js'));
+  check('the page has the Play videos on the Stage box', /id="stagebox"/.test(html) && /id="stage-files"[^>]*type="file"[^>]*multiple/.test(html.replace(/accept="video\/\*" /, '')));
+  const calls = [];
+  let subs = null;
+  let failNext = '';
+  const els = {};
+  const elFor = (id) => els[id] || (els[id] = { id, hidden: false, disabled: false, value: '', checked: true, textContent: '', dataset: {}, files: [], innerHTML: '', appendChild() {}, onclick: null, onchange: null });
+  const sb = {
+    console, Promise, Math, Date, JSON, Array, String, Number, Object, Error, RegExp,
+    setInterval() { return 0; },
+    document: { getElementById: elFor, createElement: () => ({ dataset: {} }) },
+    gifos: { meet: {
+      rebroadcast(id, f, o) { calls.push(['rb', id, f.name, o.at]); if (failNext) { const m = failNext; failNext = ''; return Promise.reject(new Error(m)); } return Promise.resolve({ ok: true, dur: 100 }); },
+      stopRebroadcast(id) { calls.push(['stop', id]); return Promise.resolve({ ok: true }); },
+      onRebroadcast(cb) { subs = cb; }
+    } },
+    MeetingBot: { status: () => ({ phase: 'run', meetings: [{ id: 'mt_1', link: 'x' }] }) }
+  };
+  sb.window = sb;
+  vm.runInNewContext(src, sb);
+  const MB = sb.MeetingBot;
+  const f = (name) => ({ name, size: 10 });
+  const tick = () => new Promise((r) => setTimeout(r, 5));
+  return MB.playlist('mt_1', [f('a.webm'), f('b.webm')], { loop: true }).then((st) => {
+    check('playlist starts the first file on that meeting', calls[0][0] === 'rb' && calls[0][1] === 'mt_1' && calls[0][2] === 'a.webm' && st.on && st.index === 0, JSON.stringify(calls));
+    subs({ meetingId: 'mt_1', state: 'ended', pos: 100, dur: 100 });
+    return tick();
+  }).then(() => {
+    check('a real end plays the next file', calls[1][2] === 'b.webm' && MB.stage().index === 1, JSON.stringify(calls));
+    subs({ meetingId: 'mt_1', state: 'stopped', why: 'reload', pos: 42.5 });
+    return tick();
+  }).then(() => {
+    check('after a page reload the same film goes on at its second', calls[2][2] === 'b.webm' && calls[2][3] === 42.5, JSON.stringify(calls[2]));
+    failNext = 'unplayable: That video can’t be played here.';
+    subs({ meetingId: 'mt_1', state: 'ended', pos: 100, dur: 100 });
+    return tick();
+  }).then(() => {
+    check('after the last file the list loops; an unplayable file is skipped', calls[3][2] === 'a.webm' && calls[4][2] === 'b.webm' && MB.stage().on, JSON.stringify(calls.slice(3)));
+    subs({ meetingId: 'mt_1', state: 'stopped', why: 'host', pos: 3 });
+    return tick();
+  }).then(() => {
+    const n = calls.length;
+    check('a person pressing Stop on the meeting page stops the list', !MB.stage().on && calls.length === n);
+    failNext = 'not-host: Only the host can rebroadcast.';
+    return MB.playlist('mt_1', [f('a.webm')], {}).then(() => false, (e) => /not-host/.test(e.message));
+  }).then((rej) => {
+    check('not the host: the list does not start and says why', rej && !MB.stage().on && /host/.test(MB.stage().error));
+    check('status() reports the stage', MB.status().stage && MB.status().stage.count === 1);
+  });
+}
+
 function joinFailCase() {
   return runningBot({ failWork: true }).then(function (b) {
     return b.started.then(b.ticks).then(function () {
@@ -570,7 +625,7 @@ P.derive('harbor-maple', suggestion.password).then(function (a) {
       check('KDF room is stable and 32 hex chars', a.room === b.room && /^[a-f0-9]{32}$/.test(a.room), a.room);
       check('KDF password is stable and not the room', a.password === b.password && a.password !== a.room && /^[a-f0-9]{32}$/.test(a.password));
       check('a different password derives a different room', c.room !== a.room);
-      return voiceUnits().then(appCase).then(stepDownCase).then(joinFailCase).then(function () {
+      return voiceUnits().then(appCase).then(stepDownCase).then(joinFailCase).then(stageCase).then(function () {
         console.log(failures ? ('\n' + failures + ' FAILURE(S)') : '\nALL PASS');
         process.exit(failures ? 1 : 0);
       });
