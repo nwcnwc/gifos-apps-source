@@ -74,11 +74,9 @@ main:has(#build:not([hidden]) > .row){padding-bottom:0}
 button.go.done{background:transparent;color:var(--accent,#409cd6);border-color:var(--accent,#409cd6)}
 /* Inside a meeting the app bar already names the app: a slimmer header leaves room for the question. */
 @media(max-height:620px){header{padding-top:max(6px,env(safe-area-inset-top));padding-bottom:6px}header h1{font-size:16px}main{padding-top:10px}}
-/* Voting on a phone: Save stays in reach under the choices; the runner's Close and New share one row. */
-.dock{position:sticky;bottom:0;z-index:1;margin:0 -16px;padding:8px 16px max(8px,env(safe-area-inset-bottom));background:var(--bg,#0a0a0f)}
+/* Voting on a phone: the runner's Close and New share one row under Save. */
 .dock button.sm{flex:1 1 40%}
 @media(max-width:520px){.dock button.go{flex:1 1 100%}.dock button.sm{flex:1 1 40%}}
-@media(min-width:800px){.dock{margin:0 -24px;padding-left:24px;padding-right:24px}}
 /* A phone on its side: two columns of choices, so the question, its choices and Save fit the short screen. */
 @media(max-height:460px) and (min-width:540px){
   #mine .q{display:grid;grid-template-columns:1fr 1fr;column-gap:8px}
@@ -86,5 +84,3 @@ button.go.done{background:transparent;color:var(--accent,#409cd6);border-color:v
   button.choice{min-height:44px;margin-bottom:6px}
   h2{font-size:20px}
 }
-/* A phone on its side has no room for a pinned row: Save sits in the page under the choices. */
-@media(max-height:460px){.dock{position:static;margin:0;padding:4px 0 8px;background:none}}
