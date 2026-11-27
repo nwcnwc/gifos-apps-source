@@ -541,8 +541,8 @@
     toggle.type = 'button';
     toggle.className = 'sm';
     toggle.id = survey.open ? 'close' : 'reopen';
-    toggle.textContent = survey.open ? 'Close' : 'Reopen';
-    toggle.setAttribute('aria-label', survey.open ? 'Close survey' : 'Reopen survey');
+    toggle.textContent = survey.open ? 'End voting' : 'Reopen';
+    toggle.setAttribute('aria-label', survey.open ? 'End voting: close the survey, the results stay up' : 'Reopen the survey for votes');
     toggle.onclick = function () { setOpen(!survey.open); };
     $('hact').appendChild(toggle);   // Survey 1.3: the runner's Close is always on screen, in the app's header
     var fresh = document.createElement('button');

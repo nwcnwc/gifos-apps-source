@@ -22,6 +22,6 @@ The question and its choices come first, the results under them. Tap a choice. F
 
 ## Close
 
-**Close** (top right) stops new votes and leaves the results up. **Reopen** accepts votes again. **New survey** replaces this one. Earlier ballots stay out of the new counts.
+**End voting** (top right) stops new votes and leaves the results up. **Reopen** accepts votes again. **New survey** replaces this one. Earlier ballots stay out of the new counts.
 
 In a hosted meeting the host leads the survey, so only their page can start, close, or replace it. Anyone in the room can still vote. In an open-floor meeting anyone can do those things, until the host taps Leading.
