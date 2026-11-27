@@ -86,3 +86,5 @@ button.go.done{background:transparent;color:var(--accent,#409cd6);border-color:v
   button.choice{min-height:44px;margin-bottom:6px}
   h2{font-size:20px}
 }
+/* A phone on its side has no room for a pinned row: Save sits in the page under the choices. */
+@media(max-height:460px){.dock{position:static;margin:0;padding:4px 0 8px;background:none}}
