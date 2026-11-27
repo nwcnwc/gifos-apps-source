@@ -220,3 +220,58 @@ html.dark .timer { color: #0f172a; }
 @media (min-width: 720px) {
   #pad button { min-height: 52px; }
 }
+
+/* ---- PHONES (1.1) ----
+   The number row ran off a phone's screen: nine square buttons of at least 44px plus their gaps are 444px, wider than
+   any phone. On a narrow screen each number is a tall, narrow key (a full 44px+ tall target, its width shared nine
+   ways), and the board is never taller than the screen leaves room for, so the board, the controls and all nine
+   numbers fit with no sideways scrolling. On its side the phone puts the board on the left and everything else on the
+   right, the numbers in two rows. GifOS's compact mode (html[data-compact], a phone) trims the words a little. */
+#board { max-width: 100%; }
+@media (max-width: 520px) {
+  body { padding: 8px 8px 20px; }
+  header { flex-wrap: nowrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+  h1 { font-size: 1.05rem; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { gap: 6px; flex: none; }
+  #diff { padding: 0 6px; min-height: 44px; }
+  .timer { min-height: 44px; padding: 0 10px; min-width: 4rem; }
+  /* the board is never taller than the frame leaves room for under it (controls, numbers, bar) */
+  #stage { width: min(100%, 480px, calc(100dvh - 180px)); min-width: min(100%, 260px); }
+  #app:has(#race:not([hidden])) #stage { width: min(100%, 480px, calc(100dvh - 290px)); }
+  #controls { gap: 6px; margin-top: 8px; }
+  #controls button { padding: 6px 4px; min-height: 44px; min-width: 0; }
+  #bar button { min-height: 44px; padding: 6px 8px; }
+  #pad { gap: 4px; margin-top: 8px; }
+  #pad button { aspect-ratio: auto; min-width: 0; min-height: 50px; padding: 0; font-size: clamp(18px, 5.6vw, 24px); }
+  #pad .occ { right: 1px; bottom: 1px; font-size: 9px; min-width: 12px; height: 12px; line-height: 12px; padding: 0 2px; }
+  .credit { margin-top: 10px; }
+}
+/* A phone on its side: board left, the rest right. */
+@media (orientation: landscape) and (max-height: 520px) {
+  body { padding: 6px 10px 10px; }
+  #app {
+    max-width: none; display: grid; column-gap: 12px; align-items: start;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "stage header" "stage race" "stage controls" "stage pad" "stage bar" "stage hint" "stage credit";
+  }
+  header { grid-area: header; flex-wrap: nowrap; align-items: center; gap: 6px; margin-bottom: 4px; }
+  h1 { font-size: 1rem; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { gap: 6px; flex: none; }
+  #diff { padding: 0 6px; min-height: 44px; }
+  .timer { min-height: 44px; padding: 0 10px; min-width: 4rem; }
+  #race { grid-area: race; margin: 0 0 6px; padding: 6px 10px; }
+  #stage { grid-area: stage; width: min(calc(100dvh - 16px), 58vw, 480px); min-width: 200px; margin: 0; }
+  #controls { grid-area: controls; width: 100%; margin: 4px 0 0; gap: 6px; }
+  #controls button { padding: 4px; min-height: 44px; min-width: 0; }
+  #pad { grid-area: pad; width: 100%; margin: 6px 0 0; gap: 4px; grid-template-columns: repeat(5, 1fr); }
+  #pad button { aspect-ratio: auto; min-width: 0; min-height: 44px; padding: 0; font-size: clamp(17px, 3.2vw, 22px); }
+  #pad .occ { right: 1px; bottom: 1px; font-size: 9px; min-width: 12px; height: 12px; line-height: 12px; padding: 0 2px; }
+  #bar { grid-area: bar; width: 100%; margin: 6px 0 0; gap: 6px; }
+  .cell .num { font-size: clamp(13px, 6.4dvh, 24px); }
+  .cell .notes span { font-size: clamp(7px, 2.4dvh, 11px); }
+  #bar button { min-height: 44px; padding: 4px 8px; }
+  #invite-hint { grid-area: hint; margin: 6px 0 0; }
+  .credit { grid-area: credit; margin: 6px 0 0; }
+}
+html[data-compact] body { font-size: calc(15px * var(--gifos-scale, 1)); }
+html[data-compact] #pad button, html[data-compact] #controls button, html[data-compact] #bar button { min-height: max(44px, var(--gifos-tap, 44px)); }
