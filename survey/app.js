@@ -23,6 +23,7 @@
   var draft = blankDraft();
   var pending = {};
   var painted = '';
+  var shownKey = '';
   var noteTimer = null;
   // The runner is the person who opened Survey in the meeting (the app's owner
   // copy). Only the runner sets a survey up, closes, reopens or replaces it;
@@ -236,6 +237,19 @@
     root.appendChild(actions);
   }
 
+  // Survey 1.2: the app keeps its own scroll, so a new survey (ours after Start, or one that arrives) must show its
+  // top (title, then the choices), and a closed one its results, never the old scroll position below the fold.
+  function toTop() {
+    var m = document.querySelector('main');
+    var go = function () { if (m) { m.scrollTop = 0; } try { window.scrollTo(0, 0); } catch (e) {} };
+    go();
+    if (window.requestAnimationFrame) requestAnimationFrame(go);
+  }
+  function toResults() {
+    var res = $('results');
+    if (res && res.scrollIntoView) { try { res.scrollIntoView({ block: 'start' }); } catch (e) { res.scrollIntoView(); } }
+  }
+
   function onStart() {
     readDraft();
     var made = S.svCreate(survey, draft, Date.now());
@@ -249,6 +263,7 @@
       say('');
       sayBuilding(false);
       render();
+      toTop();
     };
     if (!surveyDb) { apply(); return; }
     surveyDb.put(next).then(apply, function (err) {
@@ -265,7 +280,7 @@
     var step = S.svSetOpen(survey, open, Date.now());
     if (!step.ok) { say(step.error, true); return; }
     var next = step.survey;
-    var apply = function () { survey = next; say(''); render(); };
+    var apply = function () { survey = next; say(''); render(); if (!open) toResults(); else toTop(); };
     if (!surveyDb) { apply(); return; }
     surveyDb.put(next).then(apply, function (err) {
       if (led(err)) say(HOST_LINE, true);
@@ -364,8 +379,12 @@
       syncChoices();
       return;
     }
+    // Only a different survey moves the scroll; a repaint of the same one (identity arriving) leaves the voter where they are.
+    var fresh = key !== shownKey;
+    shownKey = key;
     painted = key;
     loadPending();
+    if (fresh) toTop();
     box.innerHTML = '';
     if (!survey.open) return;
     (survey.questions || []).forEach(function (q) {
