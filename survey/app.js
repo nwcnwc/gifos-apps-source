@@ -87,6 +87,7 @@
 
   function renderBuild() {
     var root = $('build');
+    var hs = $('start'); if (hs) hs.remove();   // the header's Start belongs to this paint of the form only
     root.hidden = mode !== 'build';
     if (mode !== 'build') { root.innerHTML = ''; return; }
     root.innerHTML = '';
@@ -218,12 +219,15 @@
       draft.questions.push(blankQuestion());
       renderBuild();
     };
+    // Survey 1.3: Start survey sits in the app's own header, always on screen and never over a field (a pinned row
+    // at the bottom covered Choice 1 on a small phone). Cancel and Add question stay under the form.
     var start = document.createElement('button');
     start.type = 'button';
-    start.className = 'go';
+    start.className = 'go sm';
     start.id = 'start';
     start.textContent = 'Start survey';
     start.onclick = onStart;
+    $('hact').appendChild(start);
     if (survey) {
       var cancel = document.createElement('button');
       cancel.type = 'button';
@@ -233,7 +237,6 @@
       actions.appendChild(cancel);
     }
     actions.appendChild(addQ);
-    actions.appendChild(start);
     root.appendChild(actions);
   }
 
@@ -500,6 +503,8 @@
     var newer = $('newer');
     newer.hidden = !(showLive && !runner && setup && setup.on);
     if (!newer.hidden) newer.textContent = setupName() + ' is setting up a new survey\u2026';
+    $('hact').innerHTML = '';
+    document.body.classList.toggle('building', mode === 'build' && runner);
     renderBuild();
     if (runner && mode === 'build') sayBuilding(true);
     if (!showLive) {
@@ -512,9 +517,11 @@
     var who = $('who');
     if (tally.anonymous) who.textContent = 'Anonymous votes. Names stay off the results.';
     else if (tally.names.length) who.textContent = 'Voted: ' + tally.names.join(', ');
-    else who.textContent = survey.open ? 'No votes yet.' : 'No votes.';
-    // Phone-first: whoever has answered, and the person running the survey, sees the counts before the choices.
-    live.classList.toggle('resfirst', !!runner || !!myVote());
+    else who.textContent = '';
+    who.hidden = !who.textContent;   // no votes yet: the header's count says so, the question gets the line
+    // Phone-first: once there are votes, whoever has answered and the person running the survey see the counts before
+    // the choices. With no votes yet the runner sees the ballot first (Survey 1.3: empty 0% bars said nothing).
+    live.classList.toggle('resfirst', tally.people > 0 && (!!runner || !!myVote()));
     paintResults(tally);
     paintMine();
     var dock = $('dock');
@@ -534,9 +541,10 @@
     toggle.type = 'button';
     toggle.className = 'sm';
     toggle.id = survey.open ? 'close' : 'reopen';
-    toggle.textContent = survey.open ? 'Close survey' : 'Reopen';
+    toggle.textContent = survey.open ? 'End voting' : 'Reopen';
+    toggle.setAttribute('aria-label', survey.open ? 'End voting: close the survey, the results stay up' : 'Reopen the survey for votes');
     toggle.onclick = function () { setOpen(!survey.open); };
-    dock.appendChild(toggle);
+    $('hact').appendChild(toggle);   // Survey 1.3: the runner's Close is always on screen, in the app's header
     var fresh = document.createElement('button');
     fresh.type = 'button';
     fresh.className = 'sm';
