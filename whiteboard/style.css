@@ -164,3 +164,20 @@ body { overflow: hidden; }
   #wb-timer.done { animation: wb-flash 1s steps(2) 4; }
   @keyframes wb-flash { 50% { background: #ffffff; } }
 }
+
+/* Compact mode (GifOS on a phone, <html data-compact>): the board keeps every
+   pixel it can and every control is a full tap target (--gifos-tap). The
+   engine's tool buttons and the workshop bar's buttons grow to that size, the
+   bar's gaps and the menus' words get smaller (--gifos-scale, never under
+   --gifos-text-min). Elsewhere nothing changes. */
+html[data-compact] .excalidraw {
+  --default-button-size: var(--gifos-tap, 44px);
+  --lg-button-size: var(--gifos-tap, 44px);
+}
+html[data-compact] #wb-rail { gap: 0; padding: 2px; border-radius: 10px; }
+html[data-compact] .wb-btn { width: var(--gifos-tap, 44px); min-height: var(--gifos-tap, 44px); font-size: max(var(--gifos-text-min, 13px), calc(11px * var(--gifos-scale, 1))); }
+html[data-compact] #wb-status { width: 30px; height: var(--gifos-tap, 44px); }
+html[data-compact] .wb-menu { bottom: 50px; padding: 4px; }
+html[data-compact] .wb-item { min-height: var(--gifos-tap, 44px); padding: 8px 10px; font-size: max(var(--gifos-text-min, 13px), calc(14px * var(--gifos-scale, 1))); }
+html[data-compact] .wb-item.sw { width: var(--gifos-tap, 44px); height: var(--gifos-tap, 44px); }
+html[data-compact] .wb-menu:has(.sw) { width: 150px; }

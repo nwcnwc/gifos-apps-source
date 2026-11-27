@@ -6,6 +6,9 @@ notes, shapes, arrows, frames, clusters, dot voting, a timer, brainstorm and
 retrospective templates. Everyone in the meeting or app room edits the same
 board live. Export to PowerPoint (one slide per frame), PNG and PDF.
 
+On a phone it follows GifOS's compact mode: the board keeps as much room as it can and
+every tool button is a full-size tap target.
+
 ```
 index.html                 the shell: #root, script order
 style.css                  GifOS bar, right-edge tools, dialogs
