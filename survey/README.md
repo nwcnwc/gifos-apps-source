@@ -19,6 +19,7 @@ build.mjs      packs the Survey app file
 - **Anonymous votes** leaves names off the results. The counts stay.
 - **End voting** (top right) stops new votes and leaves the results up. **Reopen** accepts votes again.
 - **New survey** starts another one. Earlier ballots stay out of the new counts.
+- On a phone it follows GifOS's compact mode: smaller words and tighter spacing, so more fits without scrolling. A larger text setting still makes the words larger, and every button stays easy to tap.
 
 The survey record is the one the meeting can lead. Ballots are each person's own row, so people can still vote while a host is leading the survey. The app does not decide who may start or close it. The meeting does.
 

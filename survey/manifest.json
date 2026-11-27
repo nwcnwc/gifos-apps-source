@@ -3,7 +3,7 @@
   "appId": "survey",
   "name": "Survey",
   "shortName": "Survey",
-  "version": "1.3",
+  "version": "1.4",
   "minBuild": 947,
   "description": "A live survey for the meeting. Ask a question, watch the votes, close it when you are done.",
   "entry": "index.html",

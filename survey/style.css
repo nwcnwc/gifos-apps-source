@@ -105,3 +105,31 @@ button.go.done{background:transparent;color:var(--accent,#409cd6);border-color:v
 #live.resfirst > #mine::before{content:"Your answer";display:block;font-size:14px;margin:6px 0 8px;color:var(--muted,#9a9ab8);text-transform:uppercase;letter-spacing:.06em}
 /* New survey replaces the running one: it stands apart from Save my answers, so a slip on Save never reaches it. */
 .dock #anew{margin-top:20px}
+/* Compact mode (GifOS on a phone, <html data-compact>): smaller words and tighter spacing, so the question, its
+   choices and the counts fit with less scrolling. A larger text setting scales the words back up (--gifos-scale),
+   small words never go under --gifos-text-min, fields keep 16px (so a phone never zooms in on them) and every
+   button stays a full tap target (--gifos-tap). Elsewhere nothing changes. */
+html[data-compact] body{font-size:max(var(--gifos-text-min,13px),calc(17px*var(--gifos-scale,1)))}
+html[data-compact] header{gap:8px;padding:8px 12px;padding-top:max(8px,env(safe-area-inset-top))}
+html[data-compact] header h1{font-size:calc(18px*var(--gifos-scale,1))}
+html[data-compact] main{padding:10px 12px max(20px,env(safe-area-inset-bottom))}
+html[data-compact] .wrap{gap:10px}
+html[data-compact] .lede,html[data-compact] .texts li,html[data-compact] .newer{font-size:max(var(--gifos-text-min,13px),calc(15px*var(--gifos-scale,1)))}
+html[data-compact] .note,html[data-compact] .who,html[data-compact] .hint,html[data-compact] label.field,html[data-compact] .qhead b,html[data-compact] .reshead,html[data-compact] #live.resfirst > #mine::before{font-size:max(var(--gifos-text-min,13px),calc(14px*var(--gifos-scale,1)))}
+html[data-compact] .chip,html[data-compact] .meta{font-size:max(var(--gifos-text-min,13px),calc(13px*var(--gifos-scale,1)))}
+html[data-compact] h2{font-size:calc(22px*var(--gifos-scale,1))}
+html[data-compact] .q,html[data-compact] .card{padding:10px 12px;border-radius:14px}
+html[data-compact] .card{gap:8px}
+html[data-compact] .q h3{font-size:calc(17px*var(--gifos-scale,1));margin-bottom:6px}
+html[data-compact] .qhead{margin-bottom:4px}
+html[data-compact] .opt{margin-bottom:6px}
+html[data-compact] button{min-height:var(--gifos-tap,44px);padding:8px 14px}
+html[data-compact] button.sm,html[data-compact] .hact button{min-height:var(--gifos-tap,44px);padding:6px 12px;font-size:max(var(--gifos-text-min,13px),calc(15px*var(--gifos-scale,1)))}
+html[data-compact] button.icon{min-width:var(--gifos-tap,44px);padding:0 10px}
+html[data-compact] button.choice{min-height:var(--gifos-tap,44px);margin-bottom:6px;padding:8px 12px}
+html[data-compact] input,html[data-compact] textarea{font-size:var(--gifos-input-text,16px);min-height:var(--gifos-tap,44px);padding:8px 10px}
+html[data-compact] textarea{min-height:68px}
+html[data-compact] .check{min-height:var(--gifos-tap,44px);font-size:max(var(--gifos-text-min,13px),calc(16px*var(--gifos-scale,1)))}
+html[data-compact] .dock{gap:6px;padding:2px 0 6px}
+html[data-compact] .wait{padding:20px 12px;gap:10px}
+html[data-compact] .wait p{font-size:calc(18px*var(--gifos-scale,1))}
