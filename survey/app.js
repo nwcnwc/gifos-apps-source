@@ -110,7 +110,7 @@
     anon.appendChild(anonIn);
     anon.appendChild(document.createTextNode('Anonymous votes'));
     card.appendChild(anon);
-    root.appendChild(card);
+    // The question comes first; the title and anonymous votes are extras, under the questions.
 
     draft.questions.forEach(function (q, qi) {
       var box = document.createElement('div');
@@ -204,6 +204,7 @@
       root.appendChild(box);
     });
 
+    root.appendChild(card);
     var actions = document.createElement('div');
     actions.className = 'row';
     var addQ = document.createElement('button');

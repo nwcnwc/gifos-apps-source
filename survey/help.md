@@ -4,6 +4,8 @@ Ask the people in the meeting a question, or a short set of questions, and watch
 
 ## Start
 
+The person who opens Survey in the meeting sets it up. Everyone else sees who is setting it up, then the survey as soon as it starts.
+
 **New survey** opens the form.
 
 - Type the question.
@@ -16,7 +18,7 @@ Ask the people in the meeting a question, or a short set of questions, and watch
 
 ## Vote
 
-Tap a choice. For a written answer, type in the box. **Save my answers** sends your ballot. You can change it and save again. The bars update for everyone.
+The question and its choices come first, the results under them. Tap a choice. For a written answer, type in the box. **Save my answers** sends your ballot. You can change it and save again. The bars update for everyone.
 
 ## Close
 

@@ -66,3 +66,8 @@ button:disabled{opacity:.4;cursor:default}
 .hint{margin:-6px 0 10px;font-size:14px;color:var(--muted,#9a9ab8)}
 .reshead{font-size:14px;margin:6px 0 8px;color:var(--muted,#9a9ab8);text-transform:uppercase;letter-spacing:.06em}
 #live{display:flex;flex-direction:column;gap:12px}
+/* The form's own actions stay in reach: Start survey is never below the fold of a short meeting pane. */
+#build > .row:last-child{position:sticky;bottom:0;z-index:1;margin:0 -16px;padding:10px 16px max(10px,env(safe-area-inset-bottom));background:var(--bg,#0a0a0f);border-top:1px solid var(--border,#2a2a3f)}
+#build > .row:last-child .go{flex:1 1 160px}
+main:has(#build:not([hidden]) > .row){padding-bottom:0}
+@media(min-width:800px){#build > .row:last-child{margin:0 -24px;padding-left:24px;padding-right:24px}}

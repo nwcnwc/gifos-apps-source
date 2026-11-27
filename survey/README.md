@@ -13,7 +13,8 @@ build.mjs      packs the Survey app file
 
 ## What it does
 
-- A title, then up to eight questions.
+- The person who opens Survey sets it up; everyone else sees who is setting it up, then votes.
+- Up to eight questions, and a title if you want one.
 - Each question is one choice or any number of choices, with at least two choices, and an optional written answer.
 - **Anonymous votes** leaves names off the results. The counts stay.
 - **Close survey** stops new votes and leaves the results up. **Reopen** accepts votes again.
