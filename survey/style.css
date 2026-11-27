@@ -90,3 +90,11 @@ button.go.done{background:transparent;color:var(--accent,#409cd6);border-color:v
 #live.resfirst > #results{order:1}
 #live.resfirst > #mine{order:2}
 #live.resfirst > #dock{order:3}
+/* A short app frame (a phone's meeting pane): the question, its choices and Save fit without a scroll. */
+@media(max-height:480px) and (max-width:539px){
+  .wrap{gap:10px}
+  .q{padding:10px 12px}
+  button.choice{min-height:44px;margin-bottom:6px;padding:8px 12px}
+  h2{font-size:20px}
+  main{padding-top:8px}
+}
