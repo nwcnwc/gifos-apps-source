@@ -3,7 +3,7 @@
   "appId": "meeting-bot",
   "name": "Meeting Bot",
   "shortName": "Meet Bot",
-  "version": "0.9.28.1",
+  "version": "0.9.28.2",
   "minBuild": 2723,
   "description": "Sits in meetings for you. Set it up once to join and transcribe every meeting you host, or control it from another device with the same name and password.",
   "entry": "index.html",
