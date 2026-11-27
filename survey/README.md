@@ -17,7 +17,7 @@ build.mjs      packs the Survey app file
 - Up to eight questions, and a title if you want one.
 - Each question is one choice or any number of choices, with at least two choices, and an optional written answer.
 - **Anonymous votes** leaves names off the results. The counts stay.
-- **Close survey** stops new votes and leaves the results up. **Reopen** accepts votes again.
+- **Close** (top right) stops new votes and leaves the results up. **Reopen** accepts votes again.
 - **New survey** starts another one. Earlier ballots stay out of the new counts.
 
 The survey record is the one the meeting can lead. Ballots are each person's own row, so people can still vote while a host is leading the survey. The app does not decide who may start or close it. The meeting does.
